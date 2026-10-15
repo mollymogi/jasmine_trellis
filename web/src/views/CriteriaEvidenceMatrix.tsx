@@ -27,6 +27,7 @@ import {
   type MatrixContext,
   type RequirementEvaluation,
 } from '../lib/criteriaMatrix'
+import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 interface MatrixData {
   task: Task
   steps: Step[]
@@ -127,11 +128,11 @@ function RequirementRow({
   const { requirement, state, candidates, stale, fieldMismatch, wrongKind, residualUnknown } =
     evaluation
   return (
-    <tr data-testid={`matrix-requirement-${requirement.key}`}>
-      <th scope="row">
+    <TableRow data-testid={`matrix-requirement-${requirement.key}`}>
+      <TableHead scope="row">
         <code>{scope}</code>
-      </th>
-      <td>
+      </TableHead>
+      <TableCell>
         <code>{requirement.key}</code> · {requirement.kind} → {requirement.required_result}
         {requirement.tool_name ? <div className="muted">tool_name {requirement.tool_name}</div> : null}
         {requirement.command_sha256 ? (
@@ -140,8 +141,8 @@ function RequirementRow({
         {requirement.artifact_sha256 ? (
           <div className="muted mono">artifact_sha256 {requirement.artifact_sha256.slice(0, 16)}…</div>
         ) : null}
-      </td>
-      <td data-testid={`matrix-state-${requirement.key}`}>
+      </TableCell>
+      <TableCell data-testid={`matrix-state-${requirement.key}`}>
         <span className="state state--meta">{STATE_LABEL[state]}</span>
         {state === 'candidate' && residualUnknown.length > 0 ? (
           <div className="muted" data-testid="matrix-residual">
@@ -163,8 +164,8 @@ function RequirementRow({
             key,本页不能替 Core 决定分支。
           </div>
         ) : null}
-      </td>
-      <td>
+      </TableCell>
+      <TableCell>
         {candidates.length > 0 ? (
           <ul className="plain" data-testid={`matrix-candidates-${requirement.key}`}>
             {candidates.map((row) => (
@@ -219,8 +220,8 @@ function RequirementRow({
         wrongKind.length === 0 ? (
           <span className="muted">没有可显示的 Evidence 行</span>
         ) : null}
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   )
 }
 
@@ -251,17 +252,17 @@ function RequirementTable({
   }
   return (
     <TableScroll label={`${scope} 的 criteria 与 Evidence 参考矩阵`}>
-      <table className="table">
-        <caption className="sr-only">{scope} 的 criteria 与已载入 Evidence 的候选匹配</caption>
-        <thead>
-          <tr>
-            <th scope="col">范围</th>
-            <th scope="col">requirement</th>
-            <th scope="col">前端候选状态(非判定)</th>
-            <th scope="col">Evidence 行与可读事实</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table>
+        <TableCaption className="sr-only">{scope} 的 criteria 与已载入 Evidence 的候选匹配</TableCaption>
+        <TableHeader>
+          <TableRow>
+            <TableHead scope="col">范围</TableHead>
+            <TableHead scope="col">requirement</TableHead>
+            <TableHead scope="col">前端候选状态(非判定)</TableHead>
+            <TableHead scope="col">Evidence 行与可读事实</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {requirements.map((requirement) => (
             <RequirementRow
               key={`${scope}:${requirement.key}`}
@@ -270,8 +271,8 @@ function RequirementTable({
               taskId={taskId}
             />
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </TableScroll>
   )
 }

@@ -22,6 +22,8 @@ import { Pager } from '../components/Pager'
 import { TableScroll } from '../components/TableScroll'
 import { Empty, ErrorPanel, Loading, Panel, Unavailable } from '../components/States'
 import { formatTimestamp } from '../lib/text'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 const LIMIT = DEFAULT_OBJECT_LIMIT
 
@@ -117,47 +119,49 @@ export function OverviewView(): JSX.Element {
         ) : null}
         {projects.items.length > 0 ? (
           <TableScroll label="Project 列表">
-          <table className="table">
-            <caption className="sr-only">Project 列表</caption>
-            <thead>
-              <tr>
-                <th scope="col">名称</th>
-                <th scope="col">状态</th>
-                <th scope="col">revision</th>
-                <th scope="col">来源 Event</th>
-                <th scope="col">updated_at</th>
-                <th scope="col">选中</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table>
+            <TableCaption className="sr-only">Project 列表</TableCaption>
+            <TableHeader>
+              <TableRow>
+                <TableHead scope="col" className="w-10">
+                  <span className="sr-only">选中</span>
+                </TableHead>
+                <TableHead scope="col">名称</TableHead>
+                <TableHead scope="col">状态</TableHead>
+                <TableHead scope="col">revision</TableHead>
+                <TableHead scope="col">来源 Event</TableHead>
+                <TableHead scope="col">updated_at</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {projects.items.map((project) => (
-                <tr
+                <TableRow
                   key={project.project_id}
-                  className={project.project_id === selectedProjectId ? 'is-selected' : undefined}
+                  data-state={project.project_id === selectedProjectId ? 'selected' : undefined}
                 >
-                  <th scope="row">
+                  <TableCell>
+                    <Checkbox
+                      aria-label={`选中 ${project.name}`}
+                      checked={project.project_id === selectedProjectId}
+                      onCheckedChange={(checked) =>
+                        setSelectedProjectId(checked === true ? project.project_id : null)
+                      }
+                    />
+                  </TableCell>
+                  <TableHead scope="row">
                     <a href={sourceHref.project(project.project_id)}>{project.name}</a>
                     <div className="muted mono">{project.project_id}</div>
-                  </th>
-                  <td>{project.status}</td>
-                  <td>{project.revision}</td>
-                  <td>
+                  </TableHead>
+                  <TableCell>{project.status}</TableCell>
+                  <TableCell>{project.revision}</TableCell>
+                  <TableCell>
                     <SourceLink kind="event" id={project.source_event_id} label="created" />
-                  </td>
-                  <td>{formatTimestamp(project.updated_at)}</td>
-                  <td>
-                    <button
-                      type="button"
-                      aria-pressed={project.project_id === selectedProjectId}
-                      onClick={() => setSelectedProjectId(project.project_id)}
-                    >
-                      {project.project_id === selectedProjectId ? '已选中' : '选中'}
-                    </button>
-                  </td>
-                </tr>
+                  </TableCell>
+                  <TableCell>{formatTimestamp(project.updated_at)}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
           </TableScroll>
         ) : null}
         <Pager paged={projects} noun="Project" limit={LIMIT} />

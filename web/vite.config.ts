@@ -1,5 +1,7 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
+import { fileURLToPath } from 'node:url'
 import { coreProxyPlugin, resolveCoreOrigin } from './server/core-proxy'
 
 /**
@@ -16,7 +18,10 @@ const port = Number.parseInt(process.env.P6_UI_PORT ?? '5173', 10)
 const host = process.env.P6_UI_HOST ?? '127.0.0.1'
 
 export default defineConfig({
-  plugins: [react(), coreProxyPlugin(coreOrigin)],
+  plugins: [react(), tailwindcss(), coreProxyPlugin(coreOrigin)],
+  resolve: {
+    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+  },
   server: {
     host,
     port: Number.isFinite(port) ? port : 5173,

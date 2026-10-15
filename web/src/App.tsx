@@ -8,10 +8,13 @@
  * Authorization header.
  */
 
+import { useEffect, useState } from 'react'
+
 import { hrefFor, type Route } from './app/router'
 import { useHashRoute } from './app/useHashRoute'
 import { useSession } from './app/session'
 import { SignIn } from './components/SignIn'
+import { Button } from './components/ui/button'
 import { Panel } from './components/States'
 import { CheckpointsView, ContextPackView, ResumeView } from './views/ContinuityViews'
 import {
@@ -53,6 +56,7 @@ const NAV = [
 export function App(): JSX.Element {
   const route = useHashRoute()
   const { signedIn, signOut, pendingConfirmations } = useSession()
+  const { dark, toggle } = useColorScheme()
 
   return (
     <div className="app">
@@ -87,11 +91,23 @@ export function App(): JSX.Element {
             </details>
           </nav>
         ) : null}
-        {signedIn ? (
-          <button type="button" className="app__signout" onClick={signOut}>
-            退出(清除内存中的 token)
-          </button>
-        ) : null}
+        <div className="app__tools">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={toggle}
+            aria-pressed={dark}
+            aria-label={dark ? '切换到浅色主题' : '切换到深色主题'}
+          >
+            {dark ? '浅色' : '深色'}
+          </Button>
+          {signedIn ? (
+            <Button type="button" variant="outline" size="sm" onClick={signOut}>
+              退出(清除内存中的 token)
+            </Button>
+          ) : null}
+        </div>
       </header>
 
       {signedIn ? (
@@ -109,6 +125,24 @@ export function App(): JSX.Element {
       )}
     </div>
   )
+}
+
+/**
+ * Light/dark follows the system until the user picks one. The choice lives in memory for this page
+ * only: it is a view preference, so it is not written to storage or to the URL.
+ */
+function useColorScheme(): { dark: boolean; toggle: () => void } {
+  const [dark, setDark] = useState<boolean>(() =>
+    typeof window !== 'undefined' && window.matchMedia !== undefined
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches
+      : false,
+  )
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.toggle('dark', dark)
+    root.style.colorScheme = dark ? 'dark' : 'light'
+  }, [dark])
+  return { dark, toggle: () => setDark((value) => !value) }
 }
 
 function isCurrent(route: Route, href: string): boolean {

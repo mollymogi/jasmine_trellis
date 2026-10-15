@@ -11,7 +11,9 @@
 import type { ReactNode } from 'react'
 
 import { CoreApiError, describeError } from '../api/errors'
-import { cls } from '../lib/classNames'
+import { DescriptionItem, DescriptionList } from '@/components/ui/description-list'
+import { EmptyState, LoadingState } from '@/components/ui/empty-state'
+import { Button } from './ui/button'
 import { JsonBlock } from './JsonBlock'
 
 export function Panel({
@@ -37,19 +39,21 @@ export function Panel({
 }
 
 export function Loading({ what }: { what: string }): JSX.Element {
-  return (
-    <p className="state state--loading" role="status" aria-live="polite">
-      <span className="spinner" aria-hidden="true" /> 正在读取{what}…
-    </p>
-  )
+  return <LoadingState label={`正在读取${what}…`} rows={2} />
 }
 
 export function Empty({ what, hint }: { what: string; hint?: string }): JSX.Element {
   return (
-    <p className="state state--empty">
-      空:{what}在这段读取范围内没有记录。
-      {hint ? <span className="state__hint"> {hint}</span> : null}
-    </p>
+    <EmptyState
+      variant="empty"
+      className="items-start py-4 text-left"
+      description={
+        <>
+          空:{what}在这段读取范围内没有记录。
+          {hint ? <span className="state__hint"> {hint}</span> : null}
+        </>
+      }
+    />
   )
 }
 
@@ -63,7 +67,7 @@ export function ErrorPanel({
   onRetry?: () => void
 }): JSX.Element {
   return (
-    <div className="state state--error" role="alert">
+    <EmptyState variant="error" className="items-start py-4 text-left">
       <p className="state__headline">
         读取{what}失败 — <code>{error.code}</code>
         {error.status !== null ? ` (HTTP ${error.status})` : ''}
@@ -85,11 +89,11 @@ export function ErrorPanel({
         </details>
       ) : null}
       {onRetry ? (
-        <button type="button" onClick={onRetry}>
+        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
           重新读取
-        </button>
+        </Button>
       ) : null}
-    </div>
+    </EmptyState>
   )
 }
 
@@ -112,25 +116,24 @@ export function Unavailable({
   tone?: 'pending' | 'forbidden'
 }): JSX.Element {
   return (
-    <div className={cls('state', `state--${tone}`)} data-testid="unavailable">
+    <EmptyState
+      variant="unavailable"
+      className="items-start py-4 text-left"
+      data-testid="unavailable"
+      data-tone={tone}
+    >
       <p className="state__headline">
         <span aria-hidden="true">{tone === 'forbidden' ? '⛔' : '◌'}</span> {feature} — 未接入
       </p>
-      <dl className="kv kv--compact">
-        <div>
-          <dt>提供方</dt>
-          <dd>{owner}</dd>
-        </div>
-        <div>
-          <dt>尚未交付</dt>
-          <dd>{pending}</dd>
-        </div>
-      </dl>
+      <DescriptionList className="kv" compact>
+        <DescriptionItem term="提供方">{owner}</DescriptionItem>
+        <DescriptionItem term="尚未交付">{pending}</DescriptionItem>
+      </DescriptionList>
       {note ? <p>{note}</p> : null}
       <p className="state__meta">
         本页不会用模拟数据、猜测字段或本地推断填充此区域;依赖冻结并通过独立验证后再接真实接口。
       </p>
-    </div>
+    </EmptyState>
   )
 }
 

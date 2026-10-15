@@ -11,6 +11,7 @@
 import type { TaskTab } from '../app/router'
 import { sourceHref } from '../app/router'
 import { cls } from '../lib/classNames'
+import { DescriptionItem, DescriptionList } from '@/components/ui/description-list'
 
 export type TraceKind = 'project' | 'task' | 'step' | 'event' | 'rule' | 'evidence' | 'conversation'
 
@@ -108,13 +109,12 @@ export function KeyValue({
   compact?: boolean
 }): JSX.Element {
   return (
-    <dl className={cls('kv', compact && 'kv--compact')}>
+    <DescriptionList className="kv" compact={compact}>
       {rows.map((row) => (
-        <div key={row.label}>
-          <dt>{row.label}</dt>
-          <dd>{row.value}</dd>
-        </div>
+        <DescriptionItem key={row.label} term={row.label}>
+          {row.value}
+        </DescriptionItem>
       ))}
-    </dl>
+    </DescriptionList>
   )
 }

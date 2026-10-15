@@ -9,7 +9,9 @@
 
 import { useState } from 'react'
 
-import { cls } from '../lib/classNames'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { CodeBlock } from '@/components/ui/code-block'
 import { clip, hasCredentialShape } from '../lib/text'
 import { useMaskedText } from '../lib/useMaskedText'
 
@@ -45,36 +47,35 @@ export function RawText({
   const long = masked.shown.length > maxCollapsed
 
   return (
-    <div className={cls('rawtext', machine && 'rawtext--machine')}>
-      <div className="rawtext__bar">
-        <span className="rawtext__label">{label}</span>
-        {machine ? <span className="rawtext__tag">机器事件(非用户发言)</span> : null}
-        {masked.hasSecrets ? (
-          <span className="rawtext__tag rawtext__tag--masked" data-testid="masked-note">
-            已按默认策略脱敏 {masked.masked.masked.map((item) => item.label).join('、')}
-          </span>
-        ) : null}
-        <span className="rawtext__actions">
+    <CodeBlock
+      label={label}
+      masked={masked.hasSecrets && !masked.revealed}
+      tags={machine ? [{ label: '机器事件(非用户发言)', variant: 'soft' }] : undefined}
+      bodyClassName="rawtext__body"
+      actions={
+        <>
+          {masked.hasSecrets ? (
+            <Badge variant="warning" data-testid="masked-note">
+              已按默认策略脱敏 {masked.masked.masked.map((item) => item.label).join('、')}
+            </Badge>
+          ) : null}
           {long ? (
-            <button type="button" onClick={() => setExpanded((value) => !value)}>
+            <Button type="button" variant="outline" size="xs" onClick={() => setExpanded((value) => !value)}>
               {expanded ? '折叠' : '展开全文'}
-            </button>
+            </Button>
           ) : null}
           {hasCredentialShape(value) ? (
-            <button type="button" onClick={masked.revealed ? masked.hide : masked.reveal}>
+            <Button type="button" variant="outline" size="xs" onClick={masked.revealed ? masked.hide : masked.reveal}>
               {masked.revealed ? '恢复脱敏' : '显示原文'}
-            </button>
+            </Button>
           ) : null}
-          <button type="button" onClick={() => void copy()}>
+          <Button type="button" variant="outline" size="xs" onClick={() => void copy()}>
             {copied === 'done' ? '已复制脱敏摘要' : copied === 'blocked' ? '复制被拒绝' : '复制脱敏摘要'}
-          </button>
-        </span>
-      </div>
-      {value.length === 0 ? (
-        <p className="rawtext__empty">{emptyText}</p>
-      ) : (
-        <pre className="rawtext__body">{clipped}</pre>
-      )}
-    </div>
+          </Button>
+        </>
+      }
+    >
+      {value.length === 0 ? emptyText : clipped}
+    </CodeBlock>
   )
 }
