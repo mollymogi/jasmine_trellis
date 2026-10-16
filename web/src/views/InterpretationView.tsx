@@ -31,6 +31,8 @@ import { StatusBadge } from '../components/StatusBadge'
 import { Empty, ErrorPanel, Loading, Panel, StaleBanner, Unavailable } from '../components/States'
 import { KeyValue, SourceLink } from '../components/Trace'
 import { formatTimestamp } from '../lib/text'
+import { Badge } from '@/components/ui/badge'
+import { TriangleAlert } from 'lucide-react'
 
 export function InterpretationView({ interpretationId }: { interpretationId: string }): JSX.Element {
   const { endpoints } = useSession()
@@ -366,7 +368,7 @@ function PlanRow({ item }: { item: PlanItem }): JSX.Element {
   return (
     <li>
       <StatusBadge kind="action" status={item.action} />{' '}
-      {item.pending ? <span className="badge badge--warn">需要人工审批</span> : null}{' '}
+      {item.pending ? <Badge variant="warning"><TriangleAlert aria-hidden="true" />需要人工审批</Badge> : null}{' '}
       <code>{item.candidate.kind}</code> {item.candidate.content} · reason {item.reason} ·
       scope {item.candidate.scope.kind}
       {item.candidate.scope.task_id ? ` · ${item.candidate.scope.task_id}` : ''}

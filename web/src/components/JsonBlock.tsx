@@ -6,7 +6,7 @@
 
 import { useState } from 'react'
 
-import { cls } from '../lib/classNames'
+import { CodeBlock } from '@/components/ui/code-block'
 import { hasCredentialShape, stringifyJson } from '../lib/text'
 import { useMaskedText } from '../lib/useMaskedText'
 
@@ -55,9 +55,9 @@ export function JsonBlock({
         </button>
       </div>
       {open ? (
-        <pre className={cls('jsonblock__body', masked.hasSecrets && !masked.revealed && 'is-masked')}>
+        <CodeBlock masked={masked.hasSecrets && !masked.revealed} bodyClassName="jsonblock__body">
           {masked.shown}
-        </pre>
+        </CodeBlock>
       ) : null}
     </div>
   )

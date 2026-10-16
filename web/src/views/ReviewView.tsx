@@ -25,6 +25,8 @@ import { StatusBadge } from '../components/StatusBadge'
 import { Empty, ErrorPanel, Loading, Panel, StaleBanner, Unavailable } from '../components/States'
 import { KeyValue, SourceLink } from '../components/Trace'
 import { formatTimestamp } from '../lib/text'
+import { Badge } from '@/components/ui/badge'
+import { TriangleAlert } from 'lucide-react'
 
 export function ReviewView({ reviewId }: { reviewId: string }): JSX.Element {
   const { endpoints } = useSession()
@@ -140,7 +142,7 @@ function ReviewBody({ item }: { item: Review }): JSX.Element {
             {item.preview.plan.items.map((planItem) => (
               <li key={`${planItem.candidate_index}:${planItem.action}`}>
                 <StatusBadge kind="action" status={planItem.action} />{' '}
-                {planItem.pending ? <span className="badge badge--warn">待审批</span> : null}{' '}
+                {planItem.pending ? <Badge variant="warning"><TriangleAlert aria-hidden="true" />待审批</Badge> : null}{' '}
                 <code>{planItem.candidate.kind}</code> {planItem.candidate.content} ·{' '}
                 {planItem.reason} · scope {planItem.candidate.scope.kind}
               </li>

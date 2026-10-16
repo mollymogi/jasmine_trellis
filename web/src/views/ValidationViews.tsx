@@ -72,6 +72,9 @@ import {
   isValidationArtifactId,
   isValidationRunId,
 } from './ValidationDependency'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
+import { CircleCheck, CircleX, TriangleAlert } from 'lucide-react'
 
 /** Core's list default is 20 and its max is 100; the Inspector asks for the default. */
 const RUN_LIMIT = 20
@@ -220,51 +223,51 @@ function RunRow({ row }: { row: ValidationRunRow }): JSX.Element {
   const reason = row.record_status === 'duplicate' ? row.duplicate_reason : row.corrupt_reason
   return (
     <Fragment>
-      <tr data-testid={usable ? 'run-row' : 'run-row-unusable'}>
-        <td>
+      <TableRow data-testid={usable ? 'run-row' : 'run-row-unusable'}>
+        <TableCell>
           <a href={sourceHref.validationRun(row.run_id)}>
             <code>{row.run_id}</code>
           </a>
-        </td>
-        <td>{dash(row.stage)}</td>
-        <td>{formatTimestamp(row.created_at)}</td>
-        <td>
+        </TableCell>
+        <TableCell>{dash(row.stage)}</TableCell>
+        <TableCell>{formatTimestamp(row.created_at)}</TableCell>
+        <TableCell>
           {row.verdict ? <StatusBadge kind="validation" status={row.verdict} /> : <span className="muted">—</span>}
-        </td>
-        <td>
+        </TableCell>
+        <TableCell>
           <CountsCell row={row} />
-        </td>
-        <td>
+        </TableCell>
+        <TableCell>
           <ModeCell row={row} />
-        </td>
-        <td>
+        </TableCell>
+        <TableCell>
           <AttributionCell row={row} />
-        </td>
-        <td>{row.evidence_grade ? <StatusBadge kind="validation" status={row.evidence_grade} /> : <span className="muted">—</span>}</td>
-        <td>{row.synthetic ? <StatusBadge kind="validation" status="synthetic" /> : <span className="muted">—</span>}</td>
-        <td>
+        </TableCell>
+        <TableCell>{row.evidence_grade ? <StatusBadge kind="validation" status={row.evidence_grade} /> : <span className="muted">—</span>}</TableCell>
+        <TableCell>{row.synthetic ? <StatusBadge kind="validation" status="synthetic" /> : <span className="muted">—</span>}</TableCell>
+        <TableCell>
           {row.manifest_status ? (
             <StatusBadge kind="validation" status={row.manifest_status} />
           ) : (
             <span className="muted">—</span>
           )}
-        </td>
-        <td>
+        </TableCell>
+        <TableCell>
           <StatusBadge kind="validation" status={row.record_status} />
-        </td>
-        <td>{row.verdict_consistent === null ? <span className="muted">—</span> : String(row.verdict_consistent)}</td>
-        <td>
+        </TableCell>
+        <TableCell>{row.verdict_consistent === null ? <span className="muted">—</span> : String(row.verdict_consistent)}</TableCell>
+        <TableCell>
           {usable ? (
             <a href={sourceHref.validationManifest(row.run_id)}>manifest</a>
           ) : (
             <span className="muted">—</span>
           )}
-        </td>
-      </tr>
+        </TableCell>
+      </TableRow>
       {usable ? null : (
-        <tr data-testid="run-row-unusable-reason">
-          <td colSpan={13}>
-            <span className="badge badge--bad">不可用</span>{' '}
+        <TableRow data-testid="run-row-unusable-reason">
+          <TableCell colSpan={13}>
+            <Badge variant="destructive"><CircleX aria-hidden="true" />不可用</Badge>{' '}
             <strong>
               record_status = {row.record_status}
             </strong>
@@ -286,8 +289,8 @@ function RunRow({ row }: { row: ValidationRunRow }): JSX.Element {
                 </>
               )}
             </div>
-          </td>
-        </tr>
+          </TableCell>
+        </TableRow>
       )}
     </Fragment>
   )
@@ -296,30 +299,30 @@ function RunRow({ row }: { row: ValidationRunRow }): JSX.Element {
 function RunTable({ rows }: { rows: readonly ValidationRunRow[] }): JSX.Element {
   return (
     <TableScroll label="Validation run 列表">
-      <table className="table" data-testid="validation-runs">
-        <thead>
-          <tr>
-            <th>run_id</th>
-            <th>stage</th>
-            <th>created_at</th>
-            <th>verdict(按记录)</th>
-            <th>case_counts</th>
-            <th>mode / mode_basis</th>
-            <th>attribution</th>
-            <th>evidence_grade</th>
-            <th>synthetic</th>
-            <th>manifest_status</th>
-            <th>record_status</th>
-            <th>verdict_consistent</th>
-            <th>链接</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table data-testid="validation-runs">
+        <TableHeader>
+          <TableRow>
+            <TableHead>run_id</TableHead>
+            <TableHead>stage</TableHead>
+            <TableHead>created_at</TableHead>
+            <TableHead>verdict(按记录)</TableHead>
+            <TableHead>case_counts</TableHead>
+            <TableHead>mode / mode_basis</TableHead>
+            <TableHead>attribution</TableHead>
+            <TableHead>evidence_grade</TableHead>
+            <TableHead>synthetic</TableHead>
+            <TableHead>manifest_status</TableHead>
+            <TableHead>record_status</TableHead>
+            <TableHead>verdict_consistent</TableHead>
+            <TableHead>链接</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {rows.map((row) => (
             <RunRow key={row.run_id + row.record_sha256} row={row} />
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </TableScroll>
   )
 }
@@ -592,27 +595,27 @@ function SectionReason({ section }: { section: ValidationSection }): JSX.Element
 function SectionsTable({ sections }: { sections: ValidationSections }): JSX.Element {
   return (
     <TableScroll label="case sections(present_kind)">
-      <table className="table" data-testid="case-sections">
-        <thead>
-          <tr>
-            <th>section</th>
-            <th>present</th>
-            <th>present_kind</th>
-            <th>evidence_grade</th>
-            <th>值 / 原因</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table data-testid="case-sections">
+        <TableHeader>
+          <TableRow>
+            <TableHead>section</TableHead>
+            <TableHead>present</TableHead>
+            <TableHead>present_kind</TableHead>
+            <TableHead>evidence_grade</TableHead>
+            <TableHead>值 / 原因</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {SECTION_ORDER.map((name) => {
             const section = sections[name]
             const isContext = name === 'context'
             return (
-              <tr key={name} data-testid={`section-${name}`} data-present={String(section.present)}>
-                <td>
+              <TableRow key={name} data-testid={`section-${name}`} data-present={String(section.present)}>
+                <TableCell>
                   <code>{name}</code>
-                </td>
-                <td>{section.present ? 'true' : 'false'}</td>
-                <td>
+                </TableCell>
+                <TableCell>{section.present ? 'true' : 'false'}</TableCell>
+                <TableCell>
                   <code>{section.present_kind}</code>
                   {isContext ? (
                     <div className="muted" data-testid="context-pack-present">
@@ -631,22 +634,22 @@ function SectionsTable({ sections }: { sections: ValidationSections }): JSX.Elem
                           : ''}
                     </div>
                   ) : null}
-                </td>
-                <td>
+                </TableCell>
+                <TableCell>
                   <StatusBadge kind="validation" status={section.evidence_grade} />
-                </td>
-                <td>
+                </TableCell>
+                <TableCell>
                   {section.present ? (
                     <RecordedValue value={section.value} label={name} />
                   ) : (
                     <SectionReason section={section} />
                   )}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             )
           })}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </TableScroll>
   )
 }
@@ -654,37 +657,37 @@ function SectionsTable({ sections }: { sections: ValidationSections }): JSX.Elem
 function ChainTable({ chain }: { chain: ValidationCase['chain'] }): JSX.Element {
   return (
     <TableScroll label="T06 chain links">
-      <table className="table" data-testid="case-chain">
-        <thead>
-          <tr>
-            <th>link</th>
-            <th>present</th>
-            <th>source</th>
-            <th>missing_reason</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table data-testid="case-chain">
+        <TableHeader>
+          <TableRow>
+            <TableHead>link</TableHead>
+            <TableHead>present</TableHead>
+            <TableHead>source</TableHead>
+            <TableHead>missing_reason</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {CHAIN_ORDER.map((name) => {
             const link = chain[name]
             return (
-              <tr key={name} data-testid={`chain-${name}`} data-present={String(link.present)}>
-                <td>
+              <TableRow key={name} data-testid={`chain-${name}`} data-present={String(link.present)}>
+                <TableCell>
                   <code>{name}</code>
-                </td>
-                <td>
+                </TableCell>
+                <TableCell>
                   {link.present ? (
-                    <span className="badge badge--good">✔ present</span>
+                    <Badge variant="success"><CircleCheck aria-hidden="true" /> present</Badge>
                   ) : (
-                    <span className="badge badge--bad">✖ missing</span>
+                    <Badge variant="destructive"><CircleX aria-hidden="true" /> missing</Badge>
                   )}
-                </td>
-                <td>{link.source ? <code>{link.source}</code> : <span className="muted">没有记录来源</span>}</td>
-                <td>{link.present ? <span className="muted">—</span> : link.missing_reason ?? '未给出原因'}</td>
-              </tr>
+                </TableCell>
+                <TableCell>{link.source ? <code>{link.source}</code> : <span className="muted">没有记录来源</span>}</TableCell>
+                <TableCell>{link.present ? <span className="muted">—</span> : link.missing_reason ?? '未给出原因'}</TableCell>
+              </TableRow>
             )
           })}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </TableScroll>
   )
 }
@@ -743,28 +746,28 @@ function CaseCard({ item, index }: { item: ValidationCase; index: number }): JSX
         <p className="muted">这个 case 没有记录 evidence。</p>
       ) : (
         <TableScroll label="case evidence">
-          <table className="table" data-testid="case-evidence">
-            <thead>
-              <tr>
-                <th>recorded</th>
-                <th>status</th>
-                <th>reason</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table data-testid="case-evidence">
+            <TableHeader>
+              <TableRow>
+                <TableHead>recorded</TableHead>
+                <TableHead>status</TableHead>
+                <TableHead>reason</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {evidence.map((entry, entryIndex) => (
-                <tr key={entryIndex}>
-                  <td>
+                <TableRow key={entryIndex}>
+                  <TableCell>
                     <RecordedValue value={entry.recorded} label={`evidence[${entryIndex}]`} />
-                  </td>
-                  <td>
-                    <span className="badge badge--warn">{entry.status}</span>
-                  </td>
-                  <td>{entry.reason}</td>
-                </tr>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="warning"><TriangleAlert aria-hidden="true" />{entry.status}</Badge>
+                  </TableCell>
+                  <TableCell>{entry.reason}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </TableScroll>
       )}
     </div>
@@ -942,28 +945,28 @@ export function ValidationRunView({ runId }: { runId: string }): JSX.Element {
 
 function ManifestFileRow({ runId, file }: { runId: string; file: ValidationManifestFile }): JSX.Element {
   return (
-    <tr data-testid="manifest-file">
-      <td>
+    <TableRow data-testid="manifest-file">
+      <TableCell>
         <a href={sourceHref.validationArtifact(runId, file.artifact_id)}>
           <code>{file.artifact_id}</code>
         </a>
-      </td>
-      <td>
+      </TableCell>
+      <TableCell>
         <code className="wrap">{file.path}</code>
-      </td>
-      <td>{file.bytes}</td>
-      <td>
+      </TableCell>
+      <TableCell>{file.bytes}</TableCell>
+      <TableCell>
         <ValidationHash label="declared_sha256" value={file.sha256} />
-      </td>
-      <td>
+      </TableCell>
+      <TableCell>
         <StatusBadge kind="validation" status={file.integrity} />
-      </td>
-      <td>
+      </TableCell>
+      <TableCell>
         <span className={file.bytes_agree ? 'badge badge--good' : 'badge badge--bad'}>
           {String(file.bytes_agree)}
         </span>
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   )
 }
 
@@ -1047,23 +1050,23 @@ function ManifestBody({ manifest }: { manifest: ValidationManifest }): JSX.Eleme
         <p className="muted">没有可寻址的文件。</p>
       ) : (
         <TableScroll label="manifest files">
-          <table className="table" data-testid="manifest-files">
-            <thead>
-              <tr>
-                <th>artifact_id</th>
-                <th>path</th>
-                <th>bytes</th>
-                <th>declared_sha256</th>
-                <th>integrity</th>
-                <th>bytes_agree</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table data-testid="manifest-files">
+            <TableHeader>
+              <TableRow>
+                <TableHead>artifact_id</TableHead>
+                <TableHead>path</TableHead>
+                <TableHead>bytes</TableHead>
+                <TableHead>declared_sha256</TableHead>
+                <TableHead>integrity</TableHead>
+                <TableHead>bytes_agree</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {manifest.files.map((file) => (
                 <ManifestFileRow key={file.artifact_id} runId={manifest.run_id} file={file} />
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </TableScroll>
       )}
     </div>
