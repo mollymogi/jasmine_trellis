@@ -95,59 +95,11 @@ summary:focus-visible {
   color: var(--muted-foreground);
 }
 
-.app__nav {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.app__nav a {
-  padding: 4px 10px;
-  border-radius: calc(var(--radius) - 4px);
-  color: var(--muted-foreground);
-  text-decoration: none;
-}
-
-.app__nav a:hover {
-  background: var(--accent);
-  color: var(--accent-foreground);
-}
-
-.app__nav a[aria-current='page'] {
-  background: var(--primary);
-  color: var(--primary-foreground);
-  font-weight: 700;
-}
-
 .app__tools {
   display: flex;
   gap: 8px;
   align-items: center;
   margin-left: auto;
-}
-
-.navmenu {
-  position: relative;
-}
-
-.navmenu summary {
-  cursor: pointer;
-  color: var(--muted-foreground);
-  padding: 4px 10px;
-}
-
-.navmenu ul {
-  position: absolute;
-  z-index: 6;
-  background: var(--popover);
-  color: var(--popover-foreground);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--foreground) 12%, transparent);
-  padding: 8px 16px;
-  list-style: none;
-  margin: 6px 0 0;
 }
 
 .readonly-banner {

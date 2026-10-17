@@ -155,7 +155,9 @@ describe('sign-in and Overview', () => {
     )
     await signIn(user)
     await screen.findByText('Core 健康与 Schema')
-    await user.click(screen.getByRole('button', { name: /退出/ }))
+    // Sign-out lives in the sidebar's account menu, so open it first.
+    await user.click(screen.getByRole('button', { name: /Core 已连接/ }))
+    await user.click(await screen.findByRole('menuitem', { name: /退出/ }))
     expect(screen.getByLabelText('Core API token')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /退出/ })).toBeNull()
   })

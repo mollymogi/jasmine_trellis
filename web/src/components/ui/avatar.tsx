@@ -1,6 +1,3 @@
-// Copied from mollymogi/mogi-ui packages/ui/src/components/ui/avatar.tsx @ e1462bc (read-only source; see UPSTREAM.md in mogi-ui).
-"use client"
-
 import * as React from "react"
 import { cn } from "@/lib/utils"
 import { Avatar as AvatarPrimitive } from "radix-ui"

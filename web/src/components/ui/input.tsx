@@ -1,4 +1,3 @@
-// Copied from mollymogi/mogi-ui packages/ui/src/components/ui/input.tsx @ e1462bc (read-only source; see UPSTREAM.md in mogi-ui).
 import * as React from "react"
 import { cn } from "@/lib/utils"
 

@@ -1,4 +1,3 @@
-// Copied from mollymogi/mogi-ui packages/ui/src/components/ui/button.tsx @ e1462bc (read-only source; see UPSTREAM.md in mogi-ui).
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
