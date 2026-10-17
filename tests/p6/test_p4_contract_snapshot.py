@@ -376,6 +376,10 @@ class NoEngineAccessFromTheBrowser(unittest.TestCase):
         "http://www.w3.org/2000/svg",
         "http://www.w3.org/XML/1998/namespace",
         "https://reactjs.org/docs/error-decoder.html",
+        # React 19 builds its error-decoder link as "https://react.dev/errors/<code>" (a string,
+        # never fetched), and Tailwind's CSS carries its licence header link (a comment).
+        "https://react.dev/errors/",
+        "https://tailwindcss.com",
     }
 
     def built_bundle(self) -> str:
