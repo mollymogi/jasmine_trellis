@@ -15,20 +15,22 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-code,
-pre,
-.mono {
-  font-family: var(--font-sans);
-  overflow-wrap: anywhere;
-}
+@layer base {
+  code,
+  pre,
+  .mono {
+    font-family: var(--font-sans);
+    overflow-wrap: anywhere;
+  }
 
-pre {
-  overflow-wrap: normal;
-}
+  pre {
+    overflow-wrap: normal;
+  }
 
-a {
-  color: var(--primary);
-  text-underline-offset: 3px;
+  a {
+    color: var(--primary);
+    text-underline-offset: 3px;
+  }
 }
 
 a:focus-visible,
@@ -190,40 +192,43 @@ main {
   gap: 10px;
 }
 
-/* Raw form controls that views still use directly; the mogi components cover the rest. */
-button,
-input,
-select,
-textarea {
-  font: inherit;
-  color: var(--foreground);
-  background: var(--card);
-  border: 1px solid var(--input);
-  border-radius: calc(var(--radius) - 4px);
-  padding: 4px 10px;
-}
+@layer base {
+  /* Raw form controls that views still use directly; the mogi components cover the rest. */
+  /* Only plain elements: mogi and shadcn components carry a data-slot and style themselves. */
+  button:not([data-slot]),
+  input:not([data-slot]),
+  select:not([data-slot]),
+  textarea:not([data-slot]) {
+    font: inherit;
+    color: var(--foreground);
+    background: var(--card);
+    border: 1px solid var(--input);
+    border-radius: calc(var(--radius) - 4px);
+    padding: 4px 10px;
+  }
 
-button {
-  cursor: pointer;
-  background: var(--secondary);
-  color: var(--secondary-foreground);
-}
+  button:not([data-slot]) {
+    cursor: pointer;
+    background: var(--secondary);
+    color: var(--secondary-foreground);
+  }
 
-button:hover:not(:disabled) {
-  background: var(--accent);
-  color: var(--accent-foreground);
-}
+  button:not([data-slot]):hover:not(:disabled) {
+    background: var(--accent);
+    color: var(--accent-foreground);
+  }
 
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+  button:not([data-slot]):disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 
-label {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-  color: var(--muted-foreground);
+  label {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    color: var(--muted-foreground);
+  }
 }
 
 .filters {
