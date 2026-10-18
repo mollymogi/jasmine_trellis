@@ -71,7 +71,8 @@ describe('P4 memory reads are opt-in', () => {
     for (const pending of allowlist.p4_pending_paths.map((p: RegExp) => p.source)) {
       expect(live).not.toContain(pending)
     }
-    expect(allowlist.paths).toHaveLength(25)
+    // +1: GET /v1/host-hooks/deliveries (ADR 0020, P1 enforcement view)
+    expect(allowlist.paths).toHaveLength(26)
   })
 
   it('does not open the P6-03b2 writes even with P4 enabled', () => {

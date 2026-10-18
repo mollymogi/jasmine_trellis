@@ -148,6 +148,7 @@ class DashboardProxyContract(unittest.TestCase):
                 "^/v1/sessions$", f"^/v1/sessions/{ID_RE}$",
                 f"^/v1/steps/{ID_RE}$", f"^/v1/steps/{ID_RE}/history$",
                 "^/v1/events$", f"^/v1/events/{ID_RE}$",
+                "^/v1/host-hooks/deliveries$",  # ADR 0020: P1 enforcement view (read only)
                 "^/v1/rules/active$",
                 f"^/v1/rules/{ID_RE}$", f"^/v1/rules/{ID_RE}/history$",
                 f"^/v1/evidence/{ID_RE}$",

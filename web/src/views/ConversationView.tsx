@@ -25,6 +25,7 @@ import { Pager } from '../components/Pager'
 import { StatusBadge } from '../components/StatusBadge'
 import { Empty, ErrorPanel, Loading, Panel, StaleBanner } from '../components/States'
 import { formatTimestamp } from '../lib/text'
+import { HookDecisions } from '../components/HookDecisions'
 
 const EVENT_TYPES = [
   'user.prompt',
@@ -278,6 +279,7 @@ export function ConversationView({
           </Panel>
         </div>
       </div>
+      <HookDecisions />
     </div>
   )
 }
