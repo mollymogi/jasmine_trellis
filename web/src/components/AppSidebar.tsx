@@ -88,6 +88,12 @@ export function AppSidebar({
   onToggleTheme: () => void
   onSignOut: () => void
 }): JSX.Element {
+  const { isMobile, setOpenMobile } = useSidebar()
+  // On a phone the sidebar is a modal sheet over the page: once a link is chosen, close it so the
+  // target view is not left covered with focus trapped in the sheet.
+  const closeOnMobile = (): void => {
+    if (isMobile) setOpenMobile(false)
+  }
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -106,7 +112,7 @@ export function AppSidebar({
                 {NAV.map((item) => (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton asChild isActive={isCurrent(route, item.href)} tooltip={item.label}>
-                      <a href={item.href} aria-current={isCurrent(route, item.href) ? 'page' : undefined}>
+                      <a href={item.href} onClick={closeOnMobile} aria-current={isCurrent(route, item.href) ? 'page' : undefined}>
                         <item.icon />
                         <span className={LINK_LABEL}>{item.label}</span>
                       </a>
@@ -126,7 +132,7 @@ export function AppSidebar({
                 {pendingConfirmations.map((pending) => (
                   <SidebarMenuItem key={pending.id}>
                     <SidebarMenuButton asChild tooltip={`恢复未知确认 ${pending.id}`}>
-                      <a href={`#/task/${pending.taskId}/confirmation`}>
+                      <a href={`#/task/${pending.taskId}/confirmation`} onClick={closeOnMobile}>
                         <CircleDashed />
                         <span className={LINK_LABEL}>恢复未知确认 {pending.id}</span>
                       </a>
@@ -145,7 +151,7 @@ export function AppSidebar({
               {pendingKeys().map((key) => (
                 <SidebarMenuItem key={key}>
                   <SidebarMenuButton asChild tooltip={key}>
-                    <a href={hrefFor({ name: 'pending', key })}>
+                    <a href={hrefFor({ name: 'pending', key })} onClick={closeOnMobile}>
                       <CircleDashed />
                       <span className={LINK_LABEL}>{key}</span>
                     </a>
