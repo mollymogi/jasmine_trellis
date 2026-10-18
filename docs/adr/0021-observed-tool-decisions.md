@@ -35,7 +35,9 @@ describes both sources. The existing schema-13 CHECK remains unchanged; no
 migration or rewriting of historical receipts is needed.
 
 No tool inputs, command, paths or transcript are in a decision report. Only
-native correlation IDs, an input digest and rule references are retained. The adapter uses a
+native correlation IDs, an input digest and rule references are sent. Core keeps
+the request hash, deterministic delivery ID and decision/rule snapshot; plaintext
+native IDs and the input digest remain in private hook traces. The adapter uses a
 separate deterministic delivery ID namespace and omits `occurred_at` so an
 identical replay has identical bytes. Changed content conflicts with HTTP 409.
 Reporting is best effort with a one-second HTTP timeout; failure is traced and

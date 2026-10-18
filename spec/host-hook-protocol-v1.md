@@ -38,7 +38,9 @@ allow/verify maps to allow. Core stores the report without running Guard again
 or writing Truth/Evidence. Its response has `decision_source: adapter_report`.
 The delivery reader returns this source, `core_guard` for ordinary tool.before,
 or null for other events. A report proves the adapter's chosen output, not native
-execution. See [ADR 0021](../docs/adr/0021-observed-tool-decisions.md).
+execution. Core stores the request digest rather than the complete report payload;
+private hook traces retain the native IDs and input digest used for correlation.
+See [ADR 0021](../docs/adr/0021-observed-tool-decisions.md).
 
 ## 2. Request
 
