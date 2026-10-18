@@ -28,6 +28,7 @@ import { TableScroll } from '../components/TableScroll'
 import { SourceLink } from '../components/Trace'
 import { formatTimestamp } from '../lib/text'
 import { CriteriaEvidenceMatrix } from './CriteriaEvidenceMatrix'
+import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 interface GateRecord {
   stepId: string | null
@@ -156,47 +157,47 @@ export function TaskEvidence({ taskId }: { taskId: string }): JSX.Element {
         {evidence.data && items.length === 0 ? <Empty what="Evidence" /> : null}
         {items.length > 0 ? (
           <TableScroll label="Task Evidence 列表">
-          <table className="table">
-            <caption className="sr-only">Task Evidence</caption>
-            <thead>
-              <tr>
-                <th scope="col">Evidence</th>
-                <th scope="col">kind / status</th>
-                <th scope="col">reference</th>
-                <th scope="col">step / revision</th>
-                <th scope="col">fingerprint</th>
-                <th scope="col">来源</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table>
+            <TableCaption className="sr-only">Task Evidence</TableCaption>
+            <TableHeader>
+              <TableRow>
+                <TableHead scope="col">Evidence</TableHead>
+                <TableHead scope="col">kind / status</TableHead>
+                <TableHead scope="col">reference</TableHead>
+                <TableHead scope="col">step / revision</TableHead>
+                <TableHead scope="col">fingerprint</TableHead>
+                <TableHead scope="col">来源</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {items.map((record) => (
-                <tr key={record.evidence_id}>
-                  <th scope="row">
+                <TableRow key={record.evidence_id}>
+                  <TableHead scope="row">
                     <a href={sourceHref.evidence(record.evidence_id, taskId)}>
                       <code>{record.evidence_id}</code>
                     </a>
                     <div className="muted">{formatTimestamp(record.created_at)}</div>
-                  </th>
-                  <td>
+                  </TableHead>
+                  <TableCell>
                     {record.kind} <StatusBadge kind="evidence" status={record.status} />
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <StatusBadge kind="reference" status={record.reference_status} />
                     {record.artifact_uri ? (
                       <div className="muted mono">{record.artifact_uri}</div>
                     ) : null}
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     {record.step_id ? <code>{record.step_id}</code> : '—'}
                     <div className="muted">
                       task r{record.task_revision}
                       {record.step_revision !== null ? ` / step r${record.step_revision}` : ''}
                     </div>
-                  </td>
-                  <td className="mono">
+                  </TableCell>
+                  <TableCell className="mono">
                     {record.fingerprint_sha256 ? `${record.fingerprint_sha256.slice(0, 12)}…` : '—'}
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <SourceLink kind="event" id={record.source_event_id} label="source" taskId={taskId} />
                     <div>
                       <SourceLink
@@ -206,11 +207,11 @@ export function TaskEvidence({ taskId }: { taskId: string }): JSX.Element {
                         taskId={taskId}
                       />
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
           </TableScroll>
         ) : null}
         {evidence.loadedAt ? (

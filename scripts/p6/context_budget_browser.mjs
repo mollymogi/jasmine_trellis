@@ -5,7 +5,8 @@ import { existsSync, writeFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import net from 'node:net'
-import { Cdp, CHROME_CANDIDATES, waitForCdp, httpJson, evaluate, waitFor, clickByText, typeInto } from './browser_trace.mjs'
+import { Cdp, CHROME_CANDIDATES, waitForCdp, httpJson, evaluate, waitFor, clickByText, typeInto,
+  ACCOUNT_MENU_TRIGGER, ACCOUNT_MENU_TRIGGER_TEXT, SIGN_OUT_ITEM, SIGN_OUT_ITEM_VISIBLE, SIGN_OUT_TEXT } from './browser_trace.mjs'
 
 let input = ''
 for await (const chunk of process.stdin) input += chunk
@@ -43,7 +44,9 @@ async function login(c) {
   }
   if (activeToken !== c.token) {
     if (!await evaluate(cdp, '!!document.querySelector("input[type=password]")')) {
-      await click('button', '退出')
+      await click(ACCOUNT_MENU_TRIGGER, ACCOUNT_MENU_TRIGGER_TEXT)
+      await waitFor(cdp, SIGN_OUT_ITEM_VISIBLE)
+      await click(SIGN_OUT_ITEM, SIGN_OUT_TEXT)
       await waitFor(cdp, '!!document.querySelector("input[type=password]")')
     }
     await evaluate(cdp, 'document.querySelector("input[type=password]").select()')

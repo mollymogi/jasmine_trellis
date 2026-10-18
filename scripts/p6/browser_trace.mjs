@@ -303,6 +303,24 @@ export async function clickByText(cdp, selector, text) {
   return point
 }
 
+/**
+ * Sign-out lives in the sidebar's account menu, not on a top-level button: open the menu from
+ * its footer trigger, then click the menu item. The trigger's text is visually hidden when the
+ * sidebar is collapsed but is still in `textContent`, so this works in either sidebar state.
+ */
+export const ACCOUNT_MENU_TRIGGER = '[data-sidebar=footer] button[aria-haspopup=menu]'
+export const ACCOUNT_MENU_TRIGGER_TEXT = 'Core 已连接'
+export const SIGN_OUT_ITEM = '[role=menuitem]'
+export const SIGN_OUT_TEXT = '退出'
+export const SIGN_OUT_ITEM_VISIBLE =
+  `document.querySelector(${JSON.stringify(SIGN_OUT_ITEM)}) !== null`
+
+export async function clickSignOut(cdp) {
+  await clickByText(cdp, ACCOUNT_MENU_TRIGGER, ACCOUNT_MENU_TRIGGER_TEXT)
+  await waitFor(cdp, SIGN_OUT_ITEM_VISIBLE, { label: 'account menu open' })
+  return clickByText(cdp, SIGN_OUT_ITEM, SIGN_OUT_TEXT)
+}
+
 export async function typeInto(cdp, selector, value) {
   await evaluate(cdp, `document.querySelector(${JSON.stringify(selector)}).focus()`)
   await cdp.send('Input.insertText', { text: value })
@@ -577,7 +595,12 @@ async function main() {
       cdp,
       `[...document.querySelectorAll('.badge')].map((node) => ({
         text: node.textContent ?? '',
-        glyph: node.querySelector('.badge__glyph')?.textContent ?? '',
+        // The glyph is an icon (an <svg>, no text) or, in older builds, a text character.
+        glyph: (() => {
+          const glyph = node.querySelector('.badge__glyph')
+          if (!glyph) return ''
+          return glyph.localName === 'svg' ? 'svg' : glyph.textContent ?? ''
+        })(),
       }))`,
     )
     const colourOnly = badges.filter((badge) => badge.glyph.trim() === '' || badge.text.trim() === '')
@@ -1783,7 +1806,7 @@ async function main() {
 
       // --- an unauthorised scope is Core's refusal, not the missing dependency ----
       if (args.p3LimitedToken) {
-        await clickByText(cdp, 'button', '退出')
+        await clickSignOut(cdp)
         await waitFor(cdp, `document.querySelector('input[type=password]') !== null`,
           { label: 'sign-in after 退出' })
         await signIn(args.p3LimitedToken)
@@ -1808,7 +1831,7 @@ async function main() {
       // from the route table alone would call this token sufficient. If the fixture ever
       // accepts it, the frozen contract has lost a scope again.
       if (args.p3RouteScopeToken) {
-        await clickByText(cdp, 'button', '退出')
+        await clickSignOut(cdp)
         await waitFor(cdp, `document.querySelector('input[type=password]') !== null`,
           { label: 'sign-in before the route-scope-only check' })
         await signIn(args.p3RouteScopeToken)
@@ -2057,7 +2080,7 @@ async function main() {
 
       // --- no write affordance, and every reply labelled as simulated -----------------
       // Scoped to the Memory panel on purpose: the page also carries the app's global
-      // 退出 button, which is not a Memory write affordance.
+      // account-menu button (which holds 退出), which is not a Memory write affordance.
       const controls = await evaluate(cdp, `(() => {
         const panel = document.querySelector('section[aria-label^="Memory"]')
         if (!panel) return ['<no memory panel>']
@@ -2086,7 +2109,7 @@ async function main() {
       // its list left the resource `idle` and never fetched. Fixed at the hook; the check is
       // back inside one run so the Gate covers the transition that exposed it.
       if (args.p4LimitedToken) {
-        await clickByText(cdp, 'button', '退出')
+        await clickSignOut(cdp)
         await waitFor(cdp, `document.querySelector('input[type=password]') !== null`,
           { label: 'sign-in after 退出' })
         await signInMemory(args.p4LimitedToken)
@@ -2176,7 +2199,7 @@ async function main() {
           { label: 'signed in for the P6-03b2 section' })
       }
       const signOut = async () => {
-        await clickByText(cdp, 'button', '退出')
+        await clickSignOut(cdp)
         await waitFor(cdp, `document.querySelector('input[type=password]') !== null`,
           { label: 'sign-in after 退出 (P6-03b2)' })
       }
@@ -2849,7 +2872,7 @@ async function main() {
     // token cleared the app has nothing to send, which is the property worth proving. The count
     // is required to be zero *and* the navigation to have happened, so a run where the page never
     // rendered cannot pass by doing nothing.
-    await clickByText(cdp, 'button', '退出')
+    await clickSignOut(cdp)
     await waitFor(cdp, `document.querySelector('input[type=password]') !== null`, { label: 'sign-in again' })
     const beforeSignOut = requests.length
     const signedOutRoutes = ['#/overview', '#/memory/items', '#/memory/health']

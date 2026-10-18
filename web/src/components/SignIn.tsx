@@ -13,6 +13,10 @@ import { CoreClient } from '../api/client'
 import { makeEndpoints } from '../api/endpoints'
 import { useSession, REQUIRED_READ_SCOPES } from '../app/session'
 import { CoreApiError, describeError } from '../api/errors'
+import { Button } from './ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
+import { Input } from './ui/input'
+import { Label } from './ui/label'
 import { ErrorPanel } from './States'
 
 export function SignIn(): JSX.Element {
@@ -60,24 +64,29 @@ export function SignIn(): JSX.Element {
 
   return (
     <main id="main" className="signin">
-      <h1>Jasmine Core Dashboard(P6-02)</h1>
-      <p>
+      <Card className="gap-4 border-0 bg-transparent p-0 shadow-none">
+      <CardHeader className="px-0">
+        <CardTitle className="font-sans text-xl">Jasmine Core Dashboard(P6-02)</CardTitle>
+        <CardDescription>
         页面通过同源代理读取本机 Core。token 只保存在内存中:刷新或点击“退出”即清除,
         不写入 localStorage/sessionStorage/IndexedDB,不进入 URL、日志或打包产物。
-      </p>
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 px-0">
       <form onSubmit={(event) => void submit(event)} aria-describedby={helpId}>
-        <label htmlFor={inputId}>Core API token</label>
-        <input
+        <Label htmlFor={inputId}>Core API token</Label>
+        <Input
           id={inputId}
           type="password"
           autoComplete="off"
           spellCheck={false}
+          className="min-w-80"
           value={value}
           onChange={(event) => setValue(event.target.value)}
         />
-        <button type="submit" disabled={checking || value.trim().length === 0}>
+        <Button type="submit" disabled={checking || value.trim().length === 0}>
           {checking ? '校验中…' : '使用此 token'}
-        </button>
+        </Button>
       </form>
       <p id={helpId} className="muted">
         token 需要的 scope(读切片;写入还需要 interpretations:manage 等):{' '}
@@ -96,6 +105,8 @@ export function SignIn(): JSX.Element {
       {error ? (
         <ErrorPanel error={error} what="鉴权校验(GET /v1/projects)" onRetry={() => setError(null)} />
       ) : null}
+      </CardContent>
+      </Card>
     </main>
   )
 }

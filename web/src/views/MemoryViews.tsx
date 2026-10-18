@@ -55,6 +55,7 @@ import {
   isMemoryPending,
 } from './MemoryDependency'
 import { MemoryLifecyclePanel, MemoryRetryPanel } from './MemoryWrites'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 /** Every route in this slice requires exactly this scope; P4 adds no helper scopes. */
 const READ_SCOPES = ['memory:read'] as const
@@ -270,36 +271,36 @@ export function MemoryHealthView(): JSX.Element {
 
 function JobTable({ jobs }: { jobs: readonly MemoryJob[] }): JSX.Element {
   return (
-    <table className="table" data-testid="memory-jobs">
-      <thead>
-        <tr>
-          <th>job_id</th>
-          <th>kind</th>
-          <th>status</th>
-          <th>memory_id</th>
-          <th>updated_at</th>
-        </tr>
-      </thead>
-      <tbody>
+    <Table data-testid="memory-jobs">
+      <TableHeader>
+        <TableRow>
+          <TableHead>job_id</TableHead>
+          <TableHead>kind</TableHead>
+          <TableHead>status</TableHead>
+          <TableHead>memory_id</TableHead>
+          <TableHead>updated_at</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
         {jobs.map((job) => (
-          <tr key={job.job_id}>
-            <td>
+          <TableRow key={job.job_id}>
+            <TableCell>
               <a href={hrefFor({ name: 'memoryJob', jobId: job.job_id })}>
                 <code>{job.job_id}</code>
               </a>
-            </td>
-            <td>{job.kind}</td>
-            <td>{job.status}</td>
-            <td>
+            </TableCell>
+            <TableCell>{job.kind}</TableCell>
+            <TableCell>{job.status}</TableCell>
+            <TableCell>
               <a href={hrefFor({ name: 'memoryItem', memoryId: job.memory_id })}>
                 <code>{job.memory_id}</code>
               </a>
-            </td>
-            <td>{formatTimestamp(job.updated_at)}</td>
-          </tr>
+            </TableCell>
+            <TableCell>{formatTimestamp(job.updated_at)}</TableCell>
+          </TableRow>
         ))}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   )
 }
 
@@ -443,37 +444,37 @@ function MemoryJobBody({ job }: { job: MemoryJob }): JSX.Element {
 
 function ItemTable({ items }: { items: readonly MemoryItemListRow[] }): JSX.Element {
   return (
-    <table className="table" data-testid="memory-items">
-      <thead>
-        <tr>
-          <th>memory_id</th>
-          <th>memory_type</th>
-          <th>status</th>
-          <th>engine_state</th>
-          <th>revision</th>
-          <th>source</th>
-        </tr>
-      </thead>
-      <tbody>
+    <Table data-testid="memory-items">
+      <TableHeader>
+        <TableRow>
+          <TableHead>memory_id</TableHead>
+          <TableHead>memory_type</TableHead>
+          <TableHead>status</TableHead>
+          <TableHead>engine_state</TableHead>
+          <TableHead>revision</TableHead>
+          <TableHead>source</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
         {items.map((item) => (
-          <tr key={item.memory_id}>
-            <td>
+          <TableRow key={item.memory_id}>
+            <TableCell>
               <a href={hrefFor({ name: 'memoryItem', memoryId: item.memory_id })}>
                 <code>{item.memory_id}</code>
               </a>
-            </td>
-            <td>{item.memory_type}</td>
-            <td>{item.status}</td>
-            <td>{item.engine_state}</td>
-            <td>{item.revision}</td>
+            </TableCell>
+            <TableCell>{item.memory_type}</TableCell>
+            <TableCell>{item.status}</TableCell>
+            <TableCell>{item.engine_state}</TableCell>
+            <TableCell>{item.revision}</TableCell>
             {/* P4 keeps provenance: the Event this memory was derived from stays reachable. */}
-            <td>
+            <TableCell>
               <SourceLink kind="event" id={item.source_event_id} label="source Event" />
-            </td>
-          </tr>
+            </TableCell>
+          </TableRow>
         ))}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   )
 }
 
@@ -631,34 +632,34 @@ function MemoryItemBody({ item }: { item: MemoryItem }): JSX.Element {
 
 function TraceTable({ traces }: { traces: readonly MemoryTrace[] }): JSX.Element {
   return (
-    <table className="table" data-testid="memory-traces">
-      <thead>
-        <tr>
-          <th>trace_id</th>
-          <th>mode</th>
-          <th>status</th>
-          <th>query_length</th>
-          <th>used_tokens</th>
-          <th>created_at</th>
-        </tr>
-      </thead>
-      <tbody>
+    <Table data-testid="memory-traces">
+      <TableHeader>
+        <TableRow>
+          <TableHead>trace_id</TableHead>
+          <TableHead>mode</TableHead>
+          <TableHead>status</TableHead>
+          <TableHead>query_length</TableHead>
+          <TableHead>used_tokens</TableHead>
+          <TableHead>created_at</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
         {traces.map((trace) => (
-          <tr key={trace.trace_id}>
-            <td>
+          <TableRow key={trace.trace_id}>
+            <TableCell>
               <a href={hrefFor({ name: 'memoryTrace', traceId: trace.trace_id })}>
                 <code>{trace.trace_id}</code>
               </a>
-            </td>
-            <td>{trace.mode}</td>
-            <td>{trace.status}</td>
-            <td>{trace.query_length}</td>
-            <td>{trace.used_tokens}</td>
-            <td>{formatTimestamp(trace.created_at)}</td>
-          </tr>
+            </TableCell>
+            <TableCell>{trace.mode}</TableCell>
+            <TableCell>{trace.status}</TableCell>
+            <TableCell>{trace.query_length}</TableCell>
+            <TableCell>{trace.used_tokens}</TableCell>
+            <TableCell>{formatTimestamp(trace.created_at)}</TableCell>
+          </TableRow>
         ))}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   )
 }
 

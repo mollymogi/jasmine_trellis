@@ -24,6 +24,8 @@ import { StatusBadge } from '../components/StatusBadge'
 import { Empty, ErrorPanel, Loading, Panel, StaleBanner, Unavailable } from '../components/States'
 import { SourceLink } from '../components/Trace'
 import { formatTimestamp } from '../lib/text'
+import { Badge } from '@/components/ui/badge'
+import { CircleX } from 'lucide-react'
 
 const LIMIT = DEFAULT_OBJECT_LIMIT
 
@@ -114,9 +116,9 @@ export function ReviewsView({
                       {review.preview.plan.items.length} 项
                     </>
                   ) : review.preview_error ? (
-                    <span className="badge badge--bad" title="Core 未能给出可审批的计划">
+                    <Badge variant="destructive" title="Core 未能给出可审批的计划"><CircleX aria-hidden="true" />
                       ? 预览冲突 <code>{review.preview_error.code}</code>
-                    </span>
+                    </Badge>
                   ) : (
                     <span className="muted">—</span>
                   )}

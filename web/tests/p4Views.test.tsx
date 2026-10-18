@@ -1,3 +1,4 @@
+
 /**
  * P6-03b1 view behaviour.
  *
@@ -175,6 +176,8 @@ describe('a refused P4 read is shown as a missing dependency', () => {
     await enter(user, '#/memory/jobs', { ...SIGNED_IN, 'GET /v1/memory/jobs': PROXY_REFUSAL })
     const panel = await screen.findByRole('region', { name: /Memory Jobs/ })
     expect(within(panel).getByTestId('slice-status').textContent).toContain('Memory 功能读取 / 管理')
+    // The status word itself, on the view, not only in the slice line.
+    expect(panel.textContent).toContain('PARTIAL / DEPENDENCY_PENDING')
   })
 
   it.each(VIEWS)('%s states the status even when the read succeeds', async (

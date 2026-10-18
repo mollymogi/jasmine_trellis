@@ -30,6 +30,7 @@ import {
   Cdp,
   Trace,
   clickByText,
+  clickSignOut,
   evaluate,
   responseBody,
   typeInto,
@@ -155,7 +156,7 @@ async function main() {
         { label: `signed in (${label})` })
     }
     const signOut = async () => {
-      await clickByText(cdp, 'button', '退出')
+      await clickSignOut(cdp)
       await waitFor(cdp, `document.querySelector('input[type=password]') !== null`,
         { label: 'signed out' })
     }

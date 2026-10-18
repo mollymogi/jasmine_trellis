@@ -24,6 +24,7 @@ import { StatusBadge } from '../components/StatusBadge'
 import { Empty, ErrorPanel, Loading, Panel, StaleBanner } from '../components/States'
 import { SourceLink } from '../components/Trace'
 import { clip, formatTimestamp } from '../lib/text'
+import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 const LIMIT = DEFAULT_OBJECT_LIMIT
 /** `interpretations.STATUSES` in the frozen Core. */
@@ -151,23 +152,23 @@ export function InterpretationsView({
         ) : null}
 
         {interpretations.items.length > 0 ? (
-          <table className="table">
-            <caption className="sr-only">Interpretation 列表</caption>
-            <thead>
-              <tr>
-                <th scope="col">interpretation</th>
-                <th scope="col">status</th>
-                <th scope="col">来源 Event</th>
-                <th scope="col">extractor / model</th>
-                <th scope="col">confidence</th>
-                <th scope="col">candidates</th>
-                <th scope="col">created_at</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table>
+            <TableCaption className="sr-only">Interpretation 列表</TableCaption>
+            <TableHeader>
+              <TableRow>
+                <TableHead scope="col">interpretation</TableHead>
+                <TableHead scope="col">status</TableHead>
+                <TableHead scope="col">来源 Event</TableHead>
+                <TableHead scope="col">extractor / model</TableHead>
+                <TableHead scope="col">confidence</TableHead>
+                <TableHead scope="col">candidates</TableHead>
+                <TableHead scope="col">created_at</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {interpretations.items.map((item) => (
-                <tr key={item.interpretation_id}>
-                  <th scope="row">
+                <TableRow key={item.interpretation_id}>
+                  <TableHead scope="row">
                     <a href={sourceHref.interpretation(item.interpretation_id)}>
                       <code>{item.interpretation_id}</code>
                     </a>
@@ -179,12 +180,12 @@ export function InterpretationsView({
                         </a>
                       </div>
                     ) : null}
-                  </th>
-                  <td>
+                  </TableHead>
+                  <TableCell>
                     <StatusBadge kind="interpretation" status={item.status} />
                     {item.error_code ? <div className="muted">{item.error_code}</div> : null}
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <SourceLink
                       kind="event"
                       id={item.event_id}
@@ -192,21 +193,21 @@ export function InterpretationsView({
                       taskId={item.task_id}
                       projectId={item.project_id}
                     />
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     {item.extractor_id}
                     <div className="muted">
                       {item.extractor_model} · v{item.extractor_version} · {item.provider}
                     </div>
                     <div className="muted">prompt {item.prompt_version}</div>
-                  </td>
-                  <td>{item.confidence ?? '—'}</td>
-                  <td>{(item.candidates ?? []).length}</td>
-                  <td>{formatTimestamp(item.created_at)}</td>
-                </tr>
+                  </TableCell>
+                  <TableCell>{item.confidence ?? '—'}</TableCell>
+                  <TableCell>{(item.candidates ?? []).length}</TableCell>
+                  <TableCell>{formatTimestamp(item.created_at)}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         ) : null}
 
         <Pager paged={interpretations} noun="Interpretation" limit={LIMIT} cursorKind="after_id" />
