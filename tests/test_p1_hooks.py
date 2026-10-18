@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 import subprocess
@@ -33,7 +34,8 @@ class MockClient:
         if path == "/v1/host-hooks/events" and self.report_broken:
             raise OSError("host hook endpoint unavailable")
         if path == "/v1/guard/check":
-            return {"decision": self.decision}
+            return {"decision": self.decision, "request_sha256": hashlib.sha256(
+                json.dumps(body, sort_keys=True).encode()).hexdigest(), "matched": []}
         if path == "/v1/tool-results":
             return {"result_event": {"event_id": ids.new_id("evt")}}
         if path == "/v1/events":
@@ -162,9 +164,45 @@ class P1Hooks(unittest.TestCase):
         self.assertEqual(body["binding"], {"project_id": self.config["project_id"],
                          "task_id": self.config["task_id"], "step_id": self.config["step_id"]})
         self.assertEqual(body["native"]["call_id"], "use-1")
-        self.assertEqual(body["payload"], {"tool": "shell", "native_tool": "Bash", "input": {},
-                         "action": "rm", "path": target})
+        self.assertEqual(body["payload"]["decision_report"]["decision"], "deny")
+        self.assertEqual(body["payload"]["decision_report"]["guard"]["decision"], "deny")
+        self.assertNotIn(target, json.dumps(body))
+        checks = [b for p, b in MockClient.calls if p == "/v1/guard/check"]
+        self.assertEqual(len(checks), 1)
+        self.assertEqual(checks[0]["tool_category"], "shell")
         self.assertIn("host-hook:reported", (self.root / "trace.jsonl").read_text())
+
+    def test_local_parser_refusals_are_reported_without_a_fabricated_guard(self) -> None:
+        hook.handle(self.prompt(), self.binding)
+        for command in ("touch /tmp/a; true", "touch 'unterminated", "python3 private.py", "touch relative"):
+            with self.subTest(command=command):
+                MockClient.calls = []
+                self.assertEqual(hook.handle(self.pre(command), self.binding)["hookSpecificOutput"]
+                                 ["permissionDecision"], "deny")
+                self.assertEqual([p for p, _ in MockClient.calls], ["/v1/host-hooks/events"])
+                report = MockClient.calls[0][1]
+                self.assertEqual(report["payload"]["decision_report"]["decision"], "deny")
+                self.assertNotIn("guard", report["payload"]["decision_report"])
+                self.assertNotIn(command, json.dumps(report))
+
+    def test_confirm_is_reported_as_native_deny_and_verify_as_allow(self) -> None:
+        hook.handle(self.prompt(), self.binding)
+        for guard, native in (("confirm", "deny"), ("verify", "allow")):
+            with self.subTest(guard=guard):
+                MockClient.calls = []
+                MockClient.decision = guard
+                out = hook.handle(self.pre(), self.binding)
+                self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision", "allow"), native)
+                report = MockClient.calls[-1][1]["payload"]["decision_report"]
+                self.assertEqual((report["decision"], report["guard"]["decision"]), (native, guard))
+
+    def test_identical_reports_are_stable_for_replay(self) -> None:
+        hook.handle(self.prompt(), self.binding)
+        hook.handle(self.pre(), self.binding)
+        first = MockClient.calls[-1][1]
+        hook.handle(self.pre(), self.binding)
+        self.assertEqual(first, MockClient.calls[-1][1])
+        self.assertNotIn("occurred_at", first)
 
     def test_failed_report_never_changes_the_enforcement_decision(self) -> None:
         hook.handle(self.prompt(), self.binding)

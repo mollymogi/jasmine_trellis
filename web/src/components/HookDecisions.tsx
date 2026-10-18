@@ -101,7 +101,8 @@ export function HookDecisions(): JSX.Element {
     <Panel title="Hook 决定记录（Core 已记录）">
       <p className="state state--meta">
         这里只列出 Core 记录下来的 hook 决定：结论、命中的 Guard 规则和原因。工具输入与会话内容不会被读回。
-        “拒绝”表示 Core 给出了拒绝决定，不等于 Agent 一定执行了拦截；执行结果以各自的 Evidence 为准。
+        “Core 计算”是规则检查的决定；“Hook 上报”是可信 hook 的实际选择，本地拒绝可能没有命中规则。
+        “拒绝”不等于 Agent 一定执行了拦截；执行结果以各自的 Evidence 为准。
       </p>
       <div className="filters" role="group" aria-label="按决定筛选">
         {FILTERS.map((item) => (
@@ -150,6 +151,9 @@ export function HookDecisions(): JSX.Element {
                       <TableCell>{row.agent}</TableCell>
                       <TableCell>
                         <code>{row.event}</code>
+                        {row.event === 'tool.before' ? (
+                          <div className="muted">{row.decision_source === 'adapter_report' ? 'Hook 上报' : 'Core 计算'}</div>
+                        ) : null}
                       </TableCell>
                       <TableCell>
                         <Badge variant={spec?.variant ?? 'soft'}>

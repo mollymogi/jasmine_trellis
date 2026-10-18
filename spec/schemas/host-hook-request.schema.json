@@ -44,15 +44,176 @@
     {"if": {"properties": {"event": {"const": "prompt.submit"}}},
      "then": {"properties": {"payload": {"type": "object", "additionalProperties": false, "required": ["text"],
               "properties": {"text": {"type": "string", "description": "Verbatim; at most 256 KiB UTF-8, never truncated."}}}}}},
-    {"if": {"properties": {"event": {"const": "tool.before"}}},
-     "then": {"properties": {"payload": {"type": "object", "additionalProperties": false, "required": ["tool", "native_tool", "input"],
-              "properties": {
-                "tool": {"enum": ["shell", "file.read", "file.write", "file.edit", "web", "mcp", "other"]},
-                "native_tool": {"type": "string", "minLength": 1, "maxLength": 256},
-                "input": {"type": "object"},
-                "action": {"type": "string", "minLength": 1, "maxLength": 256},
-                "path": {"type": "string", "pattern": "^/"},
-                "paths": {"type": "array", "maxItems": 8, "items": {"type": "string", "pattern": "^/"}}}}}}},
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "tool.before"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "tool",
+                  "native_tool",
+                  "input"
+                ],
+                "properties": {
+                  "tool": {
+                    "enum": [
+                      "shell",
+                      "file.read",
+                      "file.write",
+                      "file.edit",
+                      "web",
+                      "mcp",
+                      "other"
+                    ]
+                  },
+                  "native_tool": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "input": {
+                    "type": "object"
+                  },
+                  "action": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/"
+                  },
+                  "paths": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^/"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "decision_report"
+                ],
+                "properties": {
+                  "decision_report": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "decision",
+                      "reason",
+                      "tool_input_sha256"
+                    ],
+                    "properties": {
+                      "decision": {
+                        "enum": [
+                          "allow",
+                          "deny"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      },
+                      "tool_input_sha256": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "guard": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "decision",
+                          "request_sha256",
+                          "matched"
+                        ],
+                        "properties": {
+                          "decision": {
+                            "enum": [
+                              "allow",
+                              "deny",
+                              "confirm",
+                              "verify"
+                            ]
+                          },
+                          "request_sha256": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                          },
+                          "matched": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "rule_id",
+                                "rule_key",
+                                "version",
+                                "enforcement",
+                                "severity",
+                                "origin_event_id"
+                              ],
+                              "properties": {
+                                "rule_id": {
+                                  "type": "string",
+                                  "pattern": "^rul_[0-9A-HJKMNP-TV-Z]{26}$"
+                                },
+                                "rule_key": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 256
+                                },
+                                "version": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "enforcement": {
+                                  "enum": [
+                                    "CONTEXT",
+                                    "DENY",
+                                    "CONFIRM",
+                                    "VERIFY"
+                                  ]
+                                },
+                                "severity": {
+                                  "enum": [
+                                    "HARD",
+                                    "NORMAL"
+                                  ]
+                                },
+                                "origin_event_id": {
+                                  "type": "string",
+                                  "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
     {"if": {"properties": {"event": {"const": "tool.after"}}},
      "then": {"properties": {"payload": {"type": "object", "additionalProperties": false, "required": ["tool", "native_tool", "input", "response"],
               "properties": {

@@ -72,7 +72,8 @@ def _delivery(row) -> dict[str, Any]:
             "agent": row["agent_name"], "host_id": row["host_id"], "trust": row["trust"],
             "created_at": row["created_at"], "decision": response.get("decision"),
             "guard_decision": guard.get("decision"), "reason": response.get("reason"),
-            "degraded": response.get("degraded") or [], "matched_rules": matched}
+            "degraded": response.get("degraded") or [], "matched_rules": matched,
+            "decision_source": response.get("decision_source", "core_guard" if row["event"] == "tool.before" else None)}
 
 
 def routes(Route):

@@ -75,12 +75,77 @@ class DeliveriesRead(HostHookHttp):
         config = {"host_id": HOST, "project_id": self.project, "task_id": self.task, "step_id": self.step}
         native = {"hook_event_name": "PreToolUse", "session_id": "codex-session-9", "turn_id": "turn-9",
                   "tool_use_id": "use-9", "tool_name": "Bash", "tool_input": {"command": "rm /protected/a"}}
-        hook._report_decision(SimpleNamespace(post=post), config, native, "rm", "/protected/a")
+        check = self.server_guard("rm", "/protected/a")
+        hook._report_decision(SimpleNamespace(post=post), config, native, "deny", "blocked", check)
         code, body = self.call("GET", PATH, token=self.manage)
         top = body["deliveries"][0]
         self.assertEqual((top["agent"], top["event"], top["decision"]), ("codex", "tool.before", "deny"))
         self.assertEqual([m["rule_id"] for m in top["matched_rules"]], [self.deny_rule])
         self.assertNotIn("protected/a", json.dumps(body))
+
+    def server_guard(self, action: str, path: str | None = None) -> dict:
+        token = self.key(["guard:check"])
+        code, out = self.call("POST", "/v1/guard/check", {
+            "project_id": self.project, "task_id": self.task, "tool": "Bash",
+            "tool_category": "shell", "action": action, **({"path": path} if path else {})}, token=token)
+        self.assertEqual(code, 200, out)
+        return out
+
+    def decision_report(self, check: dict | None = None, *, decision: str = "deny") -> dict:
+        payload = {"decision": decision, "reason": "hook selected this output", "tool_input_sha256": "b" * 64}
+        if check is not None:
+            payload["guard"] = {key: check[key] for key in ("decision", "request_sha256", "matched")}
+        return self.request("tool.before", {"decision_report": payload})
+
+    def test_category_verify_and_confirm_keep_the_native_choice(self) -> None:
+        for action, enforcement, native in (("pwd", "VERIFY", "allow"), ("true", "CONFIRM", "deny")):
+            with self.subTest(enforcement=enforcement):
+                rule = self.rule(f"category-{action}", enforcement, {"tool_category": "shell", "action": action})
+                check = self.server_guard(action)
+                self.assertEqual(check["decision"], enforcement.lower())
+                request = self.decision_report(check, decision=native)
+                code, out = self.send(request)
+                self.assertEqual((code, out["decision"], out["guard"]["matched"][0]["rule_id"]),
+                                 (201, native, rule))
+
+    def test_rule_changes_do_not_recompute_the_reported_snapshot(self) -> None:
+        check = self.server_guard("rm", "/protected/a")
+        code, out = self.call("POST", f"/v1/rules/{self.deny_rule}/retire",
+                              {"host_id": HOST, "expected_revision": 2}, token=self.manage)
+        self.assertEqual(code, 200, out)
+        self.assertEqual(self.server_guard("rm", "/protected/a")["decision"], "allow")
+        code, out = self.send(self.decision_report(check))
+        self.assertEqual((code, out["decision"], out["guard"]["decision"]), (201, "deny", "deny"))
+        self.assertEqual(out["guard"]["matched"][0]["rule_id"], self.deny_rule)
+
+    def test_local_denial_replay_and_changed_content(self) -> None:
+        request = self.decision_report()
+        code, out = self.send(request)
+        self.assertEqual((code, out["decision"], out["recorded"]["evidence_ids"]), (201, "deny", []))
+        self.assertNotIn("guard", out)
+        self.assertEqual(self.send(request)[0], 200)
+        changed = {**request, "payload": {"decision_report": {**request["payload"]["decision_report"], "tool_input_sha256": "c" * 64}}}
+        self.assertEqual(self.send(changed)[0], 409)
+
+    def test_decision_reports_require_system_actor_even_on_replay(self) -> None:
+        request = self.decision_report()
+        self.assertEqual(self.send(request)[0], 201)
+        code, out = self.call("POST", "/v1/host-hooks/events", request, token=self.human_hook_token)
+        self.assertEqual((code, out["error"]["code"]), (403, "forbidden_actor_kind"))
+
+    def test_invalid_snapshots_cannot_claim_permission(self) -> None:
+        from copy import deepcopy
+        from test_hosthook_schemas import load, validate
+
+        valid = self.decision_report(self.server_guard("rm", "/protected/a"))
+        self.assertEqual(validate(valid, load("host-hook-request.schema.json")), [])
+        for edit in (lambda p: p.update(decision="allow"), lambda p: p.update(guard=None),
+                     lambda p: p.update(command="secret"), lambda p: p.update(tool_input_sha256="bad"),
+                     lambda p: p["guard"].update(request_sha256="bad"),
+                     lambda p: p["guard"]["matched"][0].update(version=True)):
+            request = deepcopy(valid)
+            edit(request["payload"]["decision_report"])
+            self.assertEqual(self.send(request)[0], 400)
 
     def test_tool_inputs_are_never_returned(self) -> None:
         self.tool_before("rm", ["/protected/a"])
@@ -91,4 +156,4 @@ class DeliveriesRead(HostHookHttp):
         self.assertNotIn('"command"', text)
         for item in body["deliveries"]:
             self.assertEqual(set(item), {"seq", "delivery_id", "event", "agent", "host_id", "trust", "created_at",
-                                         "decision", "guard_decision", "reason", "degraded", "matched_rules"})
+                                         "decision", "guard_decision", "reason", "degraded", "matched_rules", "decision_source"})

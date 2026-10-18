@@ -71,6 +71,22 @@ async function enterRules(
 }
 
 describe('Host-hook decisions panel', () => {
+  it('distinguishes a local hook refusal from a Core Guard decision', async () => {
+    const user = userEvent.setup()
+    await enterRules(user, () => ({
+      deliveries: [delivery({ decision_source: 'adapter_report', guard_decision: null, matched_rules: [],
+                              reason: 'Jasmine Guard cannot resolve this tool call' }),
+                   delivery({ seq: 1, delivery_id: 'core:older', decision_source: 'core_guard' })],
+      count: 2, has_more: false, next_before_seq: null,
+    }))
+    const table = await screen.findByTestId('hook-decisions')
+    const rows = within(table).getAllByRole('row').slice(1)
+    expect(rows[0]!.textContent).toContain('Hook 上报')
+    expect(rows[0]!.textContent).toContain('拒绝')
+    expect(rows[0]!.textContent).not.toContain('no-rm')
+    expect(rows[1]!.textContent).toContain('Core 计算')
+  })
+
   it('shows the verdict, the matched rule and the reason, and says tool inputs are not read back', async () => {
     const user = userEvent.setup()
     await enterRules(user, () => ({

@@ -175,6 +175,10 @@ def _validate_payload(event: str, payload: Any) -> dict[str, Any]:
         if not isinstance(payload["text"], str):
             raise _bad("payload.text must be a string", "payload.text")
     elif event == "tool.before":
+        if "decision_report" in payload:
+            _obj(payload, "payload", {"decision_report"}, {"decision_report"})
+            _validate_decision_report(payload["decision_report"])
+            return payload
         _obj(payload, "payload", {"tool", "native_tool", "input", "action", "path", "paths"},
              {"tool", "native_tool", "input"})
         _tool_fields(payload, after=False)
@@ -206,3 +210,41 @@ def empty_response(req: HostHookRequest) -> dict[str, Any]:
             "decision": "none", "reason": None, "inject_context": None,
             "recorded": {"event_ids": [], "evidence_ids": [], "checkpoint_id": None},
             "degraded": [], "trust": req.trust}
+
+
+def _validate_decision_report(payload: Any) -> None:
+    _obj(payload, "payload.decision_report", {"decision", "reason", "tool_input_sha256", "guard"},
+         {"decision", "reason", "tool_input_sha256"})
+    digest = payload["tool_input_sha256"]
+    if not isinstance(digest, str) or not SHA256.fullmatch(digest):
+        raise _bad("input digest must be SHA-256 hex", "payload.tool_input_sha256")
+    if payload["decision"] not in ("allow", "deny"):
+        raise _bad("reported decision must be allow or deny", "payload.decision")
+    _text(payload["reason"], "payload.reason", high=500)
+    if "guard" not in payload:
+        if payload["decision"] != "deny":
+            raise _bad("local decisions without Guard must deny", "payload.decision")
+    else:
+        guard = _obj(payload["guard"], "payload.guard", {"decision", "request_sha256", "matched"},
+                     {"decision", "request_sha256", "matched"})
+        if guard["decision"] not in ("allow", "deny", "confirm", "verify"):
+            raise _bad("invalid Guard decision", "payload.guard.decision")
+        expected = "deny" if guard["decision"] in ("deny", "confirm") else "allow"
+        if payload["decision"] != expected:
+            raise _bad("reported decision disagrees with Guard", "payload.decision")
+        if not isinstance(guard["request_sha256"], str) or not SHA256.fullmatch(guard["request_sha256"]):
+            raise _bad("Guard request digest must be SHA-256 hex", "payload.guard.request_sha256")
+        if not isinstance(guard["matched"], list):
+            raise _bad("matched must be a list", "payload.guard.matched")
+        fields = {"rule_id", "rule_key", "version", "enforcement", "severity", "origin_event_id"}
+        for row in guard["matched"]:
+            _obj(row, "payload.guard.matched", fields, fields)
+            _id(row["rule_id"], "rul", "payload.guard.matched.rule_id")
+            _id(row["origin_event_id"], "evt", "payload.guard.matched.origin_event_id")
+            _text(row["rule_key"], "payload.guard.matched.rule_key", high=256)
+            if type(row["version"]) is not int or row["version"] < 1:
+                raise _bad("rule version must be a positive integer", "payload.guard.matched.version")
+            if row["enforcement"] not in ("CONTEXT", "DENY", "CONFIRM", "VERIFY"):
+                raise _bad("invalid enforcement", "payload.guard.matched.enforcement")
+            if row["severity"] not in ("HARD", "NORMAL"):
+                raise _bad("invalid severity", "payload.guard.matched.severity")

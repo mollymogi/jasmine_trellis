@@ -29,6 +29,7 @@
       "properties": {"decision": {"enum": ["allow", "deny", "confirm", "verify"]}, "capability": {"const": "ADVISORY"},
                      "request_sha256": {"type": "string"}, "matched": {"type": "array", "items": {"type": "object"}}}
     },
+    "decision_source": {"enum": ["adapter_report"], "description": "ADR 0021 observed decision mode only."},
     "trust": {"enum": ["NATIVE_HOOK", "PROXY_OBSERVED", "AGENT_REPORTED"]},
     "replayed": {"type": "boolean"}
   }

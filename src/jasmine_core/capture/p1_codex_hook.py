@@ -145,23 +145,28 @@ def _trace(config: dict[str, Any] | None, payload: dict[str, Any], result: str,
 
 
 def _report_decision(client: CoreClient, config: dict[str, Any], payload: dict[str, Any],
-                     action: str, path: str | None) -> None:
-    """Record a Guard-checked Bash call as a host-hook `tool.before` delivery (ADR 0017).
-
-    Best effort: the enforcement decision has already been taken, so a failed report
-    only leaves this call unrecorded and is traced. Tool input is not sent; the Guard
-    check never needed it, so only the resolved action and path go to Core.
-    """
+                     decision: str, reason: str, guard: dict[str, Any] | None = None) -> None:
+    """Best-effort report of the exact chosen output; never recheck Guard (ADR 0021)."""
     try:
         translated = codex.translate_in(payload, clock.now())
         if translated is None or translated.event != "tool.before":
             raise ValueError("tool call does not translate to tool.before")
-        shaped = dataclasses.replace(translated, payload={
-            "tool": translated.payload["tool"], "native_tool": translated.payload["native_tool"],
-            "input": {}, "action": action, **({"path": path} if path else {})})
+        report: dict[str, Any] = {"decision": decision, "reason": reason,
+                                 "tool_input_sha256": hashlib.sha256(
+                                     canonical_json(payload.get("tool_input")).encode()).hexdigest()}
+        if guard is not None:
+            report["guard"] = {key: guard[key] for key in ("decision", "request_sha256", "matched")}
+        shaped = dataclasses.replace(translated, event="tool.before",
+                                     delivery_id="p1-decision:" + translated.delivery_id, payload={"decision_report": report})
         binding = SimpleNamespace(host_id=config["host_id"], project_id=config["project_id"],
                                   task_id=config["task_id"], step_id=config["step_id"])
-        client.post("/v1/host-hooks/events", runtime.build_request(codex, shaped, binding, clock.now()))
+        request = runtime.build_request(codex, shaped, binding, clock.now())
+        request.pop("occurred_at")  # Deterministic retries must not acquire a different timestamp.
+        request["adapter"] = {"name": "p1-codex-decision", "version": "1",
+                              "capabilities_sha256": hashlib.sha256(canonical_json(
+                                  {"protocol_version": "1", "events": ["tool.before"],
+                                   "decision_source": "adapter"}).encode()).hexdigest()}
+        client.post("/v1/host-hooks/events", request)
     except Exception as exc:
         _trace(config, payload, f"host-hook:error:{type(exc).__name__}")
     else:
@@ -227,18 +232,29 @@ def handle(payload: dict[str, Any], binding_path: Path) -> dict[str, Any]:
         return {}
     try:
         if event == "PreToolUse":
-            action, path = _simple_action(payload)
             client = CoreClient(config["core_url"], _token(config, "token_file"))
-            check = client.post("/v1/guard/check", {"project_id": config["project_id"],
-                "task_id": config["task_id"], "tool": "Bash", "action": action,
-                **({"path": path} if path else {})})
+            reporter = CoreClient(config["core_url"], _token(config, "token_file"), timeout=1.0)
+            try:
+                action, path = _simple_action(payload)
+                check = client.post("/v1/guard/check", {"project_id": config["project_id"],
+                    "task_id": config["task_id"], "tool": "Bash", "tool_category": "shell", "action": action,
+                    **({"path": path} if path else {})})
+            except Exception as exc:
+                _trace(config, payload, f"error:{type(exc).__name__}")
+                reason = "Jasmine Guard is unavailable or cannot resolve this tool call"
+                _report_decision(reporter, config, payload, "deny", reason)
+                return _deny(reason)
             decision = check.get("decision")
             _trace(config, payload, f"guard:{decision}")
-            _report_decision(client, config, payload, action, path)
             if decision in ("deny", "confirm"):
-                return _deny("Jasmine Authority requires operator action")
+                reason = "Jasmine Authority requires operator action"
+                _report_decision(reporter, config, payload, "deny", reason, check)
+                return _deny(reason)
             if decision not in ("allow", "verify"):
-                return _deny("Jasmine Guard returned an unresolved decision")
+                reason = "Jasmine Guard returned an unresolved decision"
+                _report_decision(reporter, config, payload, "deny", reason)
+                return _deny(reason)
+            _report_decision(reporter, config, payload, "allow", "Jasmine Guard allows this tool call", check)
             return {}
         if event == "PostToolUse":
             # The exact producer mapping is checked again by Core; a hook

@@ -27,6 +27,19 @@ An adapter declares which of these it implements and what the agent can do (bloc
 ask, inject) in a **capability declaration**; its SHA-256 (over canonical JSON) is sent
 with every request.
 
+### Observed decisions (ADR 0021)
+
+An optional `tool.before` mode accepts only `payload.decision_report`, containing
+`decision` (allow/deny), `reason` (1–500 characters), `tool_input_sha256`, and an
+optional `guard` snapshot (`decision`, `request_sha256`, `matched` using the
+existing Guard rule reference fields). Only a system actor can use this mode.
+Without Guard only local deny is valid; Guard deny/confirm maps to deny, and
+allow/verify maps to allow. Core stores the report without running Guard again
+or writing Truth/Evidence. Its response has `decision_source: adapter_report`.
+The delivery reader returns this source, `core_guard` for ordinary tool.before,
+or null for other events. A report proves the adapter's chosen output, not native
+execution. See [ADR 0021](../docs/adr/0021-observed-tool-decisions.md).
+
 ## 2. Request
 
 `POST /v1/host-hooks/events`, `Authorization: Bearer <token>`, `Content-Type: application/json`.
