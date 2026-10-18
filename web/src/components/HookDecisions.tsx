@@ -6,7 +6,7 @@
  * they cannot appear here; the panel says so rather than leaving the reader to guess.
  */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CircleCheck, CircleHelp, CircleX, TriangleAlert } from 'lucide-react'
 
 import type { HookDecision, HookDelivery } from '../api/types'
@@ -44,6 +44,11 @@ export function HookDecisions(): JSX.Element {
   const [olderCursor, setOlderCursor] = useState<number | null | undefined>(undefined)
   const [loadingMore, setLoadingMore] = useState(false)
   const [moreError, setMoreError] = useState<string | null>(null)
+  // The in-flight "load more" request. Changing the filter aborts it, so a page fetched for the old
+  // filter can never be appended to (or move the cursor of) the new one.
+  const moreRequest = useRef<AbortController | null>(null)
+
+  useEffect(() => () => moreRequest.current?.abort(), [])
 
   const first = useResource(
     (signal) => endpoints.listHookDeliveries({ decision, limit: 50 }, signal),
@@ -51,6 +56,9 @@ export function HookDecisions(): JSX.Element {
   )
 
   const choose = (next: HookDecision | null): void => {
+    moreRequest.current?.abort()
+    moreRequest.current = null
+    setLoadingMore(false)
     setDecision(next)
     setOlder([])
     setOlderCursor(undefined)
@@ -64,16 +72,28 @@ export function HookDecisions(): JSX.Element {
 
   const loadMore = async (): Promise<void> => {
     if (cursor === null) return
+    moreRequest.current?.abort()
+    const controller = new AbortController()
+    moreRequest.current = controller
     setLoadingMore(true)
     setMoreError(null)
     try {
-      const page = await endpoints.listHookDeliveries({ decision, before_seq: cursor, limit: 50 })
+      const page = await endpoints.listHookDeliveries(
+        { decision, before_seq: cursor, limit: 50 },
+        controller.signal,
+      )
+      // Superseded (filter changed or unmounted) while the page was in flight: drop it.
+      if (controller.signal.aborted) return
       setOlder((current) => [...current, ...page.deliveries])
       setOlderCursor(page.has_more ? page.next_before_seq : null)
     } catch (caught) {
+      if (controller.signal.aborted) return
       setMoreError(caught instanceof Error ? caught.message : String(caught))
     } finally {
-      setLoadingMore(false)
+      if (moreRequest.current === controller) {
+        moreRequest.current = null
+        setLoadingMore(false)
+      }
     }
   }
 

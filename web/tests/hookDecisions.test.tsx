@@ -44,6 +44,7 @@ function delivery(overrides: Record<string, unknown> = {}): Record<string, unkno
 async function enterRules(
   user: ReturnType<typeof userEvent.setup>,
   deliveries: (query: URLSearchParams) => Record<string, unknown>,
+  delayMs: (query: URLSearchParams) => number = () => 0,
 ): Promise<void> {
   fake = installFakeCore(
     {
@@ -52,7 +53,9 @@ async function enterRules(
       'GET /v1/rules/active': { body: { rules: [], count: 0 } },
     },
     (request) =>
-      request.path === '/v1/host-hooks/deliveries' ? { body: deliveries(request.query) } : undefined,
+      request.path === '/v1/host-hooks/deliveries'
+        ? { body: deliveries(request.query), delayMs: delayMs(request.query) }
+        : undefined,
   )
   window.location.hash = '#/rules'
   render(
@@ -114,6 +117,47 @@ describe('Host-hook decisions panel', () => {
     await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(3))
     expect(table.textContent).toContain('older one')
     expect(screen.queryByRole('button', { name: '继续加载 Hook 决定' })).toBeNull()
+  })
+
+  it('drops an older page that was still in flight when the filter changed', async () => {
+    const user = userEvent.setup()
+    await enterRules(
+      user,
+      (query) => {
+        if (query.get('decision') === 'deny') {
+          if (query.get('before_seq') === '9') {
+            return { deliveries: [delivery({ seq: 8, delivery_id: 'codex:tool.before:deny-older' })],
+                     count: 1, has_more: false, next_before_seq: null }
+          }
+          return { deliveries: [delivery({ seq: 9, delivery_id: 'codex:tool.before:deny', reason: 'deny first' })],
+                   count: 1, has_more: true, next_before_seq: 9 }
+        }
+        return query.get('before_seq') === '2'
+          ? { deliveries: [delivery({ seq: 1, delivery_id: 'codex:tool.before:stale', reason: 'stale older' })],
+              count: 1, has_more: false, next_before_seq: null }
+          : { deliveries: [delivery()], count: 1, has_more: true, next_before_seq: 2 }
+      },
+      // Hold the unfiltered "older" page in flight while the filter switches to deny.
+      (query) => (query.get('before_seq') === '2' ? 150 : 0),
+    )
+    await screen.findByTestId('hook-decisions')
+    await user.click(screen.getByRole('button', { name: '继续加载 Hook 决定' }))
+    await waitFor(() => expect(fake!.requests.some((r) => r.query.get('before_seq') === '2')).toBe(true))
+    await user.click(screen.getByRole('button', { name: '拒绝' }))
+    await waitFor(() => expect(screen.getByTestId('hook-decisions').textContent).toContain('deny first'))
+    // Let the stale page's delay run out; it must not land in the deny list.
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    const table = screen.getByTestId('hook-decisions')
+    expect(table.textContent).not.toContain('stale older')
+    expect(within(table).getAllByRole('row')).toHaveLength(2) // header + the deny row
+    expect(screen.queryByText(/读取更多失败/)).toBeNull()
+    // The deny filter keeps its own cursor, so paging continues from before_seq=9.
+    await user.click(screen.getByRole('button', { name: '继续加载 Hook 决定' }))
+    await waitFor(() => {
+      const last = fake!.requests.filter((r) => r.path === '/v1/host-hooks/deliveries').at(-1)
+      expect(last?.query.get('decision')).toBe('deny')
+      expect(last?.query.get('before_seq')).toBe('9')
+    })
   })
 
   it('states an empty result as empty, not as a refusal', async () => {
