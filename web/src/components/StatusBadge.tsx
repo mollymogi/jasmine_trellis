@@ -195,7 +195,8 @@ export function StatusBadge({
       data-status={status}
       title={hint ?? `${kind} status ${status}`}
     >
-      <Icon aria-hidden="true" />
+      {/* `badge__glyph` carries no style; the p6 browser trace finds the glyph by it. */}
+      <Icon aria-hidden="true" className="badge__glyph" />
       <span className="badge__text">{status}</span>
     </Badge>
   )

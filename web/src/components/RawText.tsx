@@ -47,8 +47,10 @@ export function RawText({
   const long = masked.shown.length > maxCollapsed
 
   return (
+    // `rawtext` and `rawtext__label` carry no style; the p6 browser traces read blocks by them.
     <CodeBlock
-      label={label}
+      className="rawtext"
+      label={<span className="rawtext__label">{label}</span>}
       masked={masked.hasSecrets && !masked.revealed}
       tags={machine ? [{ label: '机器事件(非用户发言)', variant: 'soft' }] : undefined}
       bodyClassName="rawtext__body"

@@ -48,11 +48,12 @@ export function Pager({
           onLoadMore={paged.loadMore}
           loadMoreLabel={`继续加载${noun}`}
           status={
-            <>
+            // `pager__meta` carries no style; the p6 traces read the paging statement by it.
+            <span className="pager__meta">
               已载入 {paged.items.length} 条{noun} · {paged.pages} 页(每页 {limit};
               <code>count</code> 是本页长度,不是总数)。
               {paged.complete ? ` ${completeReason}` : ' 是否还有更多由 Core 决定。'}
-            </>
+            </span>
           }
         />
       )}

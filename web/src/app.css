@@ -320,7 +320,8 @@ main {
   flex-wrap: wrap;
 }
 
-.rawtext,
+/* `.rawtext` and `.rawtext__label` are now hooks only (RawText is a mogi-ui CodeBlock that the p6
+   browser traces read by these classes), so they carry no style here. */
 .jsonblock {
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -339,7 +340,6 @@ main {
   font-size: 12px;
 }
 
-.rawtext__label,
 .jsonblock__meta {
   color: var(--muted-foreground);
 }
@@ -555,12 +555,6 @@ main {
   flex-direction: column;
   gap: 6px;
   margin-top: 6px;
-}
-
-.pager__meta {
-  margin: 0;
-  color: var(--muted-foreground);
-  font-size: 13px;
 }
 
 .muted {
