@@ -48,6 +48,7 @@ request is refused with `403 actor_mismatch`.
 | POST | `/v1/events` | `events:write` | append one Raw Event |
 | GET | `/v1/events` | `events:read` | filter by `session_id`, `task_id`, `project_id`, `event_type`, `source_system`, `after_seq`, `limit` |
 | GET | `/v1/events/{event_id}` | `events:read` | one Event, payload included |
+| GET | `/v1/host-hooks/deliveries` | `events:read` | recorded host-hook decisions, newest first: `decision`, `limit`, `before_seq`; no tool inputs (ADR 0020) |
 | POST | `/v1/projects` | `objects:write` | creates the object **and** its source Event |
 | GET | `/v1/projects`, `/v1/projects/{project_id}` | `objects:read` | list / one |
 | POST | `/v1/tasks` | `objects:write` | needs an existing `project_id` |

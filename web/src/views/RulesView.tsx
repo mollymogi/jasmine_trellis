@@ -30,6 +30,7 @@ import { JsonBlock } from '../components/JsonBlock'
 import { KeyValue, SourceLink } from '../components/Trace'
 import { formatTimestamp } from '../lib/text'
 import { RuleWrites } from './RuleWrites'
+import { HookDecisions } from '../components/HookDecisions'
 
 export function RulesView({
   projectId,
@@ -215,6 +216,7 @@ export function RulesView({
           active.reload()
         }}
       />
+      <HookDecisions />
     </div>
   )
 }

@@ -17,6 +17,8 @@ import { confirmationEndpoints } from './webConfirmations'
 
 import type { CoreClient, QueryValue } from './client'
 import type {
+  HookDecision,
+  HookDeliveryPage,
   Actor,
   Checkpoint,
   ContextPack,
@@ -161,6 +163,14 @@ export function makeEndpoints(client: CoreClient) {
     getEvent: (eventId: string, signal?: AbortSignal) =>
       client.get<{ event: RawEvent }>(`/events/${id(eventId)}`, { signal }),
 
+    listHookDeliveries: (
+      query: { decision?: HookDecision | null; before_seq?: number | null; limit?: number },
+      signal?: AbortSignal,
+    ) =>
+      client.get<HookDeliveryPage>('/host-hooks/deliveries', {
+        query: { decision: query.decision, before_seq: query.before_seq, limit: query.limit ?? 50 },
+        signal,
+      }),
     listActiveRules: (
       scope: { project_id?: string | null; task_id?: string | null },
       signal?: AbortSignal,

@@ -54,7 +54,8 @@ describe('the always-on write allowlist', () => {
 
   it('leaves the GET list and methods untouched by the write slice', () => {
     expect(allowlist.methods).toEqual(['GET'])
-    expect(allowlist.paths).toHaveLength(25)
+    // +1: GET /v1/host-hooks/deliveries (ADR 0020)
+    expect(allowlist.paths).toHaveLength(26)
     // The GET list is what it was: it carries the two collection/detail reads the seven reuse
     // (`/v1/tasks`, `/v1/tasks/{id}/steps`) and none of the mutation-only shapes.
     expect(allowlist.paths).toContain('^/v1/tasks$')

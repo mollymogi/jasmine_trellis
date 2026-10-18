@@ -1117,3 +1117,33 @@ export interface ValidationArtifactContent {
   content_is_original: boolean
 }
 
+/** One recorded host-hook decision (GET /v1/host-hooks/deliveries). Tool inputs are never included. */
+export type HookDecision = 'allow' | 'deny' | 'ask' | 'none'
+
+export interface HookDelivery {
+  seq: number
+  delivery_id: string
+  event: string
+  agent: string
+  host_id: string
+  trust: string
+  created_at: string
+  decision: HookDecision | null
+  guard_decision: string | null
+  reason: string | null
+  degraded: string[]
+  matched_rules: {
+    rule_id: string | null
+    rule_key: string | null
+    version: number | null
+    enforcement: string | null
+    severity: string | null
+  }[]
+}
+
+export interface HookDeliveryPage {
+  deliveries: HookDelivery[]
+  count: number
+  has_more: boolean
+  next_before_seq: number | null
+}
