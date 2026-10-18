@@ -7,6 +7,7 @@ from the operator's Codex process atomically claims the first real session.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import fcntl
 import hashlib
 import json
@@ -17,11 +18,14 @@ import stat
 import sys
 from pathlib import Path
 from pathlib import PurePosixPath
+from types import SimpleNamespace
 from typing import Any
 
-from .. import ids
+from .. import clock, ids
 from ..api.client import ApiError, CoreClient
 from ..canonical import canonical_json
+from ..hosthook import runtime
+from ..hosthook.dialects import codex
 from .codex_user_prompt_submit import derive_event_id
 
 SAFE_ACTIONS = frozenset({"pwd", "true", "touch", "rm", "cat", "ls"})
@@ -140,6 +144,30 @@ def _trace(config: dict[str, Any] | None, payload: dict[str, Any], result: str,
         return False
 
 
+def _report_decision(client: CoreClient, config: dict[str, Any], payload: dict[str, Any],
+                     action: str, path: str | None) -> None:
+    """Record a Guard-checked Bash call as a host-hook `tool.before` delivery (ADR 0017).
+
+    Best effort: the enforcement decision has already been taken, so a failed report
+    only leaves this call unrecorded and is traced. Tool input is not sent; the Guard
+    check never needed it, so only the resolved action and path go to Core.
+    """
+    try:
+        translated = codex.translate_in(payload, clock.now())
+        if translated is None or translated.event != "tool.before":
+            raise ValueError("tool call does not translate to tool.before")
+        shaped = dataclasses.replace(translated, payload={
+            "tool": translated.payload["tool"], "native_tool": translated.payload["native_tool"],
+            "input": {}, "action": action, **({"path": path} if path else {})})
+        binding = SimpleNamespace(host_id=config["host_id"], project_id=config["project_id"],
+                                  task_id=config["task_id"], step_id=config["step_id"])
+        client.post("/v1/host-hooks/events", runtime.build_request(codex, shaped, binding, clock.now()))
+    except Exception as exc:
+        _trace(config, payload, f"host-hook:error:{type(exc).__name__}")
+    else:
+        _trace(config, payload, "host-hook:reported")
+
+
 def _deny(reason: str) -> dict[str, Any]:
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                    "permissionDecision": "deny",
@@ -206,6 +234,7 @@ def handle(payload: dict[str, Any], binding_path: Path) -> dict[str, Any]:
                 **({"path": path} if path else {})})
             decision = check.get("decision")
             _trace(config, payload, f"guard:{decision}")
+            _report_decision(client, config, payload, action, path)
             if decision in ("deny", "confirm"):
                 return _deny("Jasmine Authority requires operator action")
             if decision not in ("allow", "verify"):

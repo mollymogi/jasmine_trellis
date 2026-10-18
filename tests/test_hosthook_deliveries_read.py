@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from hosthook_support import HostHookHttp
+from hosthook_support import HOST, HostHookHttp
 
 PATH = "/v1/host-hooks/deliveries"
 
@@ -60,6 +60,27 @@ class DeliveriesRead(HostHookHttp):
         token = self.key(["objects:read"])
         code, refusal = self.call("GET", PATH, token=token)
         self.assertEqual((code, refusal["error"]["code"]), (403, "forbidden_scope"), refusal)
+
+    def test_a_p1_guard_report_reads_back_as_the_decision_with_its_rule(self) -> None:
+        from types import SimpleNamespace
+
+        from jasmine_core.capture import p1_codex_hook as hook
+
+        def post(path: str, body: dict) -> dict:
+            self.assertEqual(path, "/v1/host-hooks/events")
+            code, out = self.send(body)
+            self.assertEqual(code, 201, out)
+            return out
+
+        config = {"host_id": HOST, "project_id": self.project, "task_id": self.task, "step_id": self.step}
+        native = {"hook_event_name": "PreToolUse", "session_id": "codex-session-9", "turn_id": "turn-9",
+                  "tool_use_id": "use-9", "tool_name": "Bash", "tool_input": {"command": "rm /protected/a"}}
+        hook._report_decision(SimpleNamespace(post=post), config, native, "rm", "/protected/a")
+        code, body = self.call("GET", PATH, token=self.manage)
+        top = body["deliveries"][0]
+        self.assertEqual((top["agent"], top["event"], top["decision"]), ("codex", "tool.before", "deny"))
+        self.assertEqual([m["rule_id"] for m in top["matched_rules"]], [self.deny_rule])
+        self.assertNotIn("protected/a", json.dumps(body))
 
     def test_tool_inputs_are_never_returned(self) -> None:
         self.tool_before("rm", ["/protected/a"])
