@@ -56,8 +56,13 @@ export const NAV: { label: string; href: string; icon: LucideIcon }[] = [
   { label: 'Rules', href: hrefFor({ name: 'rules', projectId: null, taskId: null, ruleId: null }), icon: ListChecks },
 ]
 
-/** Text that disappears when the sidebar is collapsed to its icon rail. */
+/** Decorative or brand text: removed from view when the sidebar is collapsed to its icon rail. */
 const LABEL = 'group-data-[collapsible=icon]:hidden'
+/**
+ * Link text: hidden on screen when collapsed, but kept for assistive technology, so a collapsed
+ * link still has an accessible name (`display: none` would remove it from the accessibility tree).
+ */
+const LINK_LABEL = 'group-data-[collapsible=icon]:sr-only'
 
 export function isCurrent(route: Route, href: string): boolean {
   if (href.endsWith('/overview')) return route.name === 'overview'
@@ -103,7 +108,7 @@ export function AppSidebar({
                     <SidebarMenuButton asChild isActive={isCurrent(route, item.href)} tooltip={item.label}>
                       <a href={item.href} aria-current={isCurrent(route, item.href) ? 'page' : undefined}>
                         <item.icon />
-                        <span className={LABEL}>{item.label}</span>
+                        <span className={LINK_LABEL}>{item.label}</span>
                       </a>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -123,7 +128,7 @@ export function AppSidebar({
                     <SidebarMenuButton asChild tooltip={`恢复未知确认 ${pending.id}`}>
                       <a href={`#/task/${pending.taskId}/confirmation`}>
                         <CircleDashed />
-                        <span className={LABEL}>恢复未知确认 {pending.id}</span>
+                        <span className={LINK_LABEL}>恢复未知确认 {pending.id}</span>
                       </a>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -142,7 +147,7 @@ export function AppSidebar({
                   <SidebarMenuButton asChild tooltip={key}>
                     <a href={hrefFor({ name: 'pending', key })}>
                       <CircleDashed />
-                      <span className={LABEL}>{key}</span>
+                      <span className={LINK_LABEL}>{key}</span>
                     </a>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -181,7 +186,7 @@ function AccountMenu({
               <Avatar className="size-8 rounded-lg">
                 <AvatarFallback className="rounded-lg">CM</AvatarFallback>
               </Avatar>
-              <div className={`grid flex-1 text-left leading-tight ${LABEL}`}>
+              <div className="grid flex-1 text-left leading-tight group-data-[collapsible=icon]:sr-only">
                 <span className="truncate font-medium">Core 已连接</span>
                 <span className="truncate text-xs text-muted-foreground">token 仅在内存中</span>
               </div>
