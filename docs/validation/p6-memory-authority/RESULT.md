@@ -64,3 +64,6 @@ context-python 含既有 tiktoken 0.14.0。`--daily-base` 可选，仅比对日�
 源码与截图/日志 hash 由私有 EVIDENCE-MANIFEST.json 核验。未公开 DB、token 或原始私有数据。
 
 下一状态是独立代码复核与本切片证据复验；此前保持作者验证状态，不提升为 SIGNED_SCOPED_ACCEPTANCE。
+
+
+后续界面阅读层级优化见 [COMPACT-RESULT.md](COMPACT-RESULT.md)，本文件仍绑定原功能候选，不追溯改写旧验证。
