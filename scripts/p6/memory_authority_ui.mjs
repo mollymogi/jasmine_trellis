@@ -12,7 +12,12 @@ const report = { status: 'RUNNING', phase: config.phase, checks: [], network: []
 let chrome, cdp, profile
 function check(name, ok, detail) { report.checks.push({ name, passed: !!ok, detail }); if (!ok) throw new Error(name) }
 async function freePort() { const s = net.createServer(); await new Promise(r => s.listen(0, '127.0.0.1', r)); const p = s.address().port; await new Promise(r => s.close(r)); return p }
+async function settle() {
+  await evaluate(cdp, 'new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
+  await evaluate(cdp, `Promise.all(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{})))`)
+}
 async function shot(name) {
+  await settle()
   await evaluate(cdp, name.includes('expanded')
     ? `document.querySelector('[data-testid="memory-authority"]')?.scrollIntoView({block:'start'})`
     : `window.scrollTo(0,0)`)
@@ -69,8 +74,11 @@ try {
     const originalDark = await evaluate(cdp, "document.documentElement.classList.contains('dark')")
     for (const dark of [false, true]) {
       await evaluate(cdp, `document.documentElement.classList.toggle('dark', ${dark})`)
+      await settle()
       const geometry = await evaluate(cdp, `(() => { const root=document.querySelector('[data-slot="detail-layout"]'); const m=root.querySelector('[data-slot="detail-layout-main"]').getBoundingClientRect(); const a=root.querySelector('[data-slot="detail-layout-aside"]').getBoundingClientRect(); return {main:m.width, aside:a.width, sideBySide:a.x>m.x, width:root.clientWidth, scrollWidth:root.scrollWidth}; })()`)
       check((dark ? 'dark' : 'light') + '_dashboard_main_emphasis', geometry.sideBySide && geometry.main > geometry.aside * 1.6 && geometry.scrollWidth <= geometry.width + 1, geometry)
+      const contrast=await evaluate(cdp,`(()=>{const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const c=canvas.getContext('2d');const pixel=()=>Array.from(c.getImageData(0,0,1,1).data);const lum=a=>a.slice(0,3).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4}).reduce((s,v,i)=>s+v*[.2126,.7152,.0722][i],0);return Array.from(document.querySelectorAll('[data-testid="memory-authority"] button, [data-testid="memory-authority"] p, [data-testid="memory-authority"] [data-slot="badge"], [data-testid="memory-authority"] [data-slot="card-title"]')).filter(e=>e.checkVisibility()).map(e=>{const chain=[];for(let p=e;p;p=p.parentElement)chain.unshift(p);c.clearRect(0,0,1,1);c.fillStyle='white';c.fillRect(0,0,1,1);for(const p of chain){c.fillStyle=getComputedStyle(p).backgroundColor;c.fillRect(0,0,1,1)}const background=pixel();const bg=lum(background);const color=getComputedStyle(e).color;c.fillStyle=color;c.fillRect(0,0,1,1);const foreground=pixel();const fg=lum(foreground);return {text:e.textContent.slice(0,40),color,background,foreground,ratio:(Math.max(bg,fg)+.05)/(Math.min(bg,fg)+.05)}})})()`)
+      check((dark ? 'dark' : 'light') + '_dashboard_text_contrast', contrast.length>0 && contrast.every(r=>r.ratio>=4.5), {samples:contrast.length, minimum:Math.min(...contrast.map(r=>r.ratio))})
       await shot('dashboard-' + (dark ? 'dark' : 'light'))
     }
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 1000, deviceScaleFactor: 1, mobile: true })
