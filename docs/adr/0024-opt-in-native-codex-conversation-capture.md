@@ -1,10 +1,10 @@
 # ADR 0024: Opt-in native Codex conversation capture
 
-Status: implemented for operator-bound isolated environments; native CLI acceptance passed; ordinary Desktop activation awaits user hook trust.
+Status: implemented for operator-bound isolated environments; native CLI and manually typed Desktop capture plus explicit eligible-source retention accepted within the scope of `../validation/p6-memory-authority/CAPTURE-REVIEW-FIXES.md`.
 
 ## Decision
 
-Use existing `/v1/sessions` and `/v1/events` APIs to register server-assigned Core sessions and attach verbatim native user prompts and last assistant messages. The capture adapter reads native `SessionStart`, `UserPromptSubmit`, `Stop`, and `SessionEnd` payloads. It does not scrape transcripts, infer messages, run an interpreter, approve rules, or write Hindsight. No API contract or schema change is required, and the running Core/Hindsight need not restart.
+Use existing `/v1/sessions` and `/v1/events` APIs to register server-assigned Core sessions and attach verbatim native user prompts and last assistant messages. The capture adapter reads native `SessionStart`, `UserPromptSubmit`, `Stop`, and `SessionEnd` payloads. Message bodies come only from hook payloads. The review fix checks only the bounded first session metadata record for provenance; it does not import transcript messages, infer messages, run an interpreter, approve rules, or write Hindsight. No API contract or schema change is required, and the running Core/Hindsight need not restart.
 
 An operator-owned binding selects one loopback Core, project, optional task, and private key files. System credentials carry only `objects:write` and `events:write`; the separate prompt credential carries `events:write` for human attribution. Native ownership and text cannot select destinations or approve Authority. These are local single-user trust boundaries, not a multi-user ACL.
 
@@ -14,10 +14,16 @@ Registration and message events have deterministic event IDs. Start/resume/retri
 
 Codex linked worktrees load hooks from the common repository. The isolated launcher reads the actual `hooks/list` inventory, refuses managed hooks, disables inherited non-managed hooks for that invocation, then supplies exactly four isolated lifecycle hooks through explicit configuration overrides. Exec receives the overrides in its own argument parser. Nothing writes persisted hook trust. Normal interactive use requires the user's `/hooks` review; controlled acceptance alone used the official one-off reviewed-hook bypass.
 
-Workspace Desktop hooks are installed only at `/Users/mercuryliu/Public/AgentApp/Jasmine Mesh/.codex/`, capture that exact working directory, and exclude the nested daily V1 repository. The read-only inventory confirms all four are currently untrusted. A real newly created Desktop conversation completed but yielded no capture receipt; ordinary Desktop auto-capture is not accepted yet.
+Workspace Desktop hooks are installed only at `/Users/mercuryliu/Public/AgentApp/Jasmine Mesh/.codex/`, capture that exact working directory, and exclude the nested daily V1 repository. The initial read-only inventory found four untrusted definitions and the first new Desktop conversation produced no receipt. The user subsequently trusted all four. The follow-up review fixes and real manually typed Desktop acceptance are recorded separately in `../validation/p6-memory-authority/CAPTURE-REVIEW-FIXES.md`; the initial evidence remains unchanged.
 
 ## Long-term memory remains separate
 
 The explicitly started isolated Memory worker scans committed eligible sources. Ordinary prompts, assistant messages and task-scoped decisions do not become project memory. In the acceptance run, the operator approved a project-scoped decision expressing the user's existing instruction to leave daily services unchanged. Its native prompt origin, approval event, job, real Hindsight document and extracted memory unit were read back. This verifies eligible-source retention, not automatic semantic interpretation, native context injection, recall benefit or full P4/V1 acceptance.
 
 The worker recovery cursor was explicitly advanced past the existing synthetic demonstration history before activation, with the prior/new cursor recorded. Synthetic records stay labelled synthetic and are not retroactively sent to the engine as real conversation evidence. The worker and Hindsight remain running in the isolated environment.
+
+## Review follow-up: input provenance and inventory framing
+
+A UserPromptSubmit hook also runs for Desktop-generated suggestion inputs. A hook name alone must not establish human provenance. The capture adapter excludes missing or mismatched persisted-session headers before Core writes, preserves normal persisted forks and records the verified header digest. This is a local compatibility boundary, not identity authentication. Unknown transcript formats and genuine ephemeral sessions are excluded; native hook text is never reclassified by keywords.
+
+The launcher reads unbuffered byte chunks, drains complete JSONL frames before waiting for new bytes and reaps its inventory child on all paths. This prevents batched config notifications from causing a false startup timeout. Historical bad attribution is preserved as immutable evidence; no history rewrite is implied.

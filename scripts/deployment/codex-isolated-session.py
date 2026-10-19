@@ -17,35 +17,59 @@ import sys
 import time
 
 
-def inherited_hooks(codex, cwd):
-    """Read Codex's actual hook inventory, including common-repo worktree hooks."""
-    proc=subprocess.Popen([codex,'app-server'],cwd=cwd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,bufsize=1)
+def inherited_hooks(codex, cwd, *, timeout=20):
+    """Read the inventory without stranding prefetched JSONL responses."""
+    proc = subprocess.Popen([codex, 'app-server'], cwd=cwd, stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+    pending = bytearray()
+    selector = selectors.DefaultSelector()
+    selector.register(proc.stdout, selectors.EVENT_READ)
+
     def send(value):
-        proc.stdin.write(json.dumps(value)+'\n');proc.stdin.flush()
+        proc.stdin.write((json.dumps(value) + '\n').encode())
+        proc.stdin.flush()
+
     def receive(identifier):
-        selector=selectors.DefaultSelector();selector.register(proc.stdout,selectors.EVENT_READ)
-        try:
-            deadline=time.monotonic()+20
-            while time.monotonic()<deadline:
-                if not selector.select(timeout=1):continue
-                line=proc.stdout.readline()
-                if not line:break
-                result=json.loads(line)
-                if result.get('id')==identifier:
-                    if 'error' in result:raise RuntimeError('Hook inventory was refused')
+        deadline = time.monotonic() + timeout
+        while True:
+            # Drain complete frames before waiting on the OS descriptor. A
+            # notification and response may arrive together or in split reads.
+            while b'\n' in pending:
+                line, _, remainder = pending.partition(b'\n')
+                pending[:] = remainder
+                result = json.loads(line)
+                if result.get('id') == identifier:
+                    if 'error' in result:
+                        raise RuntimeError('Hook inventory was refused')
                     return result['result']
-            raise RuntimeError('Hook inventory timed out; refusing an unchecked launch')
-        finally:selector.close()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not selector.select(timeout=remaining):
+                raise RuntimeError('Hook inventory timed out; refusing an unchecked launch')
+            chunk = os.read(proc.stdout.fileno(), 65536)
+            if not chunk:
+                raise RuntimeError('Hook inventory closed before a complete response')
+            pending.extend(chunk)
+
     try:
-        send({'id':1,'method':'initialize','params':{'clientInfo':{'name':'jasmine-isolated-hook-inventory','version':'1'},'capabilities':{'experimentalApi':True}}});receive(1)
-        send({'method':'initialized'});send({'id':2,'method':'hooks/list','params':{'cwds':[str(cwd)]}})
-        result=receive(2)
-        if any(item.get('errors') for item in result['data']):raise RuntimeError('Hook inventory contains errors')
+        send({'id': 1, 'method': 'initialize', 'params': {'clientInfo': {'name': 'jasmine-isolated-hook-inventory', 'version': '1'}, 'capabilities': {'experimentalApi': True}}})
+        receive(1)
+        send({'method': 'initialized'})
+        send({'id': 2, 'method': 'hooks/list', 'params': {'cwds': [str(cwd)]}})
+        result = receive(2)
+        if any(item.get('errors') for item in result['data']):
+            raise RuntimeError('Hook inventory contains errors')
         return [hook for item in result['data'] for hook in item['hooks']]
     finally:
-        proc.terminate()
-        try:proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:proc.kill();proc.wait()
+        selector.close()
+        if proc.poll() is None:
+            proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        proc.stdin.close()
+        proc.stdout.close()
 
 p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('--binding',required=True,type=Path)

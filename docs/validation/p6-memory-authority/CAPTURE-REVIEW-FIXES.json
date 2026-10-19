@@ -1,0 +1,111 @@
+{
+  "verdict": "PASS_DESKTOP_CAPTURE_EXPLICIT_RETAIN_SCOPED",
+  "p1": "fixed observed native suggestion path; null/missing/mismatched session provenance excluded before Core writes; persisted forks permitted",
+  "p2": "fixed JSONL buffering; batched notification and response, split frames, EOF, timeout and cleanup checked",
+  "python_codex_tests": 22,
+  "hosthook_regression_tests": 197,
+  "browser_checks": 12,
+  "actual_inventory_seconds": 0.13956820801831782,
+  "source_sha256": {
+    "src/jasmine_core/capture/codex_session.py": "2e9c19faae984e8850cff55a619810a7ef1a1bf7ae2742de9e55a9674b5fab6f",
+    "scripts/deployment/codex-isolated-session.py": "9446e64bc633704512d01bebbdadfc68217391575f81a081c6bf1c344b9865e5",
+    "tests/test_codex_session_capture.py": "0767814dc491582b48b1fdf0b7915eae03347cb54970d1a1cf37731a15acb9d5",
+    "tests/test_codex_isolated_launcher.py": "926edbc58a519b2f981013004ff819c4e1bdcf72ce84919662502d7e4a8b41b2"
+  },
+  "acceptance": {
+    "native_session_id": "01a15503-f4e5-79d1-8f5c-ac7656af2470",
+    "session_id": "ses_01M5AG83CGMD7K3YMPQY32ZH3J",
+    "project_id": "prj_01M59QCGHWSTTDH1Z1Z1WS3W1P",
+    "prompt_event_id": "evt_0ENJJHAR3B51EWPZMF9RC57TYR",
+    "assistant_event_id": "evt_PFB92XJ9KRBV4P0RGMNMG6VTZQ",
+    "prompt": "**本次桌面验收只使用隔离环境，保留来源记录，不修改日常服务。确认将这条项目约束保存为记忆。请只回复：桌面验收消息已收到。 需要这一步，是因为 Codex 的自动创建会话功能会把初始输入标为代理转交，不能代替你亲自输入的消息来证明用户归因。**\n",
+    "assistant": "桌面验收消息已收到。",
+    "memory_id": "mem_01M5AG92S60NGG917Q41F8ZV2T",
+    "job_id": "mjb_01M5AG92S72ST57J42YGT5AYB4",
+    "source_event_id": "evt_01M5AG92DK5YBJD8ZHHQXMR6Y2",
+    "document_id": "hindsight:confirmed_decision:bedd635508d9499a625bdc1cfe82a2f1",
+    "unit_ids": [
+      "8994f5aa-5da5-4b50-a861-d713d257460b"
+    ],
+    "excluded_ephemeral_sessions": [
+      "01a15504-2a81-73f0-b415-847a189e2573"
+    ],
+    "excluded_sessions_have_zero_core_events": true,
+    "approval": "explicit operator approval of user-confirmed project Decision; not automatic conversational Memory",
+    "engine_state": "RETAINED",
+    "job_status": "DONE"
+  },
+  "boundaries": {
+    "daily_19_files_unchanged": true,
+    "daily_four_listener_pid_sets_unchanged": true,
+    "daily_pids": {
+      "18787": [
+        "39404"
+      ],
+      "15180": [
+        "1099"
+      ],
+      "18084": [
+        "1590"
+      ],
+      "15434": [
+        "1391"
+      ]
+    },
+    "engine_running": true,
+    "engine_started_at": "2026-10-19T08:40:15.474659+00:00",
+    "engine_not_restarted": true,
+    "workspace_hooks_unchanged": true,
+    "workspace_config_unchanged": true,
+    "isolated_listener_pids": {
+      "65015": [
+        "25161"
+      ],
+      "65016": [
+        "25162"
+      ],
+      "53201": [
+        "25204"
+      ],
+      "53202": [
+        "25235"
+      ]
+    }
+  },
+  "limitations": [
+    "Persisted-header check is local host provenance, not authentication of human identity or a guaranteed classifier for every future Desktop automation. Official transcript format is unstable; unknown formats fail closed.",
+    "Historical misattributed immutable events remain preserved; no history rewrite or fabricated replacement.",
+    "Only the new manually typed desktop session and explicit operator-approved project Decision retention are accepted. No automatic conversation interpretation, recall benefit or full P4/P6/V1 acceptance.",
+    "The desktop session remains open; SessionEnd is separately exercised by the native CLI regression.",
+    "Pre-existing uncommitted frontend changes from the other user-directed chat are preserved and excluded from this change."
+  ],
+  "evidence_root": "/Users/mercuryliu/Documents/JasmineCoreWork/p6-memory-authority-20261018-201955/evidence/capture-fixes-20261019T163406Z",
+  "evidence_sha256": {
+    "observed-origin-envelope.json": "75e058bbbfcdbae6741d0fed5b30ba2a14bea71c70bee07c31ab76012de3e705",
+    "hooks-inventory-fixed.json": "8eaf2c25c18b7ae16dea63473d70fdf1cc1c8035500478e9d7ec216223f35c9f",
+    "cli-launch.json": "e208da4f47231e821da4a4b4c60f9ec99af3d6e9e3f0cee8dc4ba42a8a1f6d5c",
+    "cli-hook-receipts.jsonl": "3b2967cc277efd6ad2b2b9925c9c543cbab65bdbb2f00be2bff4a28c88426f2c",
+    "desktop-events.json": "0c9e9e854f557befb7fcd9f8bcf4c33d6e14d0ebd6eae7fa1250ab0f4ebf6903",
+    "desktop-receipts.json": "5fd90e8a7e02751ce71e4afbeb2e26da26a37f023acd8d783b481155118683cb",
+    "memory-before-explicit-approval.json": "7b46fd4d7de8581833f97450cb2200ebed0cb8b36fbbd921e177934b50cbbbe6",
+    "desktop-approved-source.json": "46a7b368f555870e856e484fbd8d1b8de8c252babd446c2525d8a845ae846ad3",
+    "memory-item.json": "2dbe0c9a3c04bc4b4d47c598221e031e936c92784f7058ee473def5847b37bf5",
+    "memory-job.json": "f85cffb7acbed9e7d6dfc29646eceaf0b1c431705ac15eb218f18dc97993d21e",
+    "hindsight-document.json": "01ebd822ba50b834bc134588bb870aacbf69e6b3abce3e9b5b1232d56891dda4",
+    "hindsight-units.json": "aba740cebdfeb4b7857ad86ff696f36b9c20bb3b6c98bfe70a9f916f708b2940",
+    "browser-passed/checks.json": "b79c101160565b9662ce7d75e8b6864d280f8a55a789ca69ad11706773ea65db",
+    "boundaries-before.json": "fdad59e3b040f71727ed7fe4c5702db9bb8e5acb3ae09c9cecc67c1722f560d2",
+    "boundaries-after.json": "5574c7917693196b6e50b194eed5beab5d8989f6ec29845a32ca9c9f6d316339",
+    "result.json": "d3053b777dd18e84d87bcd0c54926ab94aae8c6c6cc6e812cc82794852292226",
+    "capture-fixes-component-tests.log": "4597324bec65c20ff624e909dcf6cd8f0df8eda0d41ef4763a41b2a503e772e2",
+    "capture-fixes-hosthook-tests.log": "71f684012a71616259e851e725dbcccaa1796ab454cda1c6d800ef89bf39d96b"
+  },
+  "screenshots": {
+    "browser-passed/01-session-list.png": "4cd7dc884a45f65b497bade6bc05912427930947bee4b6e90f90b50fa5d383bb",
+    "browser-passed/02-exact-conversation.png": "0928177735be3bd772d5e60840173e7cbf4da0f59ca67c21f3e2aa9e7ea23cee",
+    "browser-passed/03-native-source.png": "86f9cbe5aafc0898908e6b1e285172b17a8b0ec79a0711720fc01cfc16b28729",
+    "browser-passed/04-real-memory.png": "a10c800908174ce2248957caab30b59b4b3a5f40cb2e58c4b8795e23db19cb20",
+    "browser-passed/05-memory-sources.png": "f7d5e9a8842f79e1a1ff0e584b9199859752587dab0bc94719a1c15802927588",
+    "browser-passed/06-approval-event.png": "319c661f3302502b0dbfc4e9a94bef44cdb3991c7e29e3512ddeea9012321cb2"
+  }
+}

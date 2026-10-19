@@ -25,6 +25,38 @@ EVENTS = {"SessionStart": "session.started", "UserPromptSubmit": "user.prompt",
           "Stop": "assistant.message", "SessionEnd": "session.ended"}
 
 
+def session_origin(native: dict[str, Any]) -> dict[str, str] | None:
+    """Verify a persisted main-session header; never read transcript messages.
+
+    Desktop suggestion forks have transcript_path=null and no origin flags in
+    UserPromptSubmit. Their hook name alone is insufficient human provenance.
+    Unknown/ephemeral inputs fail closed, including Stop, so a generated answer
+    cannot leak back as an ordinary conversation message. Persisted forks remain
+    eligible. This is an opt-in local boundary, not authentication of a human.
+    """
+    path = native.get("transcript_path")
+    if not isinstance(path, str) or not Path(path).is_absolute():
+        return None
+    try:
+        with Path(path).open("rb") as stream:
+            line = stream.readline(1024 * 1024 + 1)
+        if len(line) > 1024 * 1024:
+            return None
+        header = json.loads(line)
+        meta = header.get("payload", {})
+        if (header.get("type") != "session_meta"
+                or meta.get("id") != native.get("session_id")
+                or not isinstance(meta.get("cwd"), str)
+                or not isinstance(native.get("cwd"), str)
+                or Path(meta["cwd"]).resolve() != Path(native["cwd"]).resolve()
+                or meta.get("source") not in {"cli", "exec", "vscode"}):
+            return None
+        return {"check": "persisted_session_header", "session_source": meta["source"],
+                "header_sha256": hashlib.sha256(line).hexdigest()}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+
+
 def capture(native: dict[str, Any], binding: Binding) -> dict[str, Any]:
     """Return a receipt of accepted Core writes; exceptions are never success."""
     event = native.get("hook_event_name")
@@ -40,6 +72,11 @@ def capture(native: dict[str, Any], binding: Binding) -> dict[str, Any]:
         raise ValueError("native prompt must be text")
     if event == "UserPromptSubmit" and binding.human_api_key_file is None:
         raise ValueError("a separate human prompt key is required")
+    origin = session_origin(native)
+    if origin is None:
+        return {"status": "ignored", "reason": "unverified_session_origin",
+                "native_hook_event": event, "native_session_id": sid,
+                "native_turn_id": native.get("turn_id")}
     system = CoreClient(binding.core_url, read_key(binding.api_key_file), timeout=5)
     # Stable source identity makes registration idempotent across start/resume,
     # retries, and concurrent hooks. The Core, not the hook, assigns ses_ IDs.
@@ -51,7 +88,7 @@ def capture(native: dict[str, Any], binding: Binding) -> dict[str, Any]:
         "event_id": _deterministic_event_id(SOURCE, identity, "registration"),
     })["object"]["session_id"]
     payload = {"text": text, "native_session_id": sid, "native_turn_id": native.get("turn_id"),
-               "native_hook_event": event, "trust": "NATIVE_HOOK"}
+               "native_hook_event": event, "trust": "NATIVE_HOOK", "origin": origin}
     if event == "SessionStart":
         payload["source"] = native.get("source")
     if event == "SessionEnd":
@@ -68,7 +105,7 @@ def capture(native: dict[str, Any], binding: Binding) -> dict[str, Any]:
     return {"status": "accepted", "native_hook_event": event, "native_session_id": sid,
             "native_turn_id": native.get("turn_id"), "session_id": session,
             "event_id": recorded["event_id"], "event_type": recorded["event_type"],
-            "replayed": response["replayed"], "text_sha256": hashlib.sha256(text.encode()).hexdigest()}
+            "origin": origin, "replayed": response["replayed"], "text_sha256": hashlib.sha256(text.encode()).hexdigest()}
 
 
 def append_receipt(path: Path, receipt: dict[str, Any]) -> None:

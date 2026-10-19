@@ -30,9 +30,16 @@ class ConversationCapture(ApiTestCase):
             'host_id': HOST, 'project_id': self.project, 'api_key_file': str(base/'system.key'),
             'human_api_key_file': str(base/'human.key')}))
         self.binding = load_binding(self.binding_path)
+        self.native_root = base
+        self.transcript = base/'native.jsonl'
+        self.write_header()
+
+    def write_header(self, **extra):
+        self.transcript.write_text(json.dumps({'type':'session_meta', 'payload':{
+            'id':'native-1', 'cwd':str(self.native_root), 'source':'vscode', **extra}})+'\n')
 
     def native(self, event, **extra):
-        return {'hook_event_name': event, 'session_id': 'native-1', 'turn_id': 'turn-1', **extra}
+        return {'hook_event_name': event, 'session_id': 'native-1', 'turn_id': 'turn-1', 'cwd':str(self.native_root), 'transcript_path':str(self.transcript), **extra}
 
     def test_new_session_and_exact_conversation_are_readable_by_session(self):
         start=capture(self.native('SessionStart', source='startup'), self.binding)
@@ -88,3 +95,34 @@ class ConversationCapture(ApiTestCase):
         with patch('sys.argv',argv),patch('sys.stdin',io.StringIO(json.dumps(self.native('SessionStart',cwd=str(nested))))):
             self.assertEqual(main(),0)
         self.assertEqual(json.loads(receipt.read_text())['reason'],'outside_project')
+
+    def test_ephemeral_prediction_never_registers_or_uses_human_key(self):
+        from dataclasses import replace
+        # Exact observed host signature: no subagent flags, fork + null path.
+        binding = replace(self.binding, human_api_key_file=Path('/nonexistent-human-key'))
+        for event in ['SessionStart', 'UserPromptSubmit', 'Stop', 'SessionEnd']:
+            n = self.native(event, transcript_path=None, source='fork', prompt='generated input', last_assistant_message='generated suggestion')
+            r = capture(n, binding)
+            self.assertEqual(r['reason'], 'unverified_session_origin')
+        conn = db.connect(self.db_path)
+        self.assertEqual(conn.execute('SELECT count(*) FROM sessions').fetchone()[0], 0)
+        self.assertEqual(conn.execute('SELECT count(*) FROM memory_items').fetchone()[0], 0)
+        conn.close()
+
+    def test_real_persisted_fork_is_not_discarded_and_text_is_not_classified(self):
+        start = capture(self.native('SessionStart', source='fork'), self.binding)
+        text = 'This is an app-generated request for a suggested next user message. The user did not write this message.'
+        prompt = capture(self.native('UserPromptSubmit', prompt=text), self.binding)
+        self.assertEqual(prompt['status'], 'accepted')
+        self.assertEqual(start['session_id'], prompt['session_id'])
+        self.assertEqual(prompt['origin']['check'], 'persisted_session_header')
+
+    def test_mismatched_missing_malformed_and_subagent_headers_fail_closed(self):
+        for meta in [{'id':'different'}, {'cwd':'/other'}, {'source':{'subagent':{'other':'prediction'}}}]:
+            self.write_header(**meta)
+            self.assertEqual(capture(self.native('UserPromptSubmit', prompt='x'), self.binding)['status'], 'ignored')
+        for content in ['not json', '[]', '{}', 'x'*(1024*1024+1)]:
+            self.transcript.write_text(content)
+            self.assertEqual(capture(self.native('UserPromptSubmit', prompt='x'), self.binding)['status'], 'ignored')
+        self.transcript.unlink()
+        self.assertEqual(capture(self.native('UserPromptSubmit', prompt='x'), self.binding)['status'], 'ignored')
