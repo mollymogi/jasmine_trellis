@@ -67,7 +67,7 @@ def main():
         database=out/'runtime/core.db';conn=db.connect(database);migrate(conn);host=ids.new_id('hst');actor=ids.new_id('act')
         with db.transaction(conn):reg=registry.Registry(conn);reg.upsert_host(host,display_name='Isolated P6 fixture');reg.upsert_actor(actor,kind='human',home_host_id=host)
         scopes=['objects:read','objects:write','events:read','events:write','authority:read','authority:propose','authority:manage','memory:read']
-        keys={name:auth.Auth(conn).issue_key(actor_id=actor,label='SCRATCH '+name,scopes=s) for name,s in [('setup',scopes),('read',['objects:read','events:read','authority:read','memory:read']),('limited',['memory:read'])]}
+        keys={name:auth.Auth(conn).issue_key(actor_id=actor,label='SCRATCH '+name,scopes=s) for name,s in [('setup',scopes),('read',['objects:read','events:read','authority:read','memory:read']),('limited',['objects:read','events:read','memory:read'])]}
         cp,up=port(),port();assert cp!=up and not {cp,up}&{18787,15180,18084,15434};core=f'http://127.0.0.1:{cp}';ui=f'http://127.0.0.1:{up}';report['ports']={'core':cp,'ui':up}
         env={k:v for k,v in os.environ.items() if k in ('HOME','USER','PATH','LANG','TMPDIR')};env.update(PYTHONPATH=str(ROOT/'src'),PYTHONDONTWRITEBYTECODE='1',PYTHONNOUSERSITE='1',JASMINE_MEMORY_DEPLOYMENT_MODE='single_user')
         server=start([sys.executable,'-B','-m','jasmine_core.cli','serve','--db',str(database),'--port',str(cp)],env,'core.log');wait(core+'/v1/health',server)

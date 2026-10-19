@@ -23,7 +23,9 @@ export function MemoryAuthority({ comparison }: { comparison?: MemoryAuthorityCo
   const validPair = current && historical && isCoreId(current.rule_id, 'rul') &&
     Number.isInteger(current.version) && Number.isInteger(historical.version) &&
     current.version > 0 && historical.version > 0 && typeof current.content === 'string' &&
-    typeof historical.content === 'string' && (
+    typeof historical.content === 'string' && current.scope && typeof current.scope === 'object' &&
+    Number.isInteger(current.revision) && current.revision > 0 &&
+    isCoreId(current.origin_event_id, 'evt') && isCoreId(historical.origin_event_id, 'evt') && (
       comparison?.status === 'ORIGIN_RETIRED' ? current.status === 'RETIRED' :
       current.status === 'ACTIVE' && (comparison?.status === 'VERSION_MATCH'
         ? current.version === historical.version : current.version !== historical.version)

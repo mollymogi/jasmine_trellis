@@ -51,6 +51,12 @@ describe('historical Memory / current Authority', () => {
     expect(screen.getByText(/不能据此判断没有冲突/)).toBeTruthy()
     expect(screen.queryByTestId('memory-authority-status')).toBeNull()
   })
+  it('withholds an incomplete snapshot instead of crashing or creating a broken link', () => {
+    const c = comparison(); c.current_rule!.scope = null as never
+    render(<MemoryAuthority comparison={c} />)
+    expect(screen.getByText(/不能据此判断没有冲突/)).toBeTruthy()
+    expect(screen.queryByTestId('memory-authority-versions')).toBeNull()
+  })
   it('replaces an old sampled match after re-reading', () => {
     const c = comparison('VERSION_MATCH'); c.current_rule!.version = 1
     const view = render(<MemoryAuthority comparison={c} />)
