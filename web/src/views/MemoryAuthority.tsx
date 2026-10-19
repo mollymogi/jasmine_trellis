@@ -1,6 +1,6 @@
 /** ADR 0022: Core owns the comparison; mogi-ui provides the dashboard hierarchy. */
-import { useState, type ReactNode } from 'react'
-import { ArrowRight, BookOpen, CircleHelp, FileText, History, Link2, LockKeyhole, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { useRef, useState, type ReactNode } from 'react'
+import { ArrowRight, CircleHelp, FileText, History, Link2, LockKeyhole, ShieldCheck, TriangleAlert } from 'lucide-react'
 import type { MemoryAuthorityComparison } from '../api/types'
 import { SourceLink } from '../components/Trace'
 import { RawText } from '../components/RawText'
@@ -30,6 +30,7 @@ export function MemoryAuthority({ comparison, aside, actions }: {
   comparison?: MemoryAuthorityComparison; aside?: ReactNode; actions?: ReactNode
 }): JSX.Element {
   const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
   const [container, setContainer] = useState<HTMLDivElement | null>(null)
   const current = comparison?.current_rule
   const historical = comparison?.historical_rule
@@ -47,6 +48,7 @@ export function MemoryAuthority({ comparison, aside, actions }: {
   const known = comparison && Object.hasOwn(COPY, comparison.status) && (!paired || validPair)
   const status = known ? comparison.status : 'UNKNOWN'
   const copy = known ? COPY[status]! : { title: '暂时无法核对', description: 'Core 未提供可识别的完整结果，不能据此判断没有冲突。', badge: '信息不足' }
+  const showCurrent = paired && validPair && current.status === 'ACTIVE'
   const warning = status === 'VERSION_CHANGED' || status === 'ORIGIN_RETIRED'
   const Icon = warning ? TriangleAlert : status === 'UNAVAILABLE' ? LockKeyhole : status === 'VERSION_MATCH' ? Link2 : CircleHelp
   return (
@@ -57,49 +59,33 @@ export function MemoryAuthority({ comparison, aside, actions }: {
             <p className="text-xs font-medium tracking-widest text-muted-foreground"><a href="#/memory/items">MEMORY</a> / 决策对照</p>
             <h1 className="text-2xl font-semibold tracking-tight">记忆详情</h1>
           </div>
-          <div className="flex flex-wrap gap-2">{actions}<Button variant="outline" onClick={() => setOpen(true)}><FileText /> 查看判定依据</Button></div>
+          <div className="flex flex-wrap gap-2">{actions}<Button variant="outline" onClick={event => { triggerRef.current = event.currentTarget; setOpen(true) }}><FileText /> 查看判定依据</Button></div>
         </div>}
-        summary={<Card className={warning ? 'border-warning/40 bg-warning-soft/30' : ''}>
-          <CardHeader>
+        summary={<Card className={showCurrent ? 'border-primary/30 bg-accent/20' : warning ? 'border-warning/40 bg-warning-soft/30' : ''} data-testid={showCurrent ? 'memory-current-card' : undefined}>
+          <CardHeader className="gap-4">
             <div className="flex flex-wrap items-center gap-3">
-              <Badge variant={warning ? 'warning' : 'outline'}><Icon /> {copy.badge}</Badge>
-              <span className="text-xs text-muted-foreground">以当前规则为准</span>
+              <Badge variant={showCurrent ? 'soft' : warning ? 'warning' : 'outline'}>{showCurrent ? <ShieldCheck /> : <Icon />} {showCurrent ? '当前要求' : copy.badge}</Badge>
+              {showCurrent && warning ? <Badge variant="warning"><TriangleAlert />{copy.badge}</Badge> : null}
             </div>
-            <CardTitle className="text-2xl leading-snug">{copy.title}</CardTitle>
+            <CardTitle className="whitespace-pre-wrap [overflow-wrap:anywhere] text-2xl leading-snug sm:text-3xl">{showCurrent ? clip(maskCredentials(current.content).text, 480) || '（空内容）' : copy.title}</CardTitle>
             <CardDescription role={warning ? 'alert' : 'status'} data-testid="memory-authority-status" data-status={status} className="text-sm leading-relaxed text-foreground">{copy.description}</CardDescription>
           </CardHeader>
         </Card>}
-        metrics={[
-          { label: '历史来源版本', value: paired && validPair ? `v${historical.version}` : '待核对', Icon: History },
-          { label: '当前规则版本', value: paired && validPair ? `v${current.version}` : '待核对', Icon: ShieldCheck },
-          { label: '记忆定位', value: '历史参考', Icon: BookOpen },
-        ].map(({ label, value, Icon: MetricIcon }) => <Card key={label} className="gap-2 py-4"><CardContent className="grid gap-2">
-          <p className="flex items-center gap-2 text-xs text-muted-foreground"><MetricIcon className="size-4" />{label}</p>
-          <p className="text-xl font-semibold">{value}</p>
-        </CardContent></Card>)}
         aside={aside}
       >
-        <Card>
-          <CardHeader><CardTitle>历史与当前</CardTitle><CardDescription>{paired && validPair ? '保留当时的内容，同时查看本次采样读到的规则。' : '缺少可靠关联时，不把历史内容判定为当前依据。'}</CardDescription></CardHeader>
+        <Card data-testid={paired && validPair ? 'memory-authority-comparison' : undefined}>
+          <CardHeader><CardTitle>历史来源</CardTitle><CardDescription>{paired && validPair ? '保留当时的内容供追溯，当前要求显示在页面顶部。' : '缺少可靠关联时，不把历史内容判定为当前依据。'}</CardDescription></CardHeader>
           <CardContent>
-            {paired && validPair ? <div className="grid grid-cols-1 gap-4 md:grid-cols-2" data-testid="memory-authority-comparison">
-              <div className="grid content-start gap-4 rounded-lg border bg-muted/40 p-4" data-testid="memory-history-card">
-                <div className="flex items-center justify-between gap-2"><span className="text-sm text-muted-foreground">历史来源</span><Badge variant="outline"><History /> v{historical.version}</Badge></div>
-                <ComparisonText value={historical.content} />
-                <p className="text-xs text-muted-foreground">仅供追溯，不会覆盖当前规则。</p>
-              </div>
-              <div className="grid content-start gap-4 rounded-lg border border-primary/30 bg-accent/30 p-4" data-testid="memory-current-card">
-                <div className="flex items-center justify-between gap-2"><span className="text-sm font-medium">当前规则记录</span><Badge variant="soft"><ShieldCheck /> v{current.version}</Badge></div>
-                <ComparisonText value={current.content} />
-                <p className="text-xs text-muted-foreground">{current.status === 'RETIRED' ? '已撤销，不是当前生效的规则。' : '本次采样时关联版本有效。'}</p>
-              </div>
+            {paired && validPair ? <div className="grid content-start gap-4 rounded-lg border bg-muted/40 p-4" data-testid="memory-history-card">
+              <ComparisonText value={historical.content} />
+              <p className="text-xs text-muted-foreground">{current.status === 'RETIRED' ? '来源规则已撤销，这段内容不能作为当前要求。' : '仅供追溯，不会覆盖顶部的当前规则。'}</p>
             </div> : <div className="grid gap-2 rounded-lg bg-muted/40 p-4"><p>暂不能展示版本对照。</p><p className="text-sm text-muted-foreground">此对照只核对明确关联的规则版本，不按文字判断任意语义冲突。</p></div>}
           </CardContent>
         </Card>
         <p className="flex items-center gap-2 text-xs text-muted-foreground"><History className="size-4 shrink-0" />只读快照；记忆、规则和任务状态的修改需要分别提交。</p>
       </DetailLayout>
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent container={container} className="sm:max-w-xl">
+        <SheetContent container={container} className="sm:max-w-xl" onCloseAutoFocus={event => { event.preventDefault(); triggerRef.current?.focus() }}>
           <SheetHeader><SheetTitle>对照依据与来源</SheetTitle><SheetDescription>完整版本、来源事件和采样信息。</SheetDescription></SheetHeader>
           <SheetBody className="grid content-start gap-4" data-testid="memory-authority-details">
             <p>判定：<code>{status}</code>；依据：<code>{comparison?.reason ?? 'comparison_unavailable'}</code>；Core 采样时间：{comparison ? formatTimestamp(comparison.sampled_at) : '未提供'}。</p>
