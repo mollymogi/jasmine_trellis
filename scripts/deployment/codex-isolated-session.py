@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+"""Open a real Codex session with explicit isolated conversation hooks.
+
+Pass operator-owned binding/root/receipt paths. No global config, credentials,
+persisted trust or daily service is changed. Review hooks in Codex before use.
+"""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shlex
+import shutil
+import selectors
+import subprocess
+import sys
+import time
+
+
+def inherited_hooks(codex, cwd):
+    """Read Codex's actual hook inventory, including common-repo worktree hooks."""
+    proc=subprocess.Popen([codex,'app-server'],cwd=cwd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,bufsize=1)
+    def send(value):
+        proc.stdin.write(json.dumps(value)+'\n');proc.stdin.flush()
+    def receive(identifier):
+        selector=selectors.DefaultSelector();selector.register(proc.stdout,selectors.EVENT_READ)
+        try:
+            deadline=time.monotonic()+20
+            while time.monotonic()<deadline:
+                if not selector.select(timeout=1):continue
+                line=proc.stdout.readline()
+                if not line:break
+                result=json.loads(line)
+                if result.get('id')==identifier:
+                    if 'error' in result:raise RuntimeError('Hook inventory was refused')
+                    return result['result']
+            raise RuntimeError('Hook inventory timed out; refusing an unchecked launch')
+        finally:selector.close()
+    try:
+        send({'id':1,'method':'initialize','params':{'clientInfo':{'name':'jasmine-isolated-hook-inventory','version':'1'},'capabilities':{'experimentalApi':True}}});receive(1)
+        send({'method':'initialized'});send({'id':2,'method':'hooks/list','params':{'cwds':[str(cwd)]}})
+        result=receive(2)
+        if any(item.get('errors') for item in result['data']):raise RuntimeError('Hook inventory contains errors')
+        return [hook for item in result['data'] for hook in item['hooks']]
+    finally:
+        proc.terminate()
+        try:proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:proc.kill();proc.wait()
+
+p=argparse.ArgumentParser(description=__doc__)
+p.add_argument('--binding',required=True,type=Path)
+p.add_argument('--project-root',required=True,type=Path)
+p.add_argument('--receipts',required=True,type=Path)
+p.add_argument('--launch-receipt',type=Path)
+p.add_argument('codex_args',nargs=argparse.REMAINDER)
+a=p.parse_args()
+os.umask(0o077)
+repo=Path(__file__).resolve().parents[2]
+command=shlex.join(['env','PYTHONPATH='+str(repo/'src'),sys.executable,'-B','-m','jasmine_core.capture.codex_session','--binding',str(a.binding.resolve(strict=True)),'--project-root',str(a.project_root.resolve(strict=True)),'--receipts',str(a.receipts.absolute())])
+codex=shutil.which('codex')
+if not codex:raise SystemExit('Codex executable is unavailable')
+args=[codex,'-c','features.hooks=true','-c','projects.'+json.dumps(str(a.project_root.resolve()))+'.trust_level="trusted"']
+# Worktrees inherit hook definitions from their common repository. Disable all
+# inherited non-managed hooks for this invocation only before adding our four.
+# Never run an inherited production capture hook against an isolation test.
+inventory=inherited_hooks(codex,a.project_root.resolve(strict=True))
+for hook in inventory:
+    if hook.get('isManaged'):raise SystemExit('Managed hook is present; an isolated launch requires operator review')
+    args+=['-c','hooks.state.'+json.dumps(hook['key'])+'.enabled=false']
+for event in ('SessionStart','UserPromptSubmit','Stop','SessionEnd'):
+    value='[{hooks=[{type="command",command='+json.dumps(command,ensure_ascii=False)+',timeout='+str(3 if event=='SessionEnd' else 10)+'}]}]'
+    args+=['-c','hooks.'+event+'='+value]
+if a.launch_receipt:
+    a.launch_receipt.write_text(json.dumps({'project_root':str(a.project_root.resolve()),'disabled_inherited_hooks':[h['key'] for h in inventory],'scope':'session-only; persisted configuration and trust unchanged','capture_sha256':hashlib.sha256((repo/'src/jasmine_core/capture/codex_session.py').read_bytes()).hexdigest(),'launcher_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest()},indent=2)+'\n')
+extra=a.codex_args[1:] if a.codex_args[:1]==['--'] else a.codex_args
+os.chdir(a.project_root)
+# Exec has its own configuration argument parser; pass overrides to that parser.
+argv=[codex,extra[0],*args[1:],*extra[1:]] if extra[:1] in (['exec'],['review']) else args+extra
+os.execv(codex,argv)
