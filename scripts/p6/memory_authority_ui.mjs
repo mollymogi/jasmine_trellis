@@ -73,7 +73,7 @@ try {
     }
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 1000, deviceScaleFactor: 1, mobile: true })
     await evaluate(cdp, 'new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
-    check('mobile_dashboard_no_horizontal_overflow', await evaluate(cdp, `(() => { const root=document.querySelector('[data-slot="detail-layout"]'); const m=root.querySelector('[data-slot="detail-layout-main"]').getBoundingClientRect(); const a=root.querySelector('[data-slot="detail-layout-aside"]').getBoundingClientRect(); return a.y>=m.bottom-1 && root.scrollWidth<=root.clientWidth+1 && document.documentElement.scrollWidth<=innerWidth+1; })()`))
+    const mobileLayout = await evaluate(cdp, `(() => { const root=document.querySelector('[data-slot="detail-layout"]'); const m=root.querySelector('[data-slot="detail-layout-main"]').getBoundingClientRect(); const a=root.querySelector('[data-slot="detail-layout-aside"]').getBoundingClientRect(); return {ordered:a.y>=m.bottom-1, rootWidth:root.clientWidth, rootScrollWidth:root.scrollWidth, pageWidth:innerWidth, pageScrollWidth:document.documentElement.scrollWidth}; })()`); check('mobile_dashboard_no_horizontal_overflow', mobileLayout.ordered && mobileLayout.rootScrollWidth<=mobileLayout.rootWidth+1 && mobileLayout.pageScrollWidth<=mobileLayout.pageWidth+1, mobileLayout)
     await shot('dashboard-mobile')
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1200, deviceScaleFactor: 1, mobile: false })
     await evaluate(cdp, `document.documentElement.classList.toggle('dark', ${originalDark})`)

@@ -82,7 +82,7 @@ export function MemoryAuthority({ comparison, aside, actions }: {
         <Card>
           <CardHeader><CardTitle>历史与当前</CardTitle><CardDescription>{paired && validPair ? '保留当时的内容，同时查看本次采样读到的规则。' : '缺少可靠关联时，不把历史内容判定为当前依据。'}</CardDescription></CardHeader>
           <CardContent>
-            {paired && validPair ? <div className="grid gap-4 md:grid-cols-2" data-testid="memory-authority-comparison">
+            {paired && validPair ? <div className="grid grid-cols-1 gap-4 md:grid-cols-2" data-testid="memory-authority-comparison">
               <div className="grid content-start gap-4 rounded-lg border bg-muted/40 p-4" data-testid="memory-history-card">
                 <div className="flex items-center justify-between gap-2"><span className="text-sm text-muted-foreground">历史来源</span><Badge variant="outline"><History /> v{historical.version}</Badge></div>
                 <ComparisonText value={historical.content} />

@@ -1,4 +1,4 @@
-// Copied from mollymogi/mogi-ui packages/ui/src/components/ui/detail-layout.tsx @ 057df6441934345b649c457b9eb1520505713093 (read-only source; candidate PR pending).
+// Copied from mollymogi/mogi-ui packages/ui/src/components/ui/detail-layout.tsx @ bcd41e15a648dfa631a11177d8fdda75ef0dddff (read-only source; candidate PR).
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
@@ -30,19 +30,19 @@ function DetailLayout({
   }[metricColumns]
 
   return (
-    <div data-slot="detail-layout" className={cn("grid min-w-0 gap-6", className)} {...props}>
+    <div data-slot="detail-layout" className={cn("grid grid-cols-1 min-w-0 gap-6", className)} {...props}>
       {header != null && <div data-slot="detail-layout-header" className="min-w-0">{header}</div>}
       {summary != null && <div data-slot="detail-layout-summary" className="min-w-0">{summary}</div>}
       {metrics != null && (
-        <div data-slot="detail-layout-metrics" className={cn("grid min-w-0 gap-4", metricGrid)}>
+        <div data-slot="detail-layout-metrics" className={cn("grid grid-cols-1 min-w-0 gap-4", metricGrid)}>
           {metrics}
         </div>
       )}
-      <div data-slot="detail-layout-body" className={cn("grid min-w-0 items-start gap-6", hasAside && "lg:grid-cols-3")}>
-        <div data-slot="detail-layout-main" className={cn("grid min-w-0 gap-6", hasAside && "lg:col-span-2")}>
+      <div data-slot="detail-layout-body" className={cn("grid grid-cols-1 min-w-0 items-start gap-6", hasAside && "lg:grid-cols-3")}>
+        <div data-slot="detail-layout-main" className={cn("grid grid-cols-1 min-w-0 gap-6", hasAside && "lg:col-span-2")}>
           {children}
         </div>
-        {hasAside && <aside data-slot="detail-layout-aside" className="grid min-w-0 gap-4">{aside}</aside>}
+        {hasAside && <aside data-slot="detail-layout-aside" className="grid grid-cols-1 min-w-0 gap-4">{aside}</aside>}
       </div>
     </div>
   )
