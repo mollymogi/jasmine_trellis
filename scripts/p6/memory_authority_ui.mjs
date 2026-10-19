@@ -24,6 +24,8 @@ async function openComparison() {
   await clickByText(cdp, 'button', '查看判定依据')
   check('comparison_details_expanded', await evaluate(cdp, `!!document.querySelector('[data-testid="memory-authority-details"]') && !!document.querySelector('[role="dialog"]')`))
   check('expand_does_not_write', before === report.network_requests.filter(r => r.method !== 'GET').length)
+  await evaluate(cdp, `new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`)
+  await evaluate(cdp, `Promise.all(Array.from(document.querySelectorAll('[role="dialog"]')).flatMap(e=>e.getAnimations({subtree:true})).filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{})))`)
 }
 
 async function navigate(path, token = config.readToken) {
