@@ -47,7 +47,7 @@ import {
 
 // Each item carries an icon, so the collapsed icon rail still says what a button opens.
 export const NAV: { label: string; href: string; icon: LucideIcon }[] = [
-  { label: 'Memory', href: '#/memory/health', icon: Brain },
+  { label: 'Memory', href: hrefFor({ name: 'memoryItems', memoryId: null }), icon: Brain },
   { label: 'Validation', href: '#/validation/runs', icon: ShieldCheck },
   { label: 'Overview', href: hrefFor({ name: 'overview' }), icon: LayoutDashboard },
   { label: 'Conversation', href: hrefFor({ name: 'conversation', projectId: null, taskId: null, sessionId: null }), icon: MessagesSquare },
