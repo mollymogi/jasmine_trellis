@@ -40,7 +40,7 @@ export function MemoryAuthority({ comparison }: { comparison?: MemoryAuthorityCo
   return (
     <section data-testid="memory-authority" className="stack" aria-label="历史 Memory 与当前 Authority">
       <h3>历史 Memory 与当前 Authority</h3>
-      <p role={warning ? 'alert' : 'status'} data-testid="memory-authority-status">
+      <p className={warning ? 'rounded-lg border border-warning bg-warning-soft p-3' : undefined} role={warning ? 'alert' : 'status'} data-testid="memory-authority-status">
         <strong>{LABELS[comparison.status]}</strong> · <code>{comparison.status}</code>
       </p>
       <p>依据：<code>{comparison.reason}</code>；Core 采样时间：{formatTimestamp(comparison.sampled_at)}。</p>
@@ -67,7 +67,7 @@ export function HistoricalMemoryFilters({ filtered }: { filtered: unknown[] }): 
     'reason' in v && (v.reason === 'superseded_decision' || v.reason === 'retired_decision'))
   return <section data-testid="memory-authority-filters" className="stack">
     <p>以下是召回当时记录的过滤结果；当前规则需打开对应 Memory 重新核对。</p>
-    {rows.length ? <p role="alert">{rows.length} 条历史决策因来源已被替代或撤销而未进入该次召回内容。</p> : null}
+    {rows.length ? <p role="alert" className="rounded-lg border border-warning bg-warning-soft p-3">{rows.length} 条历史决策因来源已被替代或撤销而未进入该次召回内容。</p> : null}
     {rows.map((row, index) => <p key={index}>
       <code>{String(row.reason)}</code>{' '}
       {typeof row.memory_id === 'string' && isCoreId(row.memory_id, 'mem') ?

@@ -12,7 +12,7 @@ const report = { status: 'RUNNING', phase: config.phase, checks: [], network: []
 let chrome, cdp, profile
 function check(name, ok, detail) { report.checks.push({ name, passed: !!ok, detail }); if (!ok) throw new Error(name) }
 async function freePort() { const s = net.createServer(); await new Promise(r => s.listen(0, '127.0.0.1', r)); const p = s.address().port; await new Promise(r => s.close(r)); return p }
-async function shot(name) { const s = await cdp.send('Page.captureScreenshot', { format: 'png' }); await writeFile(join(config.out, name + '.png'), Buffer.from(s.data, 'base64')) }
+async function shot(name) { await evaluate(cdp, `(() => { const target=document.querySelector('[data-testid="memory-authority"]') ?? document.querySelector('[data-testid="memory-authority-filters"]'); target?.scrollIntoView({block:'start'}); })()`); const s = await cdp.send('Page.captureScreenshot', { format: 'png' }); await writeFile(join(config.out, name + '.png'), Buffer.from(s.data, 'base64')) }
 async function navigate(path, token = config.readToken) {
   await cdp.send('Page.navigate', { url: config.ui + path })
   await waitFor(cdp, `!!document.querySelector('input[type="password"]') || !!document.querySelector('[data-testid="memory-authority"]') || !!document.querySelector('[data-testid="memory-authority-filters"]')`)
@@ -81,7 +81,7 @@ try {
   }
   check('proxy_item_read_observed', report.network.some(r => r.path.startsWith('/v1/memory/items/') && r.status===200 && r.request_id))
   check('no_persistent_browser_credentials', await evaluate(cdp, `(async()=>localStorage.length===0 && sessionStorage.length===0 && (await indexedDB.databases()).length===0)()`))
-  check('no_bearer_in_report', !JSON.stringify(report).includes(config.readToken) && !JSON.stringify(report).includes(config.setupToken))
+  check('no_bearer_in_report', !JSON.stringify(report).includes(config.readToken) && !JSON.stringify(report).includes(config.setupToken) && !JSON.stringify(report).includes(config.limitedToken))
   report.status = 'PASS_REAL_CORE_CHROME_WITH_LABELLED_ENGINE_DOUBLE'
 } catch(e) { report.status='FAIL'; report.error=String(e.stack??e); if(cdp) await shot('failure-'+config.phase).catch(()=>{}) }
 finally { cdp?.close(); if(chrome) { chrome.kill('SIGTERM'); await new Promise(r=>{ if(chrome.exitCode!==null)r(); else {chrome.once('exit',r);setTimeout(()=>{chrome.kill('SIGKILL');r()},3000).unref()} }) } if(profile)await rm(profile,{recursive:true,force:true}); await writeFile(join(config.out, 'browser-'+config.phase+'.json'),JSON.stringify(report,null,2)+'\n') }
