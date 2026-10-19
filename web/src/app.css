@@ -27,7 +27,8 @@ body {
     overflow-wrap: normal;
   }
 
-  a {
+  /* Component links own their text color; ordinary content links remain primary. */
+  a:not([data-slot]) {
     color: var(--primary);
     text-underline-offset: 3px;
   }

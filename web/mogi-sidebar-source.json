@@ -1,0 +1,23 @@
+{
+  "repository": "https://github.com/mollymogi/mogi-ui",
+  "commit": "3b957fc6b91254383791328dfd5a1d2406fd9464",
+  "files": {
+    "web/src/styles/mogi/theme.css": {
+      "source": "packages/tokens/src/theme.css",
+      "sha256": "e2a320deb245aeff853a3ba2c08de2a8861eca0b8a92fd2e0c6cff1971606f71"
+    },
+    "web/src/styles/mogi/primitives.css": {
+      "source": "packages/tokens/src/primitives.css",
+      "sha256": "c3904599f97d4de22de2e146afd21bc25370cde56f650d983f8d3719958c578e"
+    },
+    "web/src/styles/mogi/motion.css": {
+      "source": "packages/tokens/src/motion.css",
+      "sha256": "991ebde51755a28f6566e8a249802f73b4919dedba957643bdfacbf448560e94"
+    },
+    "web/src/components/ui/sidebar.tsx": {
+      "source": "packages/ui/src/components/ui/sidebar.tsx",
+      "transform": "registry import aliases only",
+      "sha256": "9248680ccdb6f026acc91f74249808d859717c5cfef42f3c70120b67e606ac27"
+    }
+  }
+}

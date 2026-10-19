@@ -1,0 +1,59 @@
+/*
+ * Mogi 基础色板（Primitive tokens）
+ * 来源：角色 mogi（茉莉花 + 柯基）。组件不要直接引用这里的变量，
+ * 应该引用 theme.css 里的语义变量（--primary、--muted 等）。
+ */
+:root {
+  /* corgi：主色，柯基姜橘 */
+  --corgi-50: #fdf6ee;
+  --corgi-100: #fae8d3;
+  --corgi-200: #f3cfa6;
+  --corgi-300: #e9b07a;
+  --corgi-400: #dc9357;
+  --corgi-500: #c97d45;
+  --corgi-600: #a65a2a; /* 亮色主题的 primary，奶白字对比度 4.9:1 */
+  --corgi-700: #8c4f2a;
+  --corgi-800: #6d3f24;
+  --corgi-900: #58331f;
+
+  /* sand：中性色，奶油到摩卡（650 是亮色主题的辅助文字） */
+  --sand-50: #fdfaf5;
+  --sand-100: #f9efe3;
+  --sand-200: #efe1d0;
+  --sand-300: #dfcbb5;
+  --sand-400: #c4a88f;
+  --sand-500: #a57e69;
+  --sand-600: #86634f;
+  --sand-650: #765645;
+  --sand-700: #6a4c3c;
+  --sand-800: #4e372c;
+  --sand-900: #3a2820;
+  --sand-950: #291b15;
+
+  /* terracotta：辅助强调，毛衣肩部 */
+  --terracotta-100: #f8ddd0;
+  --terracotta-300: #eab399;
+  --terracotta-500: #d98d6a;
+  --terracotta-700: #b86b48;
+  --terracotta-800: #984a28;
+
+  /* jasmine：茉莉叶绿，成功态 / 点缀 */
+  --jasmine-100: #e8efd6;
+  --jasmine-300: #b9cc8a;
+  --jasmine-500: #7f9a4a;
+  --jasmine-700: #55702a;
+
+  /* petal：茉莉白 */
+  --petal: #fffaf3;
+
+  /* rose：错误 / 危险 */
+  --rose-100: #f9ddd6;
+  --rose-500: #c4553c;
+  --rose-600: #a8402c;
+  --rose-700: #9b3f2b;
+
+  /* honey：警告 */
+  --honey-100: #fbefc9;
+  --honey-500: #d9a63a;
+  --honey-700: #a67a1f;
+}

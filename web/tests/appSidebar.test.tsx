@@ -4,7 +4,7 @@
  * Below 768px the sidebar is a modal sheet over the page. Choosing any link in it must close the
  * sheet, or the target view stays covered and focus stays trapped in the sheet. Each group is
  * checked on its own: the business navigation, the pending-confirmation links and the
- * not-yet-open scope links.
+ * feature explanation entry.
  */
 
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -13,7 +13,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type { PendingConfirmation } from '../src/api/webConfirmations'
 import { AppSidebar } from '../src/components/AppSidebar'
-import { pendingKeys } from '../src/views/PendingView'
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 
 const PENDING: PendingConfirmation = {
@@ -56,7 +55,7 @@ describe('AppSidebar on a phone-width viewport', () => {
   it.each([
     ['a business navigation link', 'Overview'],
     ['a pending-confirmation link', `恢复未知确认 ${PENDING.id}`],
-    ['a not-yet-open scope link', pendingKeys()[0]],
+    ['the feature explanation entry', '功能说明'],
   ])('closes the sheet after choosing %s', async (_group, name) => {
     const user = userEvent.setup()
     renderSidebar()

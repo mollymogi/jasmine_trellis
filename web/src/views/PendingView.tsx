@@ -82,6 +82,15 @@ const SPECS: Record<string, PendingSpec> = {
 }
 
 export function PendingView({ pendingKey }: { pendingKey: string }): JSX.Element {
+  if (pendingKey === 'features') return <Panel title="功能说明">
+    <p>这里汇总各功能的已交付能力和使用范围；完整阶段验收尚未完成。</p>
+    <ul className="grid gap-4">
+      {Object.entries(SPECS).map(([key, spec]) => <li key={key} className="grid gap-1">
+        <a href={`#/pending/${key}`} className="font-medium">{spec.title}</a>
+        <p className="text-sm text-muted-foreground">{spec.feature}</p>
+      </li>)}
+    </ul>
+  </Panel>
   if (pendingKey === 'backup') return <LocalBackupStatus />
   const spec = SPECS[pendingKey]
   if (spec === undefined) {
