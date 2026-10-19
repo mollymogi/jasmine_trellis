@@ -1,0 +1,48 @@
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryEngineStart } from '../src/views/MemoryEngineStart'
+const endpoints = vi.hoisted(() => ({ memoryEngineState: vi.fn(), startMemoryEngine: vi.fn() }))
+vi.mock('../src/app/session', () => ({ useSession: () => ({ endpoints }) }))
+const state = (value: string, extra = {}) => ({ enabled: true, can_start: true, state: value, operation_id: value === 'STOPPED' ? null : 'op-1', started_at: null, api_version: null, error_code: null, ...extra })
+beforeEach(() => { vi.resetAllMocks() })
+afterEach(() => { cleanup(); vi.useRealTimers() })
+describe('explicit Memory engine startup', () => {
+  it('only reads on mount and disables startup for a read-only key', async () => {
+    endpoints.memoryEngineState.mockResolvedValue(state('STOPPED', { can_start: false }))
+    render(<MemoryEngineStart onConnected={() => {}} />)
+    await screen.findByText('当前为只读登录，启动引擎需要引擎管理权限。')
+    expect((screen.getByRole('button', { name: /一键启动引擎/ }) as HTMLButtonElement).disabled).toBe(true)
+    expect(endpoints.startMemoryEngine).not.toHaveBeenCalled()
+  })
+  it('coalesces duplicate clicks and waits for readiness before refreshing health', async () => {
+    endpoints.memoryEngineState.mockResolvedValue(state('STOPPED'))
+    let resolve: (value: unknown) => void = () => {}
+    endpoints.startMemoryEngine.mockReturnValue(new Promise(r => { resolve = r }))
+    const connected = vi.fn(); render(<MemoryEngineStart onConnected={connected} />)
+    const button = await screen.findByRole('button', { name: /一键启动引擎/ })
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(button); fireEvent.click(button)
+    expect(endpoints.startMemoryEngine).toHaveBeenCalledTimes(1); expect(connected).not.toHaveBeenCalled()
+    await act(async () => resolve(state('STARTING')))
+    expect(screen.getByText('正在启动引擎…')).toBeTruthy(); expect(connected).not.toHaveBeenCalled()
+    endpoints.memoryEngineState.mockResolvedValue(state('RUNNING'))
+    await waitFor(() => expect(screen.getByText('引擎已连接')).toBeTruthy(), { timeout: 2500 })
+    expect(connected).toHaveBeenCalledTimes(1)
+  })
+  it('does not show a failed start as connected or automatically retry it', async () => {
+    endpoints.memoryEngineState.mockResolvedValue(state('FAILED', { error_code: 'engine_port_in_use' }))
+    render(<MemoryEngineStart onConnected={() => {}} />)
+    await screen.findByText('预设端口已被占用，没有接管或停止其他服务。')
+    expect(screen.getByRole('button', { name: '重试启动引擎' })).toBeTruthy()
+    expect(screen.queryByText('引擎已连接')).toBeNull(); expect(endpoints.startMemoryEngine).not.toHaveBeenCalled()
+  })
+  it('treats a lost POST response as uncertain and offers status readback', async () => {
+    endpoints.memoryEngineState.mockResolvedValue(state('STOPPED')); endpoints.startMemoryEngine.mockRejectedValue(new Error('lost'))
+    render(<MemoryEngineStart onConnected={() => {}} />)
+    const button = await screen.findByRole('button', { name: /一键启动引擎/ }); await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false)); fireEvent.click(button)
+    await screen.findByText('暂时无法确认启动状态，请重新读取；不会自动重复启动。')
+    fireEvent.click(screen.getByRole('button', { name: '重新读取启动状态' }))
+    await waitFor(() => expect(endpoints.memoryEngineState).toHaveBeenCalledTimes(2))
+    expect(endpoints.startMemoryEngine).toHaveBeenCalledTimes(1)
+  })
+})

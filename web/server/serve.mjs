@@ -118,6 +118,7 @@ export function loadAllowlist(directory = HERE, {
   enableP4Writes = p4WritesEnabled(),
   enableP7Reads = p7ReadsEnabled(),
   enableWebConfirmations = webConfirmationsEnabled(),
+  enableMemoryEngineControl = flagEnabled(process.env, "P6_ENABLE_MEMORY_ENGINE_CONTROL"),
 } = {}) {
   const raw = JSON.parse(readFileSync(join(directory, 'core-paths.json'), 'utf8'))
   const baseline = raw.paths.map((pattern) => new RegExp(pattern))
@@ -140,6 +141,7 @@ export function loadAllowlist(directory = HERE, {
     methods: new Set(raw.methods.map((method) => method.toUpperCase())),
     paths: [
       ...baseline,
+      ...(enableMemoryEngineControl ? (raw.memory_engine_read_paths ?? []).map(pattern => new RegExp(pattern)) : []),
       ...(enableWebConfirmations ? (raw.web_confirmation_read_paths ?? []).map((pattern) => new RegExp(pattern)) : []),
       ...(enableP3Reads ? pending : []),
       ...(enableP4Reads ? pendingP4 : []),
@@ -155,6 +157,7 @@ export function loadAllowlist(directory = HERE, {
     write_methods: raw.write_methods ?? [],
     write_paths: [
       ...(raw.write_paths ?? []),
+      ...(enableMemoryEngineControl ? (raw.memory_engine_write_paths ?? []).map(pattern => new RegExp(pattern)) : []),
       ...(enableWebConfirmations ? raw.web_confirmation_write_paths ?? [] : []),
       ...(enableP4Writes ? raw.p4_write_paths ?? [] : []),
     ],
@@ -264,10 +267,10 @@ export function proxy(req, res, origin, allowlist) {
     }, requestId)
     return
   }
-  if ((req.method ?? '').toUpperCase() === 'POST' && target.pathname.startsWith('/v1/evidence/confirmations/')) {
+  if ((req.method ?? '').toUpperCase() === 'POST' && (target.pathname.startsWith('/v1/evidence/confirmations/') || target.pathname === '/v1/memory/engine/start')) {
     const browserOrigin = req.headers.origin
     if (browserOrigin !== undefined && browserOrigin !== `http://${req.headers.host}`) {
-      sendJson(res, 403, { error: { code: 'proxy_origin_not_allowed', message: 'confirmation writes require a same-origin browser request' } }, requestId)
+      sendJson(res, 403, { error: { code: 'proxy_origin_not_allowed', message: 'local writes require a same-origin browser request' } }, requestId)
       return
     }
   }

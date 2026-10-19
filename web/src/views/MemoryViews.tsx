@@ -59,6 +59,7 @@ import {
 import { MemoryLifecyclePanel, MemoryRetryPanel } from './MemoryWrites'
 import { MemoryAuthority, HistoricalMemoryFilters } from './MemoryAuthority'
 import { MemoryHealthDashboard } from './MemoryHealthDashboard'
+import { MemoryEngineStart } from './MemoryEngineStart'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { DescriptionItem, DescriptionList } from '@/components/ui/description-list'
@@ -218,7 +219,7 @@ export function MemoryHealthView(): JSX.Element {
       resource={resource}
     >
       {(health) => (
-        <MemoryHealthDashboard health={health} onRefresh={resource.reload} details={<>
+        <MemoryHealthDashboard health={health} onRefresh={resource.reload} engineControl={<MemoryEngineStart onConnected={resource.reload} />} details={<>
           <MemorySliceStatus />
           <NonAuthoritative payload={health} />
           <KeyValue

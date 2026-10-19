@@ -857,8 +857,9 @@ alternative — a second dispatch table — would leave `resolve()` incomplete, 
 route that `resolve()` cannot find is a route whose 404 is indistinguishable from
 a typo. Both extensions are shared-file changes and are listed as such in
 ADR 0014 §12."""
+from ..memory import engine_api as memory_engine_api
 from ..hosthook import api as hosthook_api  # noqa: E402  (ADR 0017)
 
 ROUTES = (tuple(_base_routes()) + tuple(_collection_routes())
           + memory_api.routes(Route) + validation_api.routes(Route)
-          + hosthook_api.routes(Route))
+          + hosthook_api.routes(Route) + memory_engine_api.routes(Route))

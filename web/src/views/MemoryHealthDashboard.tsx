@@ -23,8 +23,8 @@ function count(value: unknown): number | null {
 }
 
 /** Reads Core's report; no engine probe, configuration change or inferred success. */
-export function MemoryHealthDashboard({ health, onRefresh, details }: {
-  health: MemoryHealth; onRefresh: () => void; details: ReactNode
+export function MemoryHealthDashboard({ health, onRefresh, details, engineControl }: {
+  health: MemoryHealth; onRefresh: () => void; details: ReactNode; engineControl?: ReactNode
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [container, setContainer] = useState<HTMLDivElement | null>(null)
@@ -52,6 +52,7 @@ export function MemoryHealthDashboard({ health, onRefresh, details }: {
           <CardDescription className="text-sm leading-relaxed text-foreground" role={warning ? 'alert' : 'status'}>{state.description}</CardDescription>
         </CardHeader>
         <CardContent className="border-t border-primary/15 pt-4 text-sm text-muted-foreground">
+          {engineControl}
           {health.core_impact === 'none' ? 'Core 主流程未受影响。' : health.core_impact === 'memory_paused' ? 'Memory 已暂停，Core 主流程仍可使用。' : '对 Core 的影响尚待核对。'}
           {health.non_authoritative === true ? ' 记忆仅供历史参考，当前规则和任务状态优先。' : null}
         </CardContent>

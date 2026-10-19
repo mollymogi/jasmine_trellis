@@ -89,6 +89,14 @@ class MemoryServices:
                 from .hindsight import HindsightTransport
 
                 self._transport = HindsightTransport(config)
+        # ADR 0023: explicit startup may activate a fixed operator profile.
+        # This fallback never accepts an origin or credential from a request.
+        if self._transport is None:
+            from .engine_control import running_origin
+            from .hindsight import HindsightConfig, HindsightTransport
+            database=next(row[2] for row in self.conn.execute('PRAGMA database_list') if row[1]=='main')
+            origin=running_origin(database)
+            if origin is not None:self._transport=HindsightTransport(HindsightConfig(origin))
         return self._transport
 
     def visible_projects(self, actor_id: str, requested: str | None) -> tuple[str, ...] | None:

@@ -1,4 +1,5 @@
 import { confirmationEndpoints } from './webConfirmations'
+import { memoryEngineEndpoints } from './memoryEngine'
 /**
  * The frozen P6-01 endpoint surface.
  *
@@ -112,6 +113,7 @@ function id(value: string): string {
 export function makeEndpoints(client: CoreClient) {
   return {
     ...confirmationEndpoints(client),
+    ...memoryEngineEndpoints(client),
     health: (signal?: AbortSignal) => client.get<Health>('/health', { signal }),
     metaSchema: (signal?: AbortSignal) => client.get<MetaSchema>('/meta/schema', { signal }),
 

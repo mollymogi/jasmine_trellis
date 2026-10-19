@@ -9,6 +9,8 @@ being disabled.
 from __future__ import annotations
 
 import select
+import os
+import signal
 import socketserver
 import sys
 import threading
@@ -206,6 +208,8 @@ class Application:
         return dispatch(self._core(), request)
 
     def close(self) -> None:
+        from ..memory.engine_control import release_controller
+        release_controller(str(self.db_path))
         conn = getattr(self._local, "conn", None)
         if conn is not None:
             conn.close()
@@ -236,9 +240,17 @@ def serve(db_path: str | Path, *, host: str = "127.0.0.1", port: int = 8787,
     server.app = Application(db_path, log=log)  # type: ignore[attr-defined]
     server.daemon_threads = True
     log(f"jasmine-core API on http://{host}:{server.server_port} (schema v{version}, db {db_path})")
+    previous_term = None
+    if os.environ.get('JASMINE_MEMORY_ENGINE_CONTROL_CONFIG') and threading.current_thread() is threading.main_thread():
+        previous_term=signal.getsignal(signal.SIGTERM)
+        def stop_managed_server(signum, frame):
+            raise KeyboardInterrupt
+        signal.signal(signal.SIGTERM,stop_managed_server)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         log("shutting down")
     finally:
         server.server_close()
+        server.app.close()
+        if previous_term is not None:signal.signal(signal.SIGTERM,previous_term)

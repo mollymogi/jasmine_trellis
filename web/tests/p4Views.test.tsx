@@ -540,6 +540,7 @@ describe('the read views stay read-only, and the write controls are gated', () =
   const READ_ONLY_CONTROLS: ReadonlyArray<[string, (name: string) => boolean]> = [
     ['reload', (name) => name === '从 Core 重新读取' || name === '刷新状态'],
     ['read health details', (name) => name === '查看运行详情'],
+    ['disabled engine control', (name) => name === '一键启动引擎' || name === '重新读取启动状态'],
     ['read filter records', (name) => name === '查看过滤记录'],
     ['by-id form submit', (name) => name === '打开'],
     ['JsonBlock expander', (name) => /^[▸▾]/.test(name)],
