@@ -1,4 +1,4 @@
-// Copied from mollymogi/mogi-ui packages/ui/src/components/ui/detail-layout.tsx @ bcd41e15a648dfa631a11177d8fdda75ef0dddff (read-only source; candidate PR).
+// Copied from mollymogi/mogi-ui packages/ui/src/components/ui/detail-layout.tsx @ 5afbc02dd0544837e6daa6417010591e40130893 (read-only source; candidate PR).
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
@@ -30,7 +30,7 @@ function DetailLayout({
   }[metricColumns]
 
   return (
-    <div data-slot="detail-layout" className={cn("grid grid-cols-1 min-w-0 gap-6", className)} {...props}>
+    <div data-slot="detail-layout" className={cn("grid grid-cols-1 min-w-0 gap-6 wrap-anywhere", className)} {...props}>
       {header != null && <div data-slot="detail-layout-header" className="min-w-0">{header}</div>}
       {summary != null && <div data-slot="detail-layout-summary" className="min-w-0">{summary}</div>}
       {metrics != null && (

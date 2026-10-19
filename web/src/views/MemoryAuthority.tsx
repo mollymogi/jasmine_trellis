@@ -23,7 +23,7 @@ const COPY: Record<string, { title: string; description: string; badge: string }
 }
 
 function ComparisonText({ value }: { value: string }): JSX.Element {
-  return <p className="whitespace-pre-wrap break-words text-base leading-relaxed">{clip(maskCredentials(value).text, 480) || '（空内容）'}</p>
+  return <p className="whitespace-pre-wrap [overflow-wrap:anywhere] text-base leading-relaxed">{clip(maskCredentials(value).text, 480) || '（空内容）'}</p>
 }
 
 export function MemoryAuthority({ comparison, aside, actions }: {
