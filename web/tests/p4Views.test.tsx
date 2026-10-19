@@ -205,6 +205,7 @@ describe('a refused P4 read is shown as a missing dependency', () => {
     const user = userEvent.setup()
     await enter(user, hash, { ...SIGNED_IN, ['GET ' + route]: { body: bodies[route] } })
     const panel = await screen.findByRole('region', { name: region })
+    if (hash === '#/memory/health') await user.click(await within(panel).findByRole('button', { name: /查看运行详情/ }))
     const status = await within(panel).findByTestId('slice-status')
     expect(status.textContent).toContain('Memory 功能读取 / 管理')
     // And it must name the pin and the unpassed acceptance, not just the status word.
@@ -537,7 +538,8 @@ describe('the read views stay read-only, and the write controls are gated', () =
    * (`▸`/`▾`), and `RawText`'s copy button. None of them changes anything in Core.
    */
   const READ_ONLY_CONTROLS: ReadonlyArray<[string, (name: string) => boolean]> = [
-    ['reload', (name) => name === '从 Core 重新读取'],
+    ['reload', (name) => name === '从 Core 重新读取' || name === '刷新状态'],
+    ['read health details', (name) => name === '查看运行详情'],
     ['read filter records', (name) => name === '查看过滤记录'],
     ['by-id form submit', (name) => name === '打开'],
     ['JsonBlock expander', (name) => /^[▸▾]/.test(name)],

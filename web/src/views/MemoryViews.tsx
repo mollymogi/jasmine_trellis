@@ -58,6 +58,7 @@ import {
 } from './MemoryDependency'
 import { MemoryLifecyclePanel, MemoryRetryPanel } from './MemoryWrites'
 import { MemoryAuthority, HistoricalMemoryFilters } from './MemoryAuthority'
+import { MemoryHealthDashboard } from './MemoryHealthDashboard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { DescriptionItem, DescriptionList } from '@/components/ui/description-list'
@@ -207,6 +208,7 @@ export function MemoryHealthView(): JSX.Element {
   const resource = useResource<MemoryHealth>((signal) => endpoints.memoryHealth(signal), [])
   return (
     <MemoryPanel
+      dashboard
       title="Memory 健康"
       what="Memory health"
       method="GET"
@@ -216,7 +218,8 @@ export function MemoryHealthView(): JSX.Element {
       resource={resource}
     >
       {(health) => (
-        <>
+        <MemoryHealthDashboard health={health} onRefresh={resource.reload} details={<>
+          <MemorySliceStatus />
           <NonAuthoritative payload={health} />
           <KeyValue
             rows={[
@@ -272,9 +275,11 @@ export function MemoryHealthView(): JSX.Element {
               },
             ]}
           />
+          {health.safe_error_summary ? <RawText value={health.safe_error_summary} label="错误摘要" machine={false} /> : null}
           <JsonBlock value={health.features} label="features" />
           <JsonBlock value={health.deployment} label="deployment" />
-        </>
+          {resource.loadedAt ? <StaleBanner loadedAt={resource.loadedAt} scope="Memory 健康" /> : null}
+        </>} />
       )}
     </MemoryPanel>
   )
