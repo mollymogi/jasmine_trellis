@@ -21,8 +21,8 @@ async function shot(name) {
 }
 async function openComparison() {
   const before = report.network_requests.filter(r => r.method !== 'GET').length
-  await clickByText(cdp, 'summary', '查看对照详情')
-  check('comparison_details_expanded', await evaluate(cdp, `document.querySelector('[data-testid="memory-authority-details"]').open`))
+  await clickByText(cdp, 'button', '查看判定依据')
+  check('comparison_details_expanded', await evaluate(cdp, `!!document.querySelector('[data-testid="memory-authority-details"]') && !!document.querySelector('[role="dialog"]')`))
   check('expand_does_not_write', before === report.network_requests.filter(r => r.method !== 'GET').length)
 }
 
@@ -36,7 +36,7 @@ async function navigate(path, token = config.readToken) {
 }
 async function item(id, status, token) {
   await navigate('/#/memory/items/' + id, token)
-  await waitFor(cdp, `!!document.querySelector('[data-testid="memory-authority-status"]')`)
+  await waitFor(cdp, `document.querySelector('[data-testid="memory-authority-status"]')?.dataset.status === ${JSON.stringify(status)}`)
   check('item_' + status, (await evaluate(cdp, `document.querySelector('[data-testid="memory-authority-status"]').dataset.status`)).includes(status))
 }
 async function core(method, path, body) {
@@ -54,16 +54,29 @@ try {
   cdp.onEvent(m => { if (m.method === 'Network.requestWillBeSent') { const r=m.params.request; if (new URL(r.url).pathname.startsWith('/v1/')) report.network_requests.push({ method:r.method, path:new URL(r.url).pathname }) } })
   if (config.phase === 'live') {
     await item(config.live.memory, 'VERSION_MATCH')
-    check('default_details_closed', await evaluate(cdp, `!document.querySelector('[data-testid="memory-authority-details"]').open && !document.querySelector('[data-testid="memory-item-record"]').open && !document.querySelector('[data-testid="memory-item-manage"]').open`))
+    check('default_details_closed', await evaluate(cdp, `!document.querySelector('[role="dialog"]') && !document.querySelector('[data-testid="memory-authority-details"]') && !document.querySelector('[data-testid="memory-item-record"]')`))
     check('technical_metadata_hidden_by_default', await evaluate(cdp, `!document.body.innerText.includes('same_linked_version_only') && !document.body.innerText.includes('content_sha256')`))
     await shot('initial-version-match')
     const before = await core('GET', '/v1/rules/' + config.live.rule)
     const event = await core('POST', '/v1/events', { event_type: 'user.prompt', source_system: 'labelled-p6-isolated-fixture', host_id: config.host, project_id: config.project, payload: { text: 'SYNTHETIC fixture: change decision to engine B' } })
     await core('POST', '/v1/rules/' + config.live.rule + '/supersede', { expected_revision: before.rule.revision, host_id: config.host, kind: 'DECISION', severity: 'HARD', enforcement: 'CONTEXT', content: 'SYNTHETIC current decision: use engine B', matcher: {}, scope: { kind: 'project', project_id: config.project }, origin_event_id: event.event.event_id })
-    await clickByText(cdp, 'button', '从 Core 重新读取')
+    await clickByText(cdp, 'button', '刷新')
     await waitFor(cdp, `document.querySelector('[data-testid="memory-authority-status"]').dataset.status.includes('VERSION_CHANGED')`)
     check('reload_replaces_old_match', !(await evaluate(cdp, `document.querySelector('[data-testid="memory-authority"]').textContent.includes('VERSION_MATCH')`)))
     await shot('superseded-memory-warning')
+    const originalDark = await evaluate(cdp, "document.documentElement.classList.contains('dark')")
+    for (const dark of [false, true]) {
+      await evaluate(cdp, `document.documentElement.classList.toggle('dark', ${dark})`)
+      const geometry = await evaluate(cdp, `(() => { const root=document.querySelector('[data-slot="detail-layout"]'); const m=root.querySelector('[data-slot="detail-layout-main"]').getBoundingClientRect(); const a=root.querySelector('[data-slot="detail-layout-aside"]').getBoundingClientRect(); return {main:m.width, aside:a.width, sideBySide:a.x>m.x, width:root.clientWidth, scrollWidth:root.scrollWidth}; })()`)
+      check((dark ? 'dark' : 'light') + '_dashboard_main_emphasis', geometry.sideBySide && geometry.main > geometry.aside * 1.6 && geometry.scrollWidth <= geometry.width + 1, geometry)
+      await shot('dashboard-' + (dark ? 'dark' : 'light'))
+    }
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 1000, deviceScaleFactor: 1, mobile: true })
+    await evaluate(cdp, 'new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
+    check('mobile_dashboard_no_horizontal_overflow', await evaluate(cdp, `(() => { const root=document.querySelector('[data-slot="detail-layout"]'); const m=root.querySelector('[data-slot="detail-layout-main"]').getBoundingClientRect(); const a=root.querySelector('[data-slot="detail-layout-aside"]').getBoundingClientRect(); return a.y>=m.bottom-1 && root.scrollWidth<=root.clientWidth+1 && document.documentElement.scrollWidth<=innerWidth+1; })()`))
+    await shot('dashboard-mobile')
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1200, deviceScaleFactor: 1, mobile: false })
+    await evaluate(cdp, `document.documentElement.classList.toggle('dark', ${originalDark})`)
     await openComparison()
     check('side_by_side_versions', (await evaluate(cdp, `document.querySelector('[data-testid="memory-authority-versions"]').textContent`)).includes('v1 → 当前记录 v2'))
     check('old_and_current_text', await evaluate(cdp, `document.body.textContent.includes('engine A') && document.body.textContent.includes('engine B')`))
@@ -86,9 +99,9 @@ try {
     await item(config.unlinked, 'UNVERIFIABLE'); await shot('unlinked-memory-unknown')
     await navigate('/#/memory/traces/' + config.trace)
     await waitFor(cdp, `!!document.querySelector('[data-testid="memory-authority-filters"] [role="alert"]')`)
-    check('trace_details_closed', await evaluate(cdp, `!document.querySelector('[data-testid="memory-filter-details"]').open`))
+    check('trace_details_closed', await evaluate(cdp, `!document.querySelector('[data-testid="memory-filter-details"]')`))
     await shot('historical-recall-summary')
-    await clickByText(cdp, 'summary', '查看过滤详情')
+    await clickByText(cdp, 'button', '查看过滤记录')
     check('trace_displays_both_refusal_reasons', await evaluate(cdp, `document.body.textContent.includes('superseded_decision') && document.body.textContent.includes('retired_decision')`))
     check('trace_not_misrepresented_as_current', await evaluate(cdp, `document.querySelector('[data-testid="memory-authority-filters"]').textContent.includes('召回当时')`))
     await shot('historical-recall-refusals')

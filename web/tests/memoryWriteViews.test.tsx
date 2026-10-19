@@ -150,8 +150,7 @@ async function enter(
   window.location.hash = hash
   window.dispatchEvent(new HashChangeEvent('hashchange'))
   if (hash.startsWith('#/memory/items/')) {
-    await user.click(await screen.findByText('管理这条记忆'))
-    await user.click(screen.getByText('记忆内容与来源'))
+    await user.click(await screen.findByRole('button', { name: /管理记忆/ }))
   }
 }
 

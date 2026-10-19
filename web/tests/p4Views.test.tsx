@@ -139,9 +139,9 @@ async function enter(
   await screen.findByText('Core 健康与 Schema')
   window.location.hash = hash
   window.dispatchEvent(new HashChangeEvent('hashchange'))
-  const detail = routes?.[`GET /v1${hash.slice(2)}`]?.body
+  const detail = routes?.[`GET /v1/${hash.slice(2)}`]?.body
   if (hash.startsWith('#/memory/items/') && detail && typeof detail === 'object' && 'memory' in detail) {
-    await user.click(await screen.findByText('记忆内容与来源'))
+    await user.click(await screen.findByRole('button', { name: /查看条目与来源/ }))
   }
 }
 
@@ -538,6 +538,7 @@ describe('the read views stay read-only, and the write controls are gated', () =
    */
   const READ_ONLY_CONTROLS: ReadonlyArray<[string, (name: string) => boolean]> = [
     ['reload', (name) => name === '从 Core 重新读取'],
+    ['read filter records', (name) => name === '查看过滤记录'],
     ['by-id form submit', (name) => name === '打开'],
     ['JsonBlock expander', (name) => /^[▸▾]/.test(name)],
     ['RawText copy', (name) => name.startsWith('复制')],
@@ -601,6 +602,7 @@ describe('the read views stay read-only, and the write controls are gated', () =
       const panel = await screen.findByRole('region', { name: region })
       await waitFor(() => expect(panel.textContent).not.toContain('读取失败'))
 
+      if (hash.startsWith('#/memory/items/')) await user.click(within(panel).getByRole('tab', { name: '管理记忆' }))
       // The write section is present, and it names the dependency rather than pretending.
       expect(panel.textContent).toContain('P6_ENABLE_P4_WRITES')
       expect(panel.textContent).toContain('P4 阶段验收未通过')

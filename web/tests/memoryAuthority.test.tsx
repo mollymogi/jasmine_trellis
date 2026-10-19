@@ -16,10 +16,10 @@ describe('historical Memory / current Authority', () => {
   it('warns, separates versions, escapes HTML and links the actual sources', () => {
     const { container } = render(<MemoryAuthority comparison={comparison()} />)
     expect(screen.getByRole('alert').textContent).toContain('已被新规则替代')
-    const details = screen.getByTestId('memory-authority-details')
-    expect(details.hasAttribute('open')).toBe(false)
-    fireEvent.click(screen.getByText('查看对照详情'))
-    expect(details.hasAttribute('open')).toBe(true)
+    expect(screen.queryByTestId('memory-authority-details')).toBeNull()
+    expect(screen.getByTestId('memory-authority-comparison')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /查看判定依据/ }))
+    expect(screen.getByRole('dialog')).toBeTruthy()
     expect(screen.getByTestId('memory-authority-versions').textContent).toContain('历史来源 v1 → 当前记录 v2')
     expect(container.textContent).toContain('Use engine A')
     expect(container.textContent).toContain('Use engine B')
@@ -42,7 +42,7 @@ describe('historical Memory / current Authority', () => {
     render(<MemoryAuthority comparison={{ ...comparison(status), current_rule: null, historical_rule: null }} />)
     expect(screen.queryByTestId('memory-authority-versions')).toBeNull()
     expect(screen.queryByText('没有冲突')).toBeNull()
-    if (status === 'UNAVAILABLE') expect(screen.getByText(/需要 authority:read/)).toBeTruthy()
+    if (status === 'UNAVAILABLE') { fireEvent.click(screen.getByRole('button', { name: /查看判定依据/ })); expect(screen.getByText(/需要 authority:read/)).toBeTruthy() }
   })
   it('an older Core or unknown result is unavailable', () => {
     const view = render(<MemoryAuthority />)
@@ -53,7 +53,7 @@ describe('historical Memory / current Authority', () => {
   it('rejects an inconsistent success-shaped payload', () => {
     render(<MemoryAuthority comparison={comparison('VERSION_MATCH')} />)
     expect(screen.getByText(/不能据此判断没有冲突/)).toBeTruthy()
-    expect(screen.queryByTestId('memory-authority-status')).toBeNull()
+    expect(screen.getByTestId('memory-authority-status').getAttribute('data-status')).toBe('UNKNOWN')
   })
   it('withholds an incomplete snapshot instead of crashing or creating a broken link', () => {
     const c = comparison(); c.current_rule!.scope = null as never
@@ -75,8 +75,8 @@ describe('historical Memory / current Authority', () => {
       { reason: 'foreign_project', memory_id: null },
     ]} />)
     expect(screen.getByRole('alert').textContent).toContain('2 条已被替代或撤销的旧决策')
-    expect(screen.getByTestId('memory-filter-details').hasAttribute('open')).toBe(false)
-    fireEvent.click(screen.getByText('查看过滤详情'))
+    expect(screen.queryByTestId('memory-filter-details')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /查看过滤记录/ }))
     expect(screen.getByText(/召回当时记录的过滤结果/)).toBeTruthy()
     expect(screen.getAllByRole('link')).toHaveLength(1)
   })
