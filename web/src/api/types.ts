@@ -724,6 +724,21 @@ export interface MemoryItem {
   updated_at: string
 }
 
+/** ADR 0022 additive item-detail comparison; optional for older Core. */
+export interface MemoryAuthorityComparison {
+  status: string
+  reason: string
+  sampled_at: string
+  historical_rule: {
+    version: number; content: string; origin_event_id: string; change_event_id: string
+  } | null
+  current_rule: {
+    rule_id: string; version: number; revision: number; status: string; content: string
+    scope: { kind: string; project_id: string | null; task_id: string | null }
+    origin_event_id: string; change_event_id: string; status_event_id: string | null
+  } | null
+}
+
 /** The list endpoint adds `lifecycle` to each row; the detail endpoint does not. */
 export interface MemoryItemListRow extends MemoryItem {
   lifecycle: MemoryLifecycle

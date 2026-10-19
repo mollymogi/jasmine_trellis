@@ -33,6 +33,7 @@ import type {
   Host,
   MemoryHealth,
   MemoryItem,
+  MemoryAuthorityComparison,
   MemoryItemListRow,
   MemoryJob,
   MemoryJobAttempt,
@@ -315,6 +316,7 @@ export function makeEndpoints(client: CoreClient) {
     getMemoryItem: (memoryId: string, signal?: AbortSignal) =>
       client.get<{
         memory: MemoryItem
+        authority_comparison?: MemoryAuthorityComparison
         sources: unknown[]
         jobs: MemoryJob[]
         recallable: boolean

@@ -55,6 +55,7 @@ import {
   isMemoryPending,
 } from './MemoryDependency'
 import { MemoryLifecyclePanel, MemoryRetryPanel } from './MemoryWrites'
+import { MemoryAuthority, HistoricalMemoryFilters } from './MemoryAuthority'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 /** Every route in this slice requires exactly this scope; P4 adds no helper scopes. */
@@ -508,6 +509,7 @@ export function MemoryItemsView({ memoryId }: { memoryId: string | null }): JSX.
         {(payload) => (
           <>
             <NonAuthoritative payload={payload} />
+            <MemoryAuthority comparison={payload.authority_comparison} />
             <MemoryItemBody item={payload.memory} />
             <KeyValue
               rows={[
@@ -693,6 +695,9 @@ export function MemoryTracesView({ traceId }: { traceId: string | null }): JSX.E
         {({ trace }) => (
           <>
             <MemoryTraceBody trace={trace} />
+            <HistoricalMemoryFilters filtered={trace.filtered} />
+            <JsonBlock value={trace.filtered} label={`filtered(${String(trace.filtered.length)})`} startsOpen />
+            <JsonBlock value={trace.authority_refs} label="召回当时的 Authority 引用" />
             <JsonBlock value={trace.items} label={`items(${String(trace.items.length)})`} startsOpen />
             <MemoryIdForm
               label="打开另一个 trace"

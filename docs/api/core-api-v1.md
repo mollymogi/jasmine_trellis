@@ -686,3 +686,19 @@ recomputing Guard or creating Evidence. The response identifies
 source, `core_guard` for ordinary before requests, or null for other events.
 Historical receipts are unchanged. See [ADR 0021](../adr/0021-observed-tool-decisions.md)
 for validation, replay, privacy and native-proof boundaries.
+
+## Memory / Authority comparison extension (ADR 0022)
+
+`GET /v1/memory/items/{mem}` adds optional `authority_comparison` without a
+schema migration or a new route. Memory ACL and `memory:read` remain required.
+The field contains `status`, `reason`, RFC3339 `sampled_at`, `historical_rule`
+and `current_rule`. Rule snapshots additionally require `authority:read` and a
+scope-matching, resolvable linked origin. The six statuses and snapshot fields
+are specified in [ADR 0022](../adr/0022-memory-authority-comparison.md).
+
+`VERSION_MATCH` only compares linked versions; it does not assert semantic
+agreement, successful verification, or recall eligibility. `VERSION_CHANGED`
+and `ORIGIN_RETIRED` explain why the old decision is historical. Missing links,
+versions, permissions or an older Core are explicitly unavailable/unverifiable,
+never “no conflict”. No Memory engine, inference, jobs or Truth writes occur.
+Existing frozen P4 contract snapshots retain their historical bindings.
