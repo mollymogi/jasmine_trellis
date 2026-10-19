@@ -149,6 +149,10 @@ async function enter(
   await screen.findByText('Core 健康与 Schema')
   window.location.hash = hash
   window.dispatchEvent(new HashChangeEvent('hashchange'))
+  if (hash.startsWith('#/memory/items/')) {
+    await user.click(await screen.findByText('管理这条记忆'))
+    await user.click(screen.getByText('记忆内容与来源'))
+  }
 }
 
 /** The one write path a test expects, from the frozen contract rather than a literal. */
@@ -173,7 +177,7 @@ describe('the lifecycle panel sends the contract body and reads the object back'
       [`GET /v1/memory/items/${ITEM}`]: { body: ITEM_DETAIL },
       [`POST /v1/memory/items/${ITEM}/pin`]: { body: freshLifecycle() },
     })
-    const panel = await screen.findByRole('region', { name: /Memory Item/ })
+    const panel = await screen.findByRole('region', { name: /记忆详情/ })
     await waitFor(() => expect(within(panel).getByTestId('write-submit')).toBeTruthy())
 
     await user.selectOptions(within(panel).getByTestId('lifecycle-command'), 'pin')
@@ -201,7 +205,7 @@ describe('the lifecycle panel sends the contract body and reads the object back'
         body: freshLifecycle({ event: { event_id: EVENT, event_type: 'memory.obsoleted' } }),
       },
     })
-    const panel = await screen.findByRole('region', { name: /Memory Item/ })
+    const panel = await screen.findByRole('region', { name: /记忆详情/ })
     await user.selectOptions(await within(panel).findByTestId('lifecycle-command'), 'obsolete')
     await user.click(within(panel).getByTestId('write-submit'))
     await waitFor(() => expect(within(panel).getByText(/已提交/)).toBeTruthy())
@@ -217,7 +221,7 @@ describe('the lifecycle panel sends the contract body and reads the object back'
       [`GET /v1/memory/items/${ITEM}`]: { body: ITEM_DETAIL },
       [`POST /v1/memory/items/${ITEM}/obsolete`]: { body: replayedLifecycle() },
     })
-    const panel = await screen.findByRole('region', { name: /Memory Item/ })
+    const panel = await screen.findByRole('region', { name: /记忆详情/ })
     await user.selectOptions(await within(panel).findByTestId('lifecycle-command'), 'obsolete')
     await user.click(within(panel).getByTestId('write-submit'))
     await waitFor(() => expect(within(panel).getByText(/replayed: Core 返回了原命令结果/)).toBeTruthy())
@@ -241,7 +245,7 @@ describe('the lifecycle panel sends the contract body and reads the object back'
         },
       },
     })
-    const panel = await screen.findByRole('region', { name: /Memory Item/ })
+    const panel = await screen.findByRole('region', { name: /记忆详情/ })
     await user.type(await within(panel).findByTestId('write-reason'), '固定')
     await user.click(within(panel).getByTestId('write-submit'))
 
@@ -273,7 +277,7 @@ describe('the lifecycle panel sends the contract body and reads the object back'
         },
       },
     })
-    const panel = await screen.findByRole('region', { name: /Memory Item/ })
+    const panel = await screen.findByRole('region', { name: /记忆详情/ })
     await user.click(await within(panel).findByTestId('write-submit'))
     const refused = await within(panel).findByText(/被拒绝/)
     expect(refused.textContent).toContain('forbidden_actor_kind')
@@ -298,7 +302,7 @@ describe('the lifecycle panel sends the contract body and reads the object back'
         },
       },
     })
-    const panel = await screen.findByRole('region', { name: /Memory Item/ })
+    const panel = await screen.findByRole('region', { name: /记忆详情/ })
     await user.click(await within(panel).findByTestId('write-submit'))
     await within(panel).findByText(/被拒绝/)
     expect(panel.textContent).toContain('forbidden_scope')
@@ -320,7 +324,7 @@ describe('the lifecycle panel sends the contract body and reads the object back'
         },
       },
     })
-    const panel = await screen.findByRole('region', { name: /Memory Item/ })
+    const panel = await screen.findByRole('region', { name: /记忆详情/ })
     await user.click(await within(panel).findByTestId('write-submit'))
     const pending = await within(panel).findByTestId('write-dependency-pending')
     expect(pending.textContent).toContain('proxy_path_not_allowed')
@@ -355,7 +359,7 @@ describe('the lifecycle panel sends the contract body and reads the object back'
         return undefined
       },
     )
-    const panel = await screen.findByRole('region', { name: /Memory Item/ })
+    const panel = await screen.findByRole('region', { name: /记忆详情/ })
     await waitFor(() => expect(panel.textContent).toContain('r7'))
     await user.click(await within(panel).findByTestId('write-submit'))
     await waitFor(() => expect(within(panel).getByText(/已提交/)).toBeTruthy())
@@ -511,7 +515,7 @@ describe('the write surface is a deep link, not a navigation entry', () => {
         [`GET /v1/memory/items/${ITEM}`]: { body: ITEM_DETAIL },
         [`POST ${path}`]: { body: freshLifecycle() },
       })
-      const panel = await screen.findByRole('region', { name: /Memory Item/ })
+      const panel = await screen.findByRole('region', { name: /记忆详情/ })
       await user.selectOptions(await within(panel).findByTestId('lifecycle-command'), command)
       await user.click(within(panel).getByTestId('write-submit'))
       await waitFor(() => expect(fake!.callsTo('POST', path)).toHaveLength(1))

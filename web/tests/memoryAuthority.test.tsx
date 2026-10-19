@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MemoryAuthority, HistoricalMemoryFilters } from '../src/views/MemoryAuthority'
 import type { MemoryAuthorityComparison } from '../src/api/types'
@@ -15,7 +15,11 @@ function comparison(status = 'VERSION_CHANGED'): MemoryAuthorityComparison {
 describe('historical Memory / current Authority', () => {
   it('warns, separates versions, escapes HTML and links the actual sources', () => {
     const { container } = render(<MemoryAuthority comparison={comparison()} />)
-    expect(screen.getByRole('alert').textContent).toContain('历史决策已被替代')
+    expect(screen.getByRole('alert').textContent).toContain('已被新规则替代')
+    const details = screen.getByTestId('memory-authority-details')
+    expect(details.hasAttribute('open')).toBe(false)
+    fireEvent.click(screen.getByText('查看对照详情'))
+    expect(details.hasAttribute('open')).toBe(true)
     expect(screen.getByTestId('memory-authority-versions').textContent).toContain('历史来源 v1 → 当前记录 v2')
     expect(container.textContent).toContain('Use engine A')
     expect(container.textContent).toContain('Use engine B')
@@ -26,12 +30,12 @@ describe('historical Memory / current Authority', () => {
   it('reports retirement without presenting old content as active', () => {
     const c = comparison('ORIGIN_RETIRED'); c.current_rule!.status = 'RETIRED'
     render(<MemoryAuthority comparison={c} />)
-    expect(screen.getByRole('alert').textContent).toContain('来源已撤销')
+    expect(screen.getByRole('alert').textContent).toContain('来源规则已撤销')
   })
   it('a matching version is not semantic agreement or verification', () => {
     const c = comparison('VERSION_MATCH'); c.current_rule!.version = 1
     render(<MemoryAuthority comparison={c} />)
-    expect(screen.getByTestId('memory-authority-status').textContent).toContain('不代表语义一致或验证通过')
+    expect(screen.getByTestId('memory-authority-status').textContent).toContain('记忆仍仅供参考')
     expect(screen.queryByRole('alert')).toBeNull()
   })
   it.each(['UNAVAILABLE', 'UNVERIFIABLE', 'NOT_APPLICABLE'])('never invents a clear comparison for %s', (status) => {
@@ -70,7 +74,9 @@ describe('historical Memory / current Authority', () => {
       { reason: 'retired_decision', memory_id: null },
       { reason: 'foreign_project', memory_id: null },
     ]} />)
-    expect(screen.getByRole('alert').textContent).toContain('2 条历史决策')
+    expect(screen.getByRole('alert').textContent).toContain('2 条已被替代或撤销的旧决策')
+    expect(screen.getByTestId('memory-filter-details').hasAttribute('open')).toBe(false)
+    fireEvent.click(screen.getByText('查看过滤详情'))
     expect(screen.getByText(/召回当时记录的过滤结果/)).toBeTruthy()
     expect(screen.getAllByRole('link')).toHaveLength(1)
   })

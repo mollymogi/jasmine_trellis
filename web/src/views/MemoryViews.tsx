@@ -38,6 +38,7 @@ import type {
 import { hrefFor, sourceHref } from '../app/router'
 import { useSession } from '../app/session'
 import { useResource } from '../app/useResource'
+import { Disclosure } from '../components/Disclosure'
 import { JsonBlock } from '../components/JsonBlock'
 import { RawText } from '../components/RawText'
 import { Empty, ErrorPanel, Loading, Panel, StaleBanner } from '../components/States'
@@ -131,7 +132,7 @@ function MemoryPanel<T>({
           ? children(resource.data)
           : null}
 
-        {resource.loadedAt ? <StaleBanner loadedAt={resource.loadedAt} scope={title} /> : null}
+        {resource.loadedAt ? <Disclosure title="读取信息"><StaleBanner loadedAt={resource.loadedAt} scope={title} /></Disclosure> : null}
         <button type="button" onClick={resource.reload}>
           从 Core 重新读取
         </button>
@@ -498,7 +499,7 @@ export function MemoryItemsView({ memoryId }: { memoryId: string | null }): JSX.
   if (memoryId !== null) {
     return (
       <MemoryPanel
-        title="Memory Item"
+        title="记忆详情"
         what="Memory item"
         method="GET"
         path="/v1/memory/items/{mem}"
@@ -508,43 +509,49 @@ export function MemoryItemsView({ memoryId }: { memoryId: string | null }): JSX.
       >
         {(payload) => (
           <>
-            <NonAuthoritative payload={payload} />
-            <MemoryAuthority comparison={payload.authority_comparison} />
-            <MemoryItemBody item={payload.memory} />
-            <KeyValue
-              rows={[
-                { label: 'recallable', value: String(payload.recallable) },
-                {
-                  label: 'lifecycle',
-                  value: (
-                    <span className="stack">
-                      {Object.entries(payload.lifecycle).map(([key, value]) => (
-                        <span key={key}>
-                          <code>{key}</code> {value === null ? '—' : String(value)}
-                        </span>
-                      ))}
-                    </span>
-                  ),
-                },
-                { label: 'engine_claim', value: payload.engine_claim },
-              ]}
-            />
-            <MemoryLifecyclePanel
-              item={payload.memory}
-              loadedAt={detail.loadedAt}
-              onWritten={detail.reload}
-            />
-            <JsonBlock value={payload.sources} label={`sources(${String((payload.sources as unknown[]).length)})`} />
-            <JsonBlock value={payload.jobs} label={`jobs(${String(payload.jobs.length)})`} />
-            <MemoryIdForm
-              label="打开另一个 item"
-              prefix="mem"
-              draft={draft}
-              setDraft={setDraft}
-              onSubmit={() => {
-                globalThis.location.hash = hrefFor({ name: 'memoryItem', memoryId: draft.trim() })
-              }}
-            />
+            <MemoryAuthority key={memoryId} comparison={payload.authority_comparison} />
+            <Disclosure key={memoryId + '-record'} title="记忆内容与来源" testId="memory-item-record">
+              <NonAuthoritative payload={payload} />
+              <MemoryItemBody item={payload.memory} />
+              <KeyValue
+                rows={[
+                  { label: 'recallable', value: String(payload.recallable) },
+                  {
+                    label: 'lifecycle',
+                    value: (
+                      <span className="stack">
+                        {Object.entries(payload.lifecycle).map(([key, value]) => (
+                          <span key={key}>
+                            <code>{key}</code> {value === null ? '—' : String(value)}
+                          </span>
+                        ))}
+                      </span>
+                    ),
+                  },
+                  { label: 'engine_claim', value: payload.engine_claim },
+                ]}
+              />
+              <JsonBlock value={payload.sources} label={`sources(${String((payload.sources as unknown[]).length)})`} />
+              <JsonBlock value={payload.jobs} label={`jobs(${String(payload.jobs.length)})`} />
+            </Disclosure>
+            <Disclosure key={memoryId + '-manage'} title="管理这条记忆" testId="memory-item-manage">
+              <MemoryLifecyclePanel
+                item={payload.memory}
+                loadedAt={detail.loadedAt}
+                onWritten={detail.reload}
+              />
+            </Disclosure>
+            <Disclosure title="打开其他记忆">
+              <MemoryIdForm
+                label="打开另一个 item"
+                prefix="mem"
+                draft={draft}
+                setDraft={setDraft}
+                onSubmit={() => {
+                  globalThis.location.hash = hrefFor({ name: 'memoryItem', memoryId: draft.trim() })
+                }}
+              />
+            </Disclosure>
           </>
         )}
       </MemoryPanel>
@@ -694,11 +701,13 @@ export function MemoryTracesView({ traceId }: { traceId: string | null }): JSX.E
       >
         {({ trace }) => (
           <>
-            <MemoryTraceBody trace={trace} />
-            <HistoricalMemoryFilters filtered={trace.filtered} />
-            <JsonBlock value={trace.filtered} label={`filtered(${String(trace.filtered.length)})`} startsOpen />
-            <JsonBlock value={trace.authority_refs} label="召回当时的 Authority 引用" />
-            <JsonBlock value={trace.items} label={`items(${String(trace.items.length)})`} startsOpen />
+            <HistoricalMemoryFilters key={traceId} filtered={trace.filtered} />
+            <Disclosure title="召回记录与来源" testId="memory-trace-record">
+              <MemoryTraceBody trace={trace} />
+              <JsonBlock value={trace.filtered} label={`filtered(${String(trace.filtered.length)})`} startsOpen />
+              <JsonBlock value={trace.authority_refs} label="召回当时的 Authority 引用" />
+              <JsonBlock value={trace.items} label={`items(${String(trace.items.length)})`} />
+            </Disclosure>
             <MemoryIdForm
               label="打开另一个 trace"
               prefix="mtr"

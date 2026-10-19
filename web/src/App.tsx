@@ -88,12 +88,15 @@ export function App(): JSX.Element {
           <SidebarTrigger />
           <span className="text-sm text-muted-foreground">{currentLabel(route)}</span>
         </header>
-        <p className="readonly-banner" role="note">
-          已提供：项目与 Task/Step 管理、Rule 与 Review 审批、Evidence 读取和人工确认、Checkpoint/Context/Resume 读取、Validation 记录下钻。
-          人工确认仅记录 INFO，验收状态需另行提交。Context 已构建不等于已注入 Agent。
-          Memory 提供队列、条目管理与召回记录，实际健康状态请查看 Memory。未开放：Agent 自动采集/注入、多设备在线状态；P4 收益实验已停止。完整 P6/V1 验收尚未完成。
-          <a href={hrefFor({ name: 'pending', key: 'memory' })}>未完成功能说明</a>。
-        </p>
+        <details className="readonly-banner">
+          <summary className="cursor-pointer">本机可用版 · 部分功能尚未开放</summary>
+          <p role="note">
+            已提供：项目与 Task/Step 管理、Rule 与 Review 审批、Evidence 读取和人工确认、Checkpoint/Context/Resume 读取、Validation 记录下钻。
+            人工确认仅记录 INFO，验收状态需另行提交。Context 已构建不等于已注入 Agent。
+            Memory 提供队列、条目管理与召回记录，实际健康状态请查看 Memory。未开放：Agent 自动采集/注入、多设备在线状态；P4 收益实验已停止。完整 P6/V1 验收尚未完成。
+            <a href={hrefFor({ name: 'pending', key: 'memory' })}>未完成功能说明</a>。
+          </p>
+        </details>
         <main id="main">{renderRoute(route)}</main>
       </SidebarInset>
     </SidebarProvider>
