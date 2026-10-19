@@ -60,6 +60,7 @@ import { MemoryLifecyclePanel, MemoryRetryPanel } from './MemoryWrites'
 import { MemoryAuthority, HistoricalMemoryFilters } from './MemoryAuthority'
 import { MemoryHealthDashboard } from './MemoryHealthDashboard'
 import { MemoryEngineStart } from './MemoryEngineStart'
+import type { MemoryEngineState } from '../api/memoryEngine'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { DescriptionItem, DescriptionList } from '@/components/ui/description-list'
@@ -206,6 +207,7 @@ function MemoryIdForm({
 
 export function MemoryHealthView(): JSX.Element {
   const { endpoints } = useSession()
+  const [engineState, setEngineState] = useState<MemoryEngineState | null>(null)
   const resource = useResource<MemoryHealth>((signal) => endpoints.memoryHealth(signal), [])
   return (
     <MemoryPanel
@@ -219,7 +221,7 @@ export function MemoryHealthView(): JSX.Element {
       resource={resource}
     >
       {(health) => (
-        <MemoryHealthDashboard health={health} onRefresh={resource.reload} engineControl={<MemoryEngineStart onConnected={resource.reload} />} details={<>
+        <MemoryHealthDashboard health={health} onRefresh={resource.reload} engineState={engineState} engineControl={<MemoryEngineStart onConnected={resource.reload} onStateChange={setEngineState} />} details={<>
           <MemorySliceStatus />
           <NonAuthoritative payload={health} />
           <KeyValue

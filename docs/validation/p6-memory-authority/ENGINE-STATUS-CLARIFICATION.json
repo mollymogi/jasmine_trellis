@@ -1,0 +1,36 @@
+{
+  "scope": "Isolated UI state clarification; no restart and no Memory retain/recall performed",
+  "source_sha256": {
+    "web/src/views/MemoryEngineStart.tsx": "e0d916c6c8413e024b670764626f09d2b2b875d2a224d223682a6bd834ebfd7e",
+    "web/src/views/MemoryHealthDashboard.tsx": "690561ef512fa8bea49272d25160914bdf00fc3d6d2995cc2436e426e18aa5c8",
+    "web/src/views/MemoryViews.tsx": "18ae90b4c171212799ed5cb15477d3298a1905fb223d5a2c9af1cd1e3cd3c45d",
+    "web/tests/memoryEngineStart.test.tsx": "4b9a65417b49f190cea62bbf8a930a10545a4f8a0c91008658fd358c03bc3a4b",
+    "web/tests/memoryHealthDashboard.test.tsx": "87afb552c8f318c53d0361919604eff6ef7bb545cd59cb794c141aaf1b2adb83"
+  },
+  "evidence_sha256": {
+    "evidence/engine-status-clear-20261019/mobile-light.png": "0c1bd93d5715ae5d54f9f8db34517083e49b981aa5677798f2f8462d20ffbc1d",
+    "evidence/engine-status-clear-20261019/checks.json": "ed208058cc8f118f4066f428d39579c8549f6fa2e41a304a179699f2ae4fd087",
+    "evidence/engine-status-clear-20261019/mobile-dark.png": "bffd707e3e0c1682133798e8137fa2b43cc239ec583794742d3efb747d6b6827",
+    "evidence/engine-status-clear-20261019/desktop-light.png": "3ce806f7d3c4436dad41fcb60935ce8996c1ae1d4dd271e918fbd65966b940a6",
+    "evidence/engine-status-clear-20261019/desktop-dark.png": "4663b564a2b8daeb361618641b77ee4edb7e1325bfe964cc95ec004724733dcd",
+    "engine-status-web-tests.log": "715588199ceb9710ce5be7283cfb53819afc33ae1012e4ae858e000a0dc1b504",
+    "engine-status-build.log": "6ce15127ce09a14bade145fa7b4da66df174c66a6095e6b2fea98d542f04582f",
+    "isolated-dashboard/engine-status-live.json": "b3f631124cea6abe33edc6396a4348021f263e1721969a93bfdb2d4250d27228"
+  },
+  "live": {
+    "engine": {
+      "state": "RUNNING",
+      "api_version": "0.10.2",
+      "started_at": "2026-10-19T08:40:15.474659+00:00"
+    },
+    "health": {
+      "status": "idle",
+      "api_version": "0.10.2",
+      "configured": true,
+      "reachable": true,
+      "last_success_at": null
+    },
+    "daily_service_unchanged": true
+  },
+  "browser_checks": 17
+}

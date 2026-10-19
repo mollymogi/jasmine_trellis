@@ -1,8 +1,10 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { MemoryHealth } from '../src/api/types'
+import type { MemoryEngineState } from '../src/api/memoryEngine'
 import { MemoryHealthDashboard } from '../src/views/MemoryHealthDashboard'
 afterEach(cleanup)
+const runningEngine: MemoryEngineState = { state: 'RUNNING', enabled: true, can_start: true, operation_id: 'op-1', started_at: '2026-10-19T08:40:15Z', api_version: '0.10.2', error_code: null }
 function health(overrides: Partial<MemoryHealth> = {}): MemoryHealth {
   return { status: 'unconfigured', configured: false, reachable: null, degraded: false, core_impact: 'none', engine_id: null, api_version: null, origin_host: null, features: {}, last_check_at: null, last_success_at: null, last_error_code: null, safe_error_summary: null, jobs: { pending: 0, running: 0, done: 1, failed: 0 }, items: { items_active: 1, items_obsolete: 0, items_deleted: 0, retain_failed: 0, delete_pending: 0, delete_failed: 0 }, deployment: {}, checked_at: '2026-10-19T08:00:00Z', non_authoritative: true, ...overrides }
 }
@@ -30,6 +32,21 @@ describe('Memory health summary keeps Core reporting boundaries', () => {
     expect(screen.getByText('有记忆操作处理失败')).toBeTruthy()
     expect(screen.getByRole('alert')).toBeTruthy()
     expect(screen.getByText(/Memory 已暂停，Core 主流程仍可使用/)).toBeTruthy()
+  })
+  it('distinguishes a started Hindsight service from unverified memory operations', () => {
+    const h = health({ status: 'idle', configured: true, reachable: true })
+    const view = render(<MemoryHealthDashboard health={h} engineState={runningEngine} onRefresh={() => {}} details={null} />)
+    expect(screen.getByText('Hindsight 已启动')).toBeTruthy()
+    expect(screen.getByText(/记忆写入和召回尚未验证/)).toBeTruthy()
+    expect(screen.getByText('尚无记录')).toBeTruthy()
+    expect(screen.queryByText('Memory 最近运行正常')).toBeNull()
+    view.rerender(<MemoryHealthDashboard health={h} engineState={null} onRefresh={() => {}} details={null} />)
+    expect(screen.queryByText('Hindsight 已启动')).toBeNull()
+  })
+  it.each(['unreachable', 'failing', 'degraded', 'FUTURE'])('does not mask Core verdict %s with a running process', status => {
+    render(<MemoryHealthDashboard health={health({ status })} engineState={runningEngine} onRefresh={() => {}} details={null} />)
+    expect(screen.queryByText('Hindsight 已启动')).toBeNull()
+    expect(screen.queryByText('引擎运行中')).toBeNull()
   })
   it('keeps unknown status and missing counts unknown instead of claiming success or zero', () => {
     const h=health({ status: 'FUTURE', core_impact: 'FUTURE', non_authoritative: false });h.jobs.pending=null as never;h.items.items_active=null as never

@@ -1,6 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { ArrowRight, BookOpen, CheckCircle2, CircleHelp, FileText, History, RefreshCw, ShieldCheck, TriangleAlert, Unplug } from 'lucide-react'
 import type { MemoryHealth } from '../api/types'
+import type { MemoryEngineState } from '../api/memoryEngine'
 import { formatTimestamp } from '../lib/text'
 import { DetailLayout } from '@/components/ui/detail-layout'
 import { Badge } from '@/components/ui/badge'
@@ -23,16 +24,19 @@ function count(value: unknown): number | null {
 }
 
 /** Reads Core's report; no engine probe, configuration change or inferred success. */
-export function MemoryHealthDashboard({ health, onRefresh, details, engineControl }: {
-  health: MemoryHealth; onRefresh: () => void; details: ReactNode; engineControl?: ReactNode
+export function MemoryHealthDashboard({ health, onRefresh, details, engineControl, engineState }: {
+  health: MemoryHealth; onRefresh: () => void; details: ReactNode; engineControl?: ReactNode; engineState?: MemoryEngineState | null
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [container, setContainer] = useState<HTMLDivElement | null>(null)
   const trigger = useRef<HTMLButtonElement | null>(null)
   const known = Object.hasOwn(STATES, health.status)
-  const state = known ? STATES[health.status]! : { title: 'Memory 状态暂时无法确认', description: '当前报告没有可识别的运行结论，请查看详情核对。', label: '待核对' }
+  // A running process is service readiness, never proof of a successful memory operation.
+  // Keep Core's failure, paused and unknown verdicts prominent even if the process lives.
+  const ready = engineState?.state === 'RUNNING' && health.status === 'idle' && health.configured === true && health.reachable === true && health.core_impact === 'none'
+  const state = ready ? { title: 'Hindsight 已启动', description: '引擎已连接；记忆写入和召回尚未验证，目前没有成功操作记录。', label: '引擎运行中' } : known ? STATES[health.status]! : { title: 'Memory 状态暂时无法确认', description: '当前报告没有可识别的运行结论，请查看详情核对。', label: '待核对' }
   const warning = ['unreachable', 'failing', 'degraded'].includes(health.status)
-  const Icon = warning ? TriangleAlert : health.status === 'ok' ? CheckCircle2 : health.status === 'unconfigured' ? Unplug : CircleHelp
+  const Icon = warning ? TriangleAlert : ready || health.status === 'ok' ? CheckCircle2 : health.status === 'unconfigured' ? Unplug : CircleHelp
   const pending = count(health.jobs.pending), running = count(health.jobs.running)
   const active = count(health.items.items_active), failed = count(health.jobs.failed)
   const processing = pending === null || running === null ? null : pending + running
@@ -47,7 +51,7 @@ export function MemoryHealthDashboard({ health, onRefresh, details, engineContro
         </div>
       </div>}
       summary={<Card className={warning ? 'border-warning/40 bg-warning-soft/30' : 'border-primary/30 bg-accent/20'}>
-        <CardHeader className="gap-4"><Badge variant={warning ? 'warning' : 'outline'}><Icon />{state.label}</Badge>
+        <CardHeader className="gap-4"><Badge variant={warning ? 'warning' : ready ? 'success' : 'outline'}><Icon />{state.label}</Badge>
           <CardTitle className="text-2xl leading-snug sm:text-3xl">{state.title}</CardTitle>
           <CardDescription className="text-sm leading-relaxed text-foreground" role={warning ? 'alert' : 'status'}>{state.description}</CardDescription>
         </CardHeader>
