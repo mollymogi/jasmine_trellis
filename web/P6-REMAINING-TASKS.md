@@ -10,6 +10,17 @@ Status marks: **D** delivered · **P** partially delivered (gap named) · **N** 
 **B** dependency-blocked. Evidence binding is a bundle directory under `validation-runs/p6/` plus
 the compliance record that maps requirements to code.
 
+## Latest bounded follow-up — 2026-10-18 (America/Los_Angeles)
+
+Historical Memory vs current Authority now has implementation and isolated **author**
+verification at `eb64ee19dd5f15de0324a1d3738ccb9c3b2175fd`: linked-version snapshots, scope/permission refusal,
+explicit unknown states, historical trace reasons, and real Core/Chrome readback.
+[Result and limits](../docs/validation/p6-memory-authority/RESULT.md).
+Independent review/signature remains NOT_RUN. This is not full T05/P6 acceptance:
+real engine outage/recall/benefit and unlinked semantic-conflict detection are not proved.
+Daily services, hooks/trust and stopped P4 benefit experiments are unchanged.
+Historical handoffs below retain their original dates and evidence bindings.
+
 ## Current handoff — 2026-10-11 (America/Los_Angeles)
 
 Checkpoint/Resume historical display, comparison and read-entry negatives are now
@@ -216,7 +227,7 @@ remaining work. Historical failed reviews and author runs remain unchanged.
 
 | Remaining work | Required proof | Current boundary |
 | --- | --- | --- |
-| Historical Memory vs current Authority | Accurate dashboard anomaly display without false success | Context budget scoped acceptance signed at `74827cf`; failed-build dashboard receipt unavailable. Historical Memory conflict not started |
+| Historical Memory vs current Authority | Accurate dashboard anomaly display without false success | Context budget scoped acceptance signed at `74827cf`; failed-build dashboard receipt unavailable. Linked-origin comparison implemented and author-validated; independent signoff pending (see latest follow-up) |
 | Real Context injection receipt | Exact pack actually delivered to Agent | Built pack is insufficient; native receipt pending |
 | Real conversation → extraction → Review → write | Whole actual user chain | Synthetic isolated sources cannot close T03 |
 | Real Validation FAIL | Failure classification and original output, linked to real Run | Synthetic/NEGATIVE tool inputs cannot replace it |
@@ -232,7 +243,7 @@ by quietly restarting the stopped P4 experiment.
   and original output, using `recorder.py`; do not turn a deliberately falsified fixture or
   negative bundle into a real acceptance run.
 * T04 still needs a genuine Context injection receipt. A built pack is not an injected pack.
-* T05 still lacks stale Memory vs Authority. Context budget scoped acceptance is signed
+* T05 stale linked-decision Memory vs Authority now has isolated author verification; independent signoff remains pending. Context budget scoped acceptance is signed
   at `74827cf`; failed-build dashboard receipt remains unavailable. The
   Checkpoint/Resume historical-negative slice is separately signed at `6fec85d`; real engine extraction/reflect claims remain outside the wire-double evidence.
 * `manual-reapply` needs its own provenance/permission design and explicit operator decision.

@@ -1,0 +1,48 @@
+{
+  "scope": "P6 linked historical Memory and current Authority display",
+  "verdict": "AUTHOR_SCOPED_VALIDATION_PASS",
+  "candidate_commit": "eb64ee19dd5f15de0324a1d3738ccb9c3b2175fd",
+  "baseline": "66071992e7764147f51863f70509a03a6e789eb3",
+  "schema_version": 13,
+  "backend_memory_tests": {
+    "run": 517,
+    "failures": 0,
+    "skipped": 1
+  },
+  "frontend_tests": 560,
+  "new_backend_tests": 14,
+  "new_frontend_tests": 11,
+  "gate_checks": 20,
+  "browser_checks": {
+    "live": 16,
+    "readonly": 11
+  },
+  "engine": "explicit FakeTransport double; no real Hindsight validation",
+  "source_sha256": {
+    "docs/adr/0022-memory-authority-comparison.md": "20abbf39a87e3ec45e9d7eb02069b3b43dbd945f66358becf78cd300b2541dee",
+    "docs/api/core-api-v1.md": "cc8f3586a4d1c0efe0b2994b6a3d704d60461ff669ea17f9b8b0f8515a889486",
+    "docs/validation/p6-memory-authority/ACCEPTANCE.md": "2a9f20aee8d34fb9fc25c474f74b26f4b9e2d390ec31ed1b6e1c37b2de24fe50",
+    "scripts/p6/memory_authority_gate.py": "40584f0e26bc581b0bdaa00c75ce449b30d77442ff2fe540ce8459d68831cc20",
+    "scripts/p6/memory_authority_ui.mjs": "3e7bbcb4dbfcb434bf3e3ac0f864d8afec996fc4c97ebaf9a87df68d0e0f6663",
+    "src/jasmine_core/memory/api.py": "f8b6669a36c570d292217745aa8f3eed05257ade9914d54bf04e33b679c20011",
+    "src/jasmine_core/memory/authority_comparison.py": "453bf4115dc6ed67412c5c45ae1a8e8cdbb8abb1ce4a3367f3c15468aca10a2e",
+    "tests/test_memory_authority_comparison.py": "5a48bade2a011c58e64624cb7cc1679060f9177b3092ecebb536f0ed7f5e2eaa",
+    "web/contracts/p6-memory-authority.v1.json": "6c8ee6ccb1e53ad877a8508b1a6e35202b739ac6d7f2f73760bd376b7ec0c0d6",
+    "web/src/api/endpoints.ts": "0eb1c9f4c40ffb1e728d8cd5117acdc966966b4e0bb8826d0799399ddd86802f",
+    "web/src/api/types.ts": "d6bf469aca4a797f65424367b0c3540aa2899ff5e91d369ea8727f84560606a9",
+    "web/src/views/MemoryAuthority.tsx": "159f80d21e9c6f5d3ff107d2965d01fe25b0680aa9a2c609a8960f06399c9d5a",
+    "web/src/views/MemoryViews.tsx": "3f235971c49cf9e965c776b4c37e8c337d90012932afe572e5156f30f91b4142",
+    "web/tests/memoryAuthority.test.tsx": "3dcd338d56ae86faad47b742703742179d42550165b6b1374bef4354e968c81b"
+  },
+  "screenshots_sha256": {
+    "current-rule-readback.png": "19840aa193ff059e0de110dc052cf5854156aefc0d866a995a5e62651d9546a5",
+    "initial-version-match.png": "cfe29f7bb65d4d284dd22d32b9a626941acc4ac1219b4aa8deea14e1f1750b64",
+    "retired-memory-warning.png": "9d690e3d48a4fcfc288d226ab2a3c93d3baa0e1dceda34aad498ba27db13e32e",
+    "superseded-memory-warning.png": "384461a00de2c34d36ce60421455262f4b5f4303d3d813f563704df676fed3e7",
+    "authority-scope-unavailable.png": "0aa9e5e050e760665fdc62d46f1d15dbaef99e9485b883aad131d92f7efc99f2",
+    "unlinked-memory-unknown.png": "5d200247c77a749909d5903b3d97495cdd40d60848add5ec2314336e7d0fd295",
+    "historical-recall-refusals.png": "29fbd433ab123397ad91d607d68a8635d461e8f31ddcd474cf7c32bacd5e61ee"
+  },
+  "production_changed": false,
+  "independent_signoff": "NOT_RUN"
+}
