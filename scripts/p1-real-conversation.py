@@ -326,7 +326,8 @@ def _prepare(args: argparse.Namespace, report: dict[str, Any]) -> None:
                 "evidence:confirm", "fingerprint:read"])["token"],
             "system": issuer.issue_key(actor_id=system, label="p1-gate-system", scopes=[
                 "guard:check", "evidence:write", "evidence:attest", "evidence:read", "fingerprint:scan",
-                "fingerprint:read", "objects:read", "state:read", "authority:read"])["token"],
+                "fingerprint:read", "objects:read", "state:read", "authority:read",
+                "hosthook:report"])["token"],
             "agent": issuer.issue_key(actor_id=agent, label="p1-gate-agent", scopes=[
                 "objects:read", "state:read", "state:write", "events:write",
                 "authority:propose"])["token"],

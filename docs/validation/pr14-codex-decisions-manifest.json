@@ -1,0 +1,304 @@
+{
+  "scope": "PR14 real Codex -> P1 hook -> Core receipt -> real Chrome dashboard; not complete P1/P6/V1 acceptance",
+  "date": "2026-10-18",
+  "native_verdict": "PASS_NATIVE_DECISION_READBACK_SCOPED",
+  "browser_verdict": "PASS_BROWSER_NATIVE_DECISIONS_SCOPED",
+  "codex_version": "codex-cli 0.162.1",
+  "chrome_version": "155.0.8059.80",
+  "trust_mode": "One-off --dangerously-bypass-hook-trust after reviewing and pinning scratch hook sources; per-command trusted scratch project; no persisted project or hook trust modified; workspace-write sandbox retained",
+  "source_files_verified": 119,
+  "source_sha256": {
+    "scripts/jasmine-p1-hook.sh": "2402095bc3271bb32f8d108920dd548a97f60b6dd08f9b64384295cf420c9a84",
+    "scripts/p1-codex-hook-install.py": "d41e083fec3b071632ff550cbb552abd525f87354d09e540616da639ac5c3fca",
+    "src/jasmine_core/auth.py": "fdeb2fb7c9150b046a70f5c68ae20c43f116758d8057d2e80e7adba0a0ce32e5",
+    "src/jasmine_core/db.py": "a8c7d5e7d91b86f3a7be7f1639954c0203cd60f6a5781504c576ccb985ee5ff7",
+    "src/jasmine_core/resolution_common.py": "3a3a2e537c7de64351b96940c88e4241a9bd821ea5066f818023350b616ee7a6",
+    "src/jasmine_core/reviews.py": "19860886aca0bd5fa90e201b2154acf999a8f620c45883fbd4c4c4e4756f9afd",
+    "src/jasmine_core/audit.py": "9cf154117d606f3f51b456cbb1c93076a08f443ad1f47a65e50d7150cbd19492",
+    "src/jasmine_core/models.py": "c262d0cdd4527928262c7ae71a46ccf9b45974381993790f0db813c0b2219c70",
+    "src/jasmine_core/interpretation_schema.py": "e5b217a285160d6a22e0da89d8b905c32c4babc7b40c046e7ff1336bb4280a25",
+    "src/jasmine_core/fingerprint.py": "28dd8f545d248b53acc06cea906e44f8cf36a3fd5b4faf3a41264bf73ecd8e2a",
+    "src/jasmine_core/registry.py": "f3d8e162b20db4baa9b7b768eeb3803376600e2fe138db25b7fa474c04f9951d",
+    "src/jasmine_core/events.py": "62d1262a6d855e7cd42271d4b1c07ee91debc183ee85c3609f2f240a2b7d1441",
+    "src/jasmine_core/clock.py": "1990e019262c38ef68740e71efdaa9e3df83178bc7aee7de1ed189f6dd5dd33a",
+    "src/jasmine_core/interpreter_provider.py": "2cde6ff3813cef8c6ad5e3bd3a1dfad01856086739034b9e292c30ff47d44a16",
+    "src/jasmine_core/__init__.py": "7c53b45a6eb66bc9e0eadab7dea4aababd2ed8c287f6af7f158cd40bb06652ef",
+    "src/jasmine_core/cli.py": "4489c5f6573bc2f6fd3a42ca5c4658afb6c51963719950d3ccef332acc4e9546",
+    "src/jasmine_core/canonical.py": "66ff57a8e9fa90ce8d2c25e113881406bc59f6e87e3499b39f7560ab84fd9bfc",
+    "src/jasmine_core/authority.py": "4f89408204cd588a753262593943ad23ee9ce5e1946a85a5d11610c1ebd49216",
+    "src/jasmine_core/resolver.py": "fbffdcefb513c7526f53626f35cce4bdc5853a3b342738e6e89a3158c23ed423",
+    "src/jasmine_core/interpretations.py": "d03de2ea1ac7f47719a7e61011274acd10b88233e81bfe28b477944c837e15d6",
+    "src/jasmine_core/task_snapshot.py": "ac1729b24469acde403739fcd93e34f84895389061c7b8b3fc8d09c0843abd88",
+    "src/jasmine_core/errors.py": "0b23dcd180257b81f3e3186754866086bbfdb5995a561a7f93ac385890859b80",
+    "src/jasmine_core/ids.py": "919075d5d4c5fe3d3f0bd203a119387cced40d55ac5c9cbb8e8e4e49eba7177c",
+    "src/jasmine_core/objects.py": "2b254ed686ad3d7b73931e57c6985e71ffd14e23b6761c529773219601bb40c4",
+    "src/jasmine_core/interpretation_maintenance.py": "cf148c0827d1176d0d416eabc5d0ac1ee9956374f7975594dd3f8bf69d3a6fe7",
+    "src/jasmine_core/web_confirmations.py": "09ebf7cfaf1696a1d09e762e336966eb45d2ae393b2dc58a69c2178ebd8ac318",
+    "src/jasmine_core/continuity.py": "2ae6fa2cb2685a6c968f2516b4642bdf48dd588d66692725a08ffd07976ce8a3",
+    "src/jasmine_core/resolution_policy.py": "627c056d7a4374710f55faee1d08ca05317dda00440e9a64152feaf5307ae656",
+    "src/jasmine_core/continuity_source.py": "2813e37fbf7c7a9b553713963b0244e9ce6c0c9e8e01c2928dee58655638b331",
+    "src/jasmine_core/evidence.py": "370182915274863372d0e826772e176be273991686ade84cafc523eaa501752c",
+    "src/jasmine_core/state.py": "3c716c8ce5ed1496cfed3938803b4b97ea153d54628b8cb2c328a120e78cc553",
+    "src/jasmine_core/continuity_scan.py": "feeeb7595b332ec7f6ba96640b9a53a47a49693573234773b15b2666070e2ef5",
+    "src/jasmine_core/migrations/m0002_api_auth_audit.py": "32bcb07cf49a909ec3ad609ddc0e6df3ed6b9cae368b49a75b3bed7954847d0a",
+    "src/jasmine_core/migrations/m0001_baseline.py": "a683026f2fe54f047682ed06f208575c5ec7722b1fea75b5a5b94f6bfe38f7a0",
+    "src/jasmine_core/migrations/m0004_task_step_state.py": "abdc535265e62b1607ef821f02bc871b2b871633b58f4a696755cc649a41422a",
+    "src/jasmine_core/migrations/m0007_interpretations.py": "83327bcca45736bd12391a3bde508e909b2aef76a52e9c9010e0fa797ab25b68",
+    "src/jasmine_core/migrations/m0006_codex_exec_observations.py": "23e5231facec501d35b420cd6042d529d2e88813f7ba936e8dc9f92f6f80a44c",
+    "src/jasmine_core/migrations/m0008_resolutions.py": "a5033199c283922ccad0965ceb461d89434268c2c4703205c55052d4c22a06df",
+    "src/jasmine_core/migrations/__init__.py": "34c950ab5a814cf56259f40b3ac6bfee79a9f4f3a03b26b762a22244354fbb29",
+    "src/jasmine_core/migrations/m0003_authority.py": "f2312ea46d61671c4ad63ce4bffc2f53fa1f6a26a6c6ccae3cf0de1ff9da9168",
+    "src/jasmine_core/migrations/m0013_host_hooks.py": "5f862bdad79227cac4b8cd2096938939af0eacb52a1fa36ae5b95aef1382fe7d",
+    "src/jasmine_core/migrations/m0011_memory.py": "8e747af6f945f4e93c9f93d8178739124513cce5b14a8eadd8e7d30466e04f9c",
+    "src/jasmine_core/migrations/m0009_continuity.py": "113b5398445c78db26523c702a45d98d5cffb462a4eca33a2ab590e7baf18265",
+    "src/jasmine_core/migrations/m0012_web_confirmations.py": "eda53be0864be30cfb49852a026ec16cb26865a19db650e49e53b4b141cfdcc1",
+    "src/jasmine_core/migrations/m0010_context.py": "ea38aa12f990d38231587d180f04ec76c22a63abcab143477065a9a5626bd46f",
+    "src/jasmine_core/migrations/m0005_evidence_fingerprint.py": "f9229c3366f90d9121b94170f42f45f2fb9eea32d1f882a4a355660fc58f0a54",
+    "src/jasmine_core/capture/p2_snapshot.py": "7b3e1f065c05a9d89fac0c1baf67bf7336edd175cec5199fcbfc9fc6e11c8c5f",
+    "src/jasmine_core/capture/p3_codex_hook.py": "1636fe8aad208c080339acb97bc7803b28055626512fde4b5f1e5e7759992514",
+    "src/jasmine_core/capture/p3_context_adapter.py": "eaca1430447ae5000729b73c9d00a59fde43450d3da70ad3c87db55b2bf6a646",
+    "src/jasmine_core/capture/__init__.py": "2fe362a604a755d1ac3554ee6c2cbec80b9d4b46ae8d6777704d2623a091db57",
+    "src/jasmine_core/capture/p2_profile.py": "1d7a9d0e38dd22e60f68e24f7808ed72049b4eecfa83befbaad00955dd7bf2cc",
+    "src/jasmine_core/capture/p1_codex_hook.py": "280bf4a270dfc5b1800323d962656e27e977ddd7d8cb9afc54ddc86347e527cf",
+    "src/jasmine_core/capture/p2_codex_hook.py": "323ebe37178e5c0b9478a3446a021cc933269a8a9a65ea8960c5364128d3ac85",
+    "src/jasmine_core/capture/p2_runtime.py": "fcb59274493cc36264dec30fb6033fbe2828637dd2ea80f98704e192e4979185",
+    "src/jasmine_core/capture/codex_user_prompt_submit.py": "0e3d3bd32d74752c9610c50b0184f59f81421c7fba75caf4fd25bc490f3673b6",
+    "src/jasmine_core/context/renderer.py": "89af56e296ffcc63f3f379bc80fe247d3c661edd396b358592cf0a765b4ee865",
+    "src/jasmine_core/context/__init__.py": "827514ef413834ceb723fbfdbae9c5fa24944126153fda2bd4231c030f1ea63a",
+    "src/jasmine_core/context/tokens.py": "453c83b9d27e1c3fb7506a2a3bd0fc7dc6f05400fc46dfbbfc2fa13017b69921",
+    "src/jasmine_core/context/builder.py": "5c2fc691d77a1ab493edc8560301a33ae1a6e940e4d0cd9db8b0af929e708213",
+    "src/jasmine_core/context/memory_provider.py": "086967f429744e4eb9c35a4ce5f40621937d4589b40c3e73e327c3a803374b67",
+    "src/jasmine_core/memory/worker.py": "274d0548d8cf950b6fa53168e105f91da566a6c2ba3566a81809e10736f31288",
+    "src/jasmine_core/memory/store.py": "47c79dfa3b181008364b2718bf31e46d9d9db2ee3b26934da1276d169c73f1a7",
+    "src/jasmine_core/memory/g01_stream.py": "9907ab2db414dfd696a22c3eb3ec9bb004da31f05620e73a74d5958ee88f6da2",
+    "src/jasmine_core/memory/transport.py": "92b32ba37559d9e402d4540ee6277df7b31da7afaaae49fe4a729739f9bb4eda",
+    "src/jasmine_core/memory/health.py": "46b757950689a079da3045cd506f27a3afff2aedef337ecb3d5de16537141694",
+    "src/jasmine_core/memory/hindsight.py": "fee00eaacc8fd32310cfc1b399c247321ad3476f0e1e5a455066064192f5e399",
+    "src/jasmine_core/memory/adapter.py": "d0f9c1f87cebb69b0e6ba54b991b52a4ff470522b792fd2158b3e2bee8a08c25",
+    "src/jasmine_core/memory/filtering.py": "ef8e0078c1ef34b45fa0b37736772807841c5d7fb35282a59c41be16ef83214a",
+    "src/jasmine_core/memory/__init__.py": "7fb5507e9b7625a1c0ed05fbae63e2b8d546337beba02806b2f0e1d6162c23ab",
+    "src/jasmine_core/memory/tokens.py": "7451cef7df18236442c18c5a5b990e374cb9cc60da385744f4920514e25c35cc",
+    "src/jasmine_core/memory/types.py": "73d6a92f0c6c8650b4c2a02a2030221cffc86759d1892c7a0973f607443f658c",
+    "src/jasmine_core/memory/jobs.py": "cad0d4fff61a4ef663834f9cf20a52067cb187ad78c9155f7509cbc5630ca582",
+    "src/jasmine_core/memory/api.py": "28810d24a47e0338c6576a23d0c26b66c6708c17fee03c7d05a4a11676475a75",
+    "src/jasmine_core/memory/lifecycle.py": "8fc625a1ef57416eee14c68eb9f5a255ffb84c9a65df9b8fb98034895796d8b8",
+    "src/jasmine_core/memory/provenance.py": "ca2cb327a4e02975bc55a6e2fc4e9a18fdfb00d02898348c97e286c6dcb128a8",
+    "src/jasmine_core/memory/scope.py": "47d1ab8becb207dfc8c6f2490fa2ea5ef6e732bd3d8ae4f31db3163580715098",
+    "src/jasmine_core/memory/eligibility.py": "ba11327d6bdc4c6e95165975a8db1fe29cecec9c863837ae83b306c15df4bc1f",
+    "src/jasmine_core/memory/history.py": "576c1ffd8955f9dd57380e71ce3e29129b110e1db9e47a2b1a2ea97f328fd458",
+    "src/jasmine_core/adapter/config.py": "0db3cb710466458bed99d0245c4df6d46fd149e058c9d1577afed54f56c4fa9d",
+    "src/jasmine_core/adapter/dynamic_evidence.py": "724ff1b77d169ffe89430b66bf04918d31f32c1dfd1d0cf7bdad2de5fc2be4ae",
+    "src/jasmine_core/adapter/http_client.py": "996ab0cbeaeb85f63b748766002eec4a21bb3109962cc0081f2b83045badfeab",
+    "src/jasmine_core/adapter/protocol.py": "591637cc7383364c42866800567ad4e4a3556c956d8775cfaa0d0e1b36287597",
+    "src/jasmine_core/adapter/profile.py": "279536bc3e75151580b253739f2829ffcc286a1a6cd84ec63e5127f75e2c9b96",
+    "src/jasmine_core/adapter/__init__.py": "f3333167944e7a6a404b4fb9537887de323afeea712eef516cb9c1e6b9e873fd",
+    "src/jasmine_core/adapter/native_client.py": "65b0b4c2f6b948faa7b05639177f099b467da942370c274039523d8a2fade4b6",
+    "src/jasmine_core/adapter/gate_runner.py": "e1fde8fce5c8ff32cff5536a2651a05bc16e3f17b52adc31c7c9b641ee89c942",
+    "src/jasmine_core/adapter/executors.py": "c423ba5958cd6c25b6f4c64a3fc9a5ae1e0ca91b671a9289f53e443a78c198bf",
+    "src/jasmine_core/adapter/native_proof.py": "c734bb64c9968ed96169028f5e1631606ad314ccb7f763b0758439938e25dcff",
+    "src/jasmine_core/adapter/requirements.py": "7fe94677e821d4d8bc5ea1fda503902238728d096b4b824ccb30bd1dd69dacab",
+    "src/jasmine_core/adapter/lifecycle.py": "6dfefdd622b87f170416b0da1a409f3f07e20359781197eec0d587a95fb22796",
+    "src/jasmine_core/adapter/orchestrator.py": "7e4bee64b0ecac3561b0916813854c1e2c272a7dbb5e15d947e6d5aade64aac9",
+    "src/jasmine_core/adapter/lifecycle_proof.py": "6402458205ce32fd299bb987360175842dc233a93e253a29f296bb2b33b2b388",
+    "src/jasmine_core/adapter/dependency_identity.py": "f7e8cc94b26a291ebce275df985bd85af84e8c65a453b81a1042c1c7a8bbaeed",
+    "src/jasmine_core/hosthook/service.py": "8ad2f7da1fe2b6bbd04a1287edc3c3993a27721fc569791afe943e605a9d4c81",
+    "src/jasmine_core/hosthook/resolve.py": "cd099f13d7d76d3bd1de51a8f0ed893374f5748c86f73bf67da880e2977cb370",
+    "src/jasmine_core/hosthook/spool.py": "26050deb0dea2c412f13742886b5167b11f7a473f083cab5960696628674028c",
+    "src/jasmine_core/hosthook/protocol.py": "0fb00fd71f3295a0a5413846acc355582052e8e959c99cab47036584cd084b67",
+    "src/jasmine_core/hosthook/__init__.py": "57316517ef0a811b75eab7240b2a5420a959484f8942a9b7ced719dd4d541184",
+    "src/jasmine_core/hosthook/runtime.py": "0235228db685536980fdfb64ea2a0762ee036994fff90cc15e6140f6eb2fdc3a",
+    "src/jasmine_core/hosthook/api.py": "a96e84a97a7c38e8914432ee01703897ea2a9829590c83b81a493a1362ad312f",
+    "src/jasmine_core/hosthook/install.py": "183c8e9d7654e9bbe8ec9efba2910365dda1cb849da25dbfea167da32c8d1fb2",
+    "src/jasmine_core/hosthook/binding.py": "0f63d31f4508a6353ebee6cd70b310d394a5a68bab72fdaabdc5d481a7b25590",
+    "src/jasmine_core/api/server.py": "383a1b07178f61523dc02a2fb2069f347ac40028336f862e8ff641f70fd6d19b",
+    "src/jasmine_core/api/dispatch.py": "1388a7f3b1713dd9977525258c91dcfe2e20c6d9a0dfdd069f1b5ab0eede8ee3",
+    "src/jasmine_core/api/client.py": "8a62a7edfcb869b175ce810839006c485b82a1f7b001808fff61871763e95f8f",
+    "src/jasmine_core/api/request.py": "f0acde21ac96d94e9c50333dd1ff57909f6dffb008add9035ff0da236f8dc953",
+    "src/jasmine_core/api/handlers.py": "966f508abdc5a5129e099fcf15d490d10a4c5a29f649de79f197b960e53a1ed7",
+    "src/jasmine_core/api/__init__.py": "5d3e0e22a7580f7a963178f2b9f7a36538a4720d814a631c00a0ca26aa95df25",
+    "src/jasmine_core/validation/recorder.py": "77663565809c7cf4b4b063ee6c44cd5e1632638b9f965cb93214cc02bdae848d",
+    "src/jasmine_core/validation/__init__.py": "e256b37abdbee6866102ddfb1ae02b20342d2e6833a1d56b15ed3f6758c2ffce",
+    "src/jasmine_core/validation/reads.py": "e32f73e8cc535f08456a9d1354ac274466d03ca2f7e2f328dc08ce79ee5d2b8f",
+    "src/jasmine_core/hosthook/dialects/codex.capabilities.json": "2828fc2e9c6f7f214509af25c63842bb2bc9aeb5b181fa070dc6cd4410366b41",
+    "src/jasmine_core/hosthook/dialects/codex.py": "afa4d899f3157733a6d101bed5ce43424410c1ece6455b912ba5b0ae45b5fcb0",
+    "src/jasmine_core/hosthook/dialects/grok_build.capabilities.json": "d933893131f0668621d95dca4e20a983877ce67c466552d604edafd61e0f3611",
+    "src/jasmine_core/hosthook/dialects/_common.py": "8f2cd995c8b8122a71771b619f08f175afe547be6873ee5d92b1e9caa15268ca",
+    "src/jasmine_core/hosthook/dialects/__init__.py": "333446a0a950b649916d364ad88e82ae229c1d8f063837c7352b6f56d37e5a75",
+    "src/jasmine_core/hosthook/dialects/grok_build.py": "1a0152d9d812aa8b34bf876e7b16c3d58e8744329788d8c03814dac3ec718ad5",
+    "src/jasmine_core/hosthook/dialects/claude_code.capabilities.json": "08cf8f5bc0c4826793efe78078aaf13d7e320701cc9502b313cef1f51e59d4db",
+    "src/jasmine_core/hosthook/dialects/claude_code.py": "f2598c9770f5d45844d9f3590910b22c13b5f9e18d39900a01c57cb3d8d6c011"
+  },
+  "cases": [
+    {
+      "case": "rule-denied",
+      "verdict": "PASS",
+      "session_id": "01a14fb3-2553-7840-8453-c41758086d56",
+      "turn_id": "01a14fb3-3044-7451-b182-860b832ecbc2",
+      "call_id": "exec-c8afcfa3-4b76-4cac-912e-a167e1efce75",
+      "input_sha256": "40874a2baf39c52b57b9876e0cbd5e96f7ef58a64592ac6fca189e481eb1d5f2",
+      "delivery_id": "p1-decision:codex:tool.before:2ed5020dd2c88e6848587e5109846dfe2e3fd39a",
+      "decision": "deny",
+      "guard_decision": "deny",
+      "matched_rules": [
+        {
+          "rule_id": "rul_01M57V4P76ZFMWTTMDKMTE90TG",
+          "rule_key": "gate-denied",
+          "version": 1,
+          "enforcement": "DENY",
+          "severity": "HARD"
+        }
+      ],
+      "side_effect_absent": true,
+      "codex_exit": 0,
+      "stdout_sha256": "ef8519cb81c44d7999acf81375ad423941b770efa13e142d6b5ffb30f56937af"
+    },
+    {
+      "case": "category-verify",
+      "verdict": "PASS",
+      "session_id": "01a14fb3-2553-7840-8453-c41758086d56",
+      "turn_id": "01a14fb4-038f-7523-beb6-a5ef8e659c5e",
+      "call_id": "exec-5b18fe96-78e8-4ffe-88a7-4c51d750bc71",
+      "input_sha256": "d66a53fedbf412beeadb3868ece33ec9e7e20e9aa0224b75a70c5655b8ca2e2c",
+      "delivery_id": "p1-decision:codex:tool.before:64f3a21afca0cf100ec77473ce51e8ba93c735ef",
+      "decision": "allow",
+      "guard_decision": "verify",
+      "matched_rules": [
+        {
+          "rule_id": "rul_01M57V695SN4N79KGMCGPJHNNT",
+          "rule_key": "gate-category-verify",
+          "version": 1,
+          "enforcement": "VERIFY",
+          "severity": "HARD"
+        }
+      ],
+      "side_effect_absent": null,
+      "codex_exit": 0,
+      "stdout_sha256": "1279ea16a4fad02465c98b4e0b10cc2bcf6e2fcc93cbf38fdfbcd1c165e6c4b0"
+    },
+    {
+      "case": "compound-denied",
+      "verdict": "PASS",
+      "session_id": "01a14fb3-2553-7840-8453-c41758086d56",
+      "turn_id": "01a14fb4-40ca-7670-8f29-5b5d1a1f79fd",
+      "call_id": "exec-7d1ed9ff-cb3c-4872-a666-62c7f3576330",
+      "input_sha256": "8e85b84b53c630db3c318123bc7e3d024fc503ac2d41a2f9cb5f70f1a3483ceb",
+      "delivery_id": "p1-decision:codex:tool.before:cc281c81ee54f383f53d0acf65f3d9ddb615309d",
+      "decision": "deny",
+      "guard_decision": null,
+      "matched_rules": [],
+      "side_effect_absent": true,
+      "codex_exit": 0,
+      "stdout_sha256": "8d055e72b7f1d6e786e13298e16397c6d4eeb86031927f271e17ebbcd329a123"
+    }
+  ],
+  "browser_checks": [
+    {
+      "name": "rules: all three native rows visible",
+      "pass": true
+    },
+    {
+      "name": "rules: two real denials",
+      "pass": true
+    },
+    {
+      "name": "rules: category verify is allowed",
+      "pass": true
+    },
+    {
+      "name": "rules: observed source label",
+      "pass": true
+    },
+    {
+      "name": "rules: native rule gate-denied",
+      "pass": true
+    },
+    {
+      "name": "rules: native rule gate-category-verify",
+      "pass": true
+    },
+    {
+      "name": "rules: same real delivery IDs via dashboard proxy",
+      "pass": true
+    },
+    {
+      "name": "rules: deny filter retains both actual denials",
+      "pass": true
+    },
+    {
+      "name": "conversation: all three native rows visible",
+      "pass": true
+    },
+    {
+      "name": "conversation: two real denials",
+      "pass": true
+    },
+    {
+      "name": "conversation: category verify is allowed",
+      "pass": true
+    },
+    {
+      "name": "conversation: observed source label",
+      "pass": true
+    },
+    {
+      "name": "conversation: native rule gate-denied",
+      "pass": true
+    },
+    {
+      "name": "conversation: native rule gate-category-verify",
+      "pass": true
+    },
+    {
+      "name": "conversation: same real delivery IDs via dashboard proxy",
+      "pass": true
+    },
+    {
+      "name": "conversation: deny filter retains both actual denials",
+      "pass": true
+    },
+    {
+      "name": "all dashboard decision responses are successful",
+      "pass": true
+    },
+    {
+      "name": "no browser page error",
+      "pass": true
+    }
+  ],
+  "private_receipt_sha256": {
+    "delivery-receipts.json": "304989fa0dfab3b5a9bc04a02a61a375618802ee9f18fd5ced8476a3d91415a2",
+    "hook-trace.jsonl": "d0a5f441ee467577f491a59625112436972c7b7445f3bcf325d66da8ab78060a",
+    "compound-denied-codex.jsonl": "8d055e72b7f1d6e786e13298e16397c6d4eeb86031927f271e17ebbcd329a123",
+    "category-verify-codex.jsonl": "1279ea16a4fad02465c98b4e0b10cc2bcf6e2fcc93cbf38fdfbcd1c165e6c4b0",
+    "rule-denied-codex.jsonl": "ef8519cb81c44d7999acf81375ad423941b770efa13e142d6b5ffb30f56937af"
+  },
+  "screenshots_sha256": {
+    "rules.png": "1268f4d29d3b4d9daaac90121af6ac5e34de7bcbce8fe415282db9133e37a643",
+    "conversation-deny.png": "b822a65a20e89b5e262193148a783821f9931aa0d8d44cfacb56641255acb5b6",
+    "rules-deny.png": "35c3fe6bd6c029f7feff9d37189d9aa4275353d53c14c679d37969674993e9f7",
+    "conversation.png": "dee34e88f28bd35b4c5eaa9bf5ad90662505945109f28c725eb7156d6dfb7ba8",
+    "rules-panel.png": "a77a2982cad6e908267a138d1fe99b470b523fec6cb1e2eeb6b31050acb06423"
+  },
+  "limitations": [
+    "One macOS installation, one actual Codex session and three turns. No concurrent, cross-device, production-deployment or complete P1-T10 acceptance.",
+    "First native capture produced two trace entries (Guard and report) for one call. Initial harness counted that call twice and failed. The corrected harness deduplicated by turn/call and reread the SAME immutable capture, then resumed the same real session for the remaining cases. The failed first harness report is retained; no native effect was reclassified or fabricated.",
+    "Original raw PostToolUse evidence remains INFO when no reliable exit code is supplied; a decision report does not promote Evidence.",
+    "Reporting is best effort. Invalid binding, lease or credentials and endpoint outage may still leave a recorded trace gap."
+  ],
+  "regression_log_sha256": {
+    "python-full.log": "87d3454370dac7609bf91f38f9e729bd44bc876e6caa5006e04e2dd54804784b",
+    "web-full.log": "156f5d2bf7c16770f799f33c04fe60eb2f57ccad3c8d833a541988f62b1514d9",
+    "web-build.log": "d07a8eb1d3c9e88e7c10f5caf0e56a45b49e5c75e00350e6e8db369b20dae56e",
+    "focused.log": "6d475f7d6b76ad51ed42e73d5732bad92cc680f203e1e67913ece3f0634946ba"
+  },
+  "browser_source_sha256": {
+    "web/src/components/HookDecisions.tsx": "c7f3c912d5a32dc0cc2c44472b585ddb5f9d9eab94d8ef28a4a4d082a3f032b0",
+    "web/src/api/types.ts": "2554d7c97256417265c4cc1dfffbf5237e33a7fa9a2294c394cd929d5e80803e",
+    "web/src/api/endpoints.ts": "dc616b5db7ba5e07d7820777401e58ff823e81ea2a215d3eec2ecf5198eb41e9",
+    "web/server/serve.mjs": "f10637c49cbe6df4f2865426fa6f3bc69c712a7338eaf361706bf77c9b250832"
+  },
+  "browser_bundle_sha256": {
+    "index-TUq8FJek.css": "d97e3ce7fa841b9cc43c05960d2483286a61488379c3a0f81f5d411dc618a9b8",
+    "index-C7qF744A.js": "101c030e0507a7d3b2622bb2f30ea36add3d43a44b99f7a2b1fc07e3dcabc5df"
+  }
+}

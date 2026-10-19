@@ -87,7 +87,7 @@ class SchemaMatchesImplementation(unittest.TestCase):
         self.assertEqual(request["properties"]["trust"]["enum"], list(protocol.TRUST_LEVELS))
         self.assertEqual(set(request["properties"]), protocol.TOP_FIELDS)
         self.assertEqual(set(request["required"]), protocol.TOP_REQUIRED)
-        tool_enum = request["allOf"][2]["then"]["properties"]["payload"]["properties"]["tool"]["enum"]
+        tool_enum = request["allOf"][2]["then"]["properties"]["payload"]["oneOf"][0]["properties"]["tool"]["enum"]
         self.assertEqual(tool_enum, list(protocol.TOOL_CATEGORIES))
         response = load("host-hook-response.schema.json")
         self.assertEqual(response["properties"]["decision"]["enum"], list(protocol.DECISIONS))

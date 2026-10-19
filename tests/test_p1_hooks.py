@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 import subprocess
@@ -19,6 +20,7 @@ class MockClient:
     calls: list[tuple[str, dict]] = []
     decision = "allow"
     broken = False
+    report_broken = False
     project_id = ""
     task_id = ""
 
@@ -29,8 +31,11 @@ class MockClient:
         self.calls.append((path, body))
         if self.broken:
             raise OSError("Core unavailable")
+        if path == "/v1/host-hooks/events" and self.report_broken:
+            raise OSError("host hook endpoint unavailable")
         if path == "/v1/guard/check":
-            return {"decision": self.decision}
+            return {"decision": self.decision, "request_sha256": hashlib.sha256(
+                json.dumps(body, sort_keys=True).encode()).hexdigest(), "matched": []}
         if path == "/v1/tool-results":
             return {"result_event": {"event_id": ids.new_id("evt")}}
         if path == "/v1/events":
@@ -77,6 +82,7 @@ class P1Hooks(unittest.TestCase):
         MockClient.calls = []
         MockClient.decision = "allow"
         MockClient.broken = False
+        MockClient.report_broken = False
         MockClient.project_id = self.config["project_id"]
         MockClient.task_id = self.config["task_id"]
         self.session = "real-codex-session"
@@ -128,7 +134,8 @@ class P1Hooks(unittest.TestCase):
         denied = hook.handle(self.pre(), self.binding)
         self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertEqual(denied["hookSpecificOutput"]["hookEventName"], "PreToolUse")
-        self.assertEqual(MockClient.calls[-1][0], "/v1/guard/check")
+        self.assertEqual([path for path, _ in MockClient.calls[-2:]],
+                         ["/v1/guard/check", "/v1/host-hooks/events"])
         self.assertEqual(hook.handle(self.pre("touch /tmp/a; true"), self.binding)
                          ["hookSpecificOutput"]["permissionDecision"], "deny")
         target = self.root / "real"
@@ -139,6 +146,75 @@ class P1Hooks(unittest.TestCase):
         MockClient.broken = True
         self.assertEqual(hook.handle(self.pre("pwd"), self.binding)
                          ["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_guard_decision_is_reported_as_a_host_hook_delivery(self) -> None:
+        from jasmine_core.hosthook.protocol import parse_request
+
+        hook.handle(self.prompt(), self.binding)
+        MockClient.decision = "deny"
+        target = f"{self.root}/a"
+        denied = hook.handle(self.pre(f"rm {target}"), self.binding)
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        reports = [body for path, body in MockClient.calls if path == "/v1/host-hooks/events"]
+        self.assertEqual(len(reports), 1)
+        body = reports[0]
+        parse_request(body)  # the same validation Core applies
+        self.assertEqual((body["event"], body["trust"], body["host_id"]), ("tool.before", "NATIVE_HOOK",
+                         self.config["host_id"]))
+        self.assertEqual(body["binding"], {"project_id": self.config["project_id"],
+                         "task_id": self.config["task_id"], "step_id": self.config["step_id"]})
+        self.assertEqual(body["native"]["call_id"], "use-1")
+        self.assertEqual(body["payload"]["decision_report"]["decision"], "deny")
+        self.assertEqual(body["payload"]["decision_report"]["guard"]["decision"], "deny")
+        self.assertNotIn(target, json.dumps(body))
+        checks = [b for p, b in MockClient.calls if p == "/v1/guard/check"]
+        self.assertEqual(len(checks), 1)
+        self.assertEqual(checks[0]["tool_category"], "shell")
+        self.assertIn("host-hook:reported", (self.root / "trace.jsonl").read_text())
+
+    def test_local_parser_refusals_are_reported_without_a_fabricated_guard(self) -> None:
+        hook.handle(self.prompt(), self.binding)
+        for command in ("touch /tmp/a; true", "touch 'unterminated", "python3 private.py", "touch relative"):
+            with self.subTest(command=command):
+                MockClient.calls = []
+                self.assertEqual(hook.handle(self.pre(command), self.binding)["hookSpecificOutput"]
+                                 ["permissionDecision"], "deny")
+                self.assertEqual([p for p, _ in MockClient.calls], ["/v1/host-hooks/events"])
+                report = MockClient.calls[0][1]
+                self.assertEqual(report["payload"]["decision_report"]["decision"], "deny")
+                self.assertNotIn("guard", report["payload"]["decision_report"])
+                self.assertNotIn(command, json.dumps(report))
+
+    def test_confirm_is_reported_as_native_deny_and_verify_as_allow(self) -> None:
+        hook.handle(self.prompt(), self.binding)
+        for guard, native in (("confirm", "deny"), ("verify", "allow")):
+            with self.subTest(guard=guard):
+                MockClient.calls = []
+                MockClient.decision = guard
+                out = hook.handle(self.pre(), self.binding)
+                self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision", "allow"), native)
+                report = MockClient.calls[-1][1]["payload"]["decision_report"]
+                self.assertEqual((report["decision"], report["guard"]["decision"]), (native, guard))
+
+    def test_identical_reports_are_stable_for_replay(self) -> None:
+        hook.handle(self.prompt(), self.binding)
+        hook.handle(self.pre(), self.binding)
+        first = MockClient.calls[-1][1]
+        hook.handle(self.pre(), self.binding)
+        self.assertEqual(first, MockClient.calls[-1][1])
+        self.assertNotIn("occurred_at", first)
+
+    def test_failed_report_never_changes_the_enforcement_decision(self) -> None:
+        hook.handle(self.prompt(), self.binding)
+        MockClient.decision = "deny"
+        MockClient.report_broken = True
+        denied = hook.handle(self.pre("pwd"), self.binding)
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        MockClient.decision = "allow"
+        self.assertEqual(hook.handle(self.pre("pwd"), self.binding), {})
+        trace = (self.root / "trace.jsonl").read_text()
+        self.assertIn("host-hook:error:OSError", trace)
+        self.assertNotIn("host-hook:reported", trace)
 
     def test_verify_allows_execution_but_post_captures_real_result(self) -> None:
         hook.handle(self.prompt(), self.binding)

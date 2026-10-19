@@ -673,3 +673,16 @@ a decision, optional context text, and what was recorded. The full contract is
 * New Raw Event types: `host.turn_stopped`, `host.compaction_reported`.
 * A 200/201 response is not evidence that any agent honoured a `deny`, showed
   `inject_context` to a model, or fired a hook (ADR 0017 section 12).
+
+### Observed tool decisions (ADR 0021)
+
+`tool.before` also accepts the mutually exclusive payload
+`{"decision_report": {"decision": "allow|deny", "reason": "...", "tool_input_sha256": "<sha256>", "guard": {"decision": "allow|deny|confirm|verify", "request_sha256": "<sha256>", "matched": []}}}`.
+`guard` is optional for a local refusal; without it only `deny` is valid.
+Matched entries use the original Guard rule-reference fields. Only system actors
+can report this mode. Core validates and retains the reported selection without
+recomputing Guard or creating Evidence. The response identifies
+`decision_source: adapter_report`. `GET /v1/host-hooks/deliveries` returns that
+source, `core_guard` for ordinary before requests, or null for other events.
+Historical receipts are unchanged. See [ADR 0021](../adr/0021-observed-tool-decisions.md)
+for validation, replay, privacy and native-proof boundaries.

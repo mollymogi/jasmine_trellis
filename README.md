@@ -6,13 +6,16 @@
 
 已完成的功能已整合供本机日常使用；Memory 已接入本机日常服务（提交 778ffa1 起）；原生 Agent 自动采集/注入未开放，完整 V1 验收仍未完成。见 [使用说明](docs/deployment/local-usable-release.md) 与 [本次部署结果](docs/deployment/local-usable-release-result.md)。
 
+2026-10-18 当前收尾：见[现有单机流程收尾清单](docs/deployment/single-host-closeout.md)。PR #14 的真实 Codex→Core→看板链路已在隔离环境验证；PR 仍未合并，日常 Core 的本次只读健康检查仍报告 schema 12。仓库代码版本与实际部署状态分别记录，不以服务可达推断日常原生接入已开放。
+
 
 Repository for the Jasmine Core V1 implementation and validation.
 
 ## Status
 
-The table below lists only what has actually been implemented **and** exercised;
-anything not listed is not implemented. The P0 stage verdict comes from the
+The table below is a partial capability index; later phase results and the current
+closeout checklist provide the remaining implementation and deployment boundaries.
+The P0 stage verdict comes from the
 latest commit-bound Validation Run linked from the [P0-03 PR](https://github.com/mollymogi/jasmine_trellis/pull/3),
 followed by final main-head validation after merge. A passing CI matrix alone
 does not establish the stage verdict.
@@ -20,7 +23,7 @@ does not establish the stage verdict.
 | Capability | Current state |
 | --- | --- |
 | Public ID contract, package boundary | implemented (ADR 0001) |
-| `core.db` versioned schema v12 (migrations m0001–m0012 on `main`), WAL, forward-only migration | implemented (ADRs 0001–0010) |
+| `core.db` versioned schema v13 (migrations m0001–m0013 on `main`), WAL, forward-only migration | implemented (including ADRs 0014, 0015, 0017); daily deployment may be older — see the closeout checklist |
 | Transaction / `revision` / atomicity contract | implemented (ADRs 0002, 0006) |
 | Core API, error and idempotency contract | implemented ([ADR 0003](docs/adr/0003-core-api-errors-and-idempotency.md), [API doc](docs/api/core-api-v1.md)) |
 | Raw text retention, bearer auth, append-only audit | implemented (ADR 0004) |
@@ -28,7 +31,7 @@ does not establish the stage verdict.
 | Codex `UserPromptSubmit` capture entry | implemented; project-local registration is described in [P0-03](docs/p0-03-api-and-capture.md), and runtime invocation is verified by P0-T07 evidence |
 | Minimal Validation Recorder and the P0 acceptance matrix | implemented ([P0-03](docs/p0-03-api-and-capture.md)) |
 | Real-conversation Gate (P0-T07) | verdict comes from the latest commit-bound Validation Run linked from the [P0-03 PR](https://github.com/mollymogi/jasmine_trellis/pull/3) |
-| Host Hook Protocol ([ADR 0017](docs/adr/0017-host-hook-protocol.md), [0018](docs/adr/0018-neutral-tool-category-and-deferred-context.md), schema 13) | implemented on branches `hosthook-h2` / `hosthook-grok` only (not merged). Real-conversation Gate run for Claude Code 2.1.287 and Codex 0.162.1 ([H3](docs/hosthook-h3-results.md): prompt/deny/inject/evidence/checkpoint/compaction pass; Bash evidence INFO only; one session each). Grok Build 1.0.52 real-conversation Gate ([H5](docs/hosthook-h5-results.md)): prompt/deny/deferred inject/evidence (with exit code)/checkpoint/compaction pass with project-level hooks; device-level registration (`--scope user`) also run on real Claude Code, Codex and Grok Build (same Gates pass; compaction not retested in that form) ([H4](docs/hosthook-h4-results.md)) |
+| Host Hook Protocol ([ADR 0017](docs/adr/0017-host-hook-protocol.md), [0018](docs/adr/0018-neutral-tool-category-and-deferred-context.md), schema 13) | implemented and present on `main` as of `d23d386`; daily deployment is a separate boundary. Real-conversation Gate run for Claude Code 2.1.287 and Codex 0.162.1 ([H3](docs/hosthook-h3-results.md): prompt/deny/inject/evidence/checkpoint/compaction pass; Bash evidence INFO only; one session each). Grok Build 1.0.52 real-conversation Gate ([H5](docs/hosthook-h5-results.md)): prompt/deny/deferred inject/evidence (with exit code)/checkpoint/compaction pass with project-level hooks; device-level registration (`--scope user`) also run on real Claude Code, Codex and Grok Build (same Gates pass; compaction not retested in that form) ([H5 device results](docs/hosthook-h5-results.md)) |
 
 P1-01 adds versioned Authority and deterministic advisory Guard
 ([ADR 0005](docs/adr/0005-p1-authority-and-guard.md)). P1-02 adds Task/Step
@@ -43,7 +46,7 @@ Interpreter/Resolver, Context Pack/Hindsight, the full Agent lifecycle
 adapter, offline sync, Dashboard, and the 30-scenario acceptance suite remain
 outside P1.
 
-P2 is independently accepted as **PASS_P2_SCOPED_ADMISSION_ONLY** at implementation commit `468918a803dc8bb44700d6d6043afd5e3c7c4204`: actual Raw-first capture, real Interpreter, atomic Policy/review, same-Task correction, current typed state injection and maintenance/replay/restart. See the [P2 results and scope](docs/p2-results.md). Main remains execution-free; actual Playwright execution and P3 Context Pack/compact are not claimed. User instruction: whole-stage local completion and one publication, no per-milestone push or CI gate.
+P2 is independently accepted as **PASS_P2_SCOPED_ADMISSION_ONLY** at implementation commit `468918a803dc8bb44700d6d6043afd5e3c7c4204`: actual Raw-first capture, real Interpreter, atomic Policy/review, same-Task correction, current typed state injection and maintenance/replay/restart. See the [P2 results and scope](docs/p2-results.md). That P2 profile and verdict are execution-free; actual execution, Context Pack and compact are covered separately by the later [P3 results](docs/p3-results.md), not by P2 acceptance. User instruction: whole-stage local completion and one publication, no per-milestone push or CI gate.
 
 ## Planning documents
 

@@ -47,6 +47,7 @@ class _Result:
     checkpoint_id: str | None = None
     degraded: list[str] = field(default_factory=list)
     guard: dict[str, Any] | None = None
+    decision_source: str | None = None
 
 
 class HostHookService:
@@ -61,6 +62,8 @@ class HostHookService:
         actor = self.core.registry.require_actor(principal.actor_id)
         if actor["kind"] not in ("human", "system"):
             raise errors.ForbiddenActorKind("host hook reports require a human or system actor")
+        if req.event == "tool.before" and "decision_report" in req.payload and actor["kind"] != "system":
+            raise errors.ForbiddenActorKind("observed tool decisions require a trusted system actor")
         if actor["home_host_id"] != req.host_id:
             raise errors.ActorMismatch("actor must be bound to the stated host", host_id=req.host_id)
         digest = sha256_hex(req.raw)
@@ -131,6 +134,8 @@ class HostHookService:
                         degraded=result.degraded)
         response["recorded"] = {"event_ids": result.event_ids, "evidence_ids": result.evidence_ids,
                                 "checkpoint_id": result.checkpoint_id}
+        if result.decision_source is not None:
+            response["decision_source"] = result.decision_source
         if result.guard is not None:
             response["guard"] = result.guard
         return response
@@ -208,6 +213,14 @@ class HostHookService:
         self._context(req, actor, event["event_id"], "USER_PROMPT", res)
 
     def _on_tool_before(self, req, actor, project_id, res: _Result) -> None:
+        if "decision_report" in req.payload:
+            report = req.payload["decision_report"]
+            res.decision = report["decision"]
+            res.reason = report["reason"]
+            res.decision_source = "adapter_report"
+            if "guard" in report:
+                res.guard = {**report["guard"], "capability": "ADVISORY"}
+            return
         p = req.payload
         paths = list(p.get("paths") or ([p["path"]] if p.get("path") else []))
         base: dict[str, Any] = {"tool": p["native_tool"], "tool_category": p["tool"]}

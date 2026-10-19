@@ -1121,6 +1121,7 @@ export interface ValidationArtifactContent {
 export type HookDecision = 'allow' | 'deny' | 'ask' | 'none'
 
 export interface HookDelivery {
+  decision_source?: 'core_guard' | 'adapter_report' | null
   seq: number
   delivery_id: string
   event: string
