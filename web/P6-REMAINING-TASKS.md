@@ -10,6 +10,20 @@ Status marks: **D** delivered · **P** partially delivered (gap named) · **N** 
 **B** dependency-blocked. Evidence binding is a bundle directory under `validation-runs/p6/` plus
 the compliance record that maps requirements to code.
 
+## Latest bounded follow-up — 2026-10-19 (America/Los_Angeles)
+
+Native Desktop conversation capture and explicit approved-source Hindsight retention
+have scoped author verification in
+[CAPTURE-REVIEW-FIXES.md](../docs/validation/p6-memory-authority/CAPTURE-REVIEW-FIXES.md).
+The next Context receiver slice now has actual native CLI same-turn input matching,
+a private write-once receipt, a read-only Core projection and Dashboard source
+navigation: [result and limits](../docs/validation/p6-native-context/RESULT.md).
+Do not reschedule the absence of any receiver evidence as if this slice had not
+run. Full T04's native interpretation/tool/Evidence/State chain, ordinary Desktop
+Context injection and independent signoff remain open. Daily services are unchanged;
+the old isolated entry was found offline at the initial snapshot and restored;
+Hindsight stayed running. Earlier dated handoffs remain historical snapshots.
+
 ## Latest bounded follow-up — 2026-10-18 (America/Los_Angeles)
 
 Historical Memory vs current Authority now has implementation and isolated **author**
@@ -159,7 +173,7 @@ scope-accepted**, with the final Web switch **0** and daily use **not released**
 | P6-T01 P1 source trace | **D** (PASS) | P6-01 r3 verdict at `f7addbf`; bundles per INDEX |
 | P6-T02 permissions & secrets | **D** (PASS) | same |
 | P6-T03 audited manual maintenance | **B** (real chain) | nine writes + audit readback gated against fixtures and real P4; real P2 conversation chain not run |
-| P6-T04 actual Context (incl. injection receipt) | **B** (receipt) | real P3 pack/rendered content verified; no receipt exists to match |
+| P6-T04 actual Context (incl. injection receipt) | **P** (bounded author verification) | exact real CLI same-turn input and historical receiver UI now verified; full interpretation/tool/Evidence/State chain and independent signoff remain open; `../docs/validation/p6-native-context/RESULT.md` |
 | P6-T05 Memory degradation | **P** | three quarters now have evidence: real P4 jobs/retry/withholding in the real-Core matrix; the outage (`Hindsight unavailable ⇒ degraded, P1 unaffected`) **and the same-environment recovery** in `20261008T130315Z-p6-t05-degraded/` (**19/19** — 9 Core checks + 10 browser records across two phases — frozen at `31d738f…`). Still **P**, not PASS: the engine is a labelled wire double stopped and restarted on the same pinned port, so no real Hindsight outage is claimed |
 | P6-T06 Validation drill-down | **P** (criterion 1 BLOCKED) | run against the real P7-01 Core over the nine real P0 records through the dashboard's own proxy in a real browser: list/paging, recorded verdicts unchanged, the eight chain links with verbatim missing reasons (Context absent in all nine across its three recorded forms; Agent absent in the six BLOCKED runs), `manifest_status: absent` for a manifestless record, `acl` grant-filtering and the one-code `404`, in-browser `403 forbidden_scope`, and `503 validation_not_configured` on an unset root. **Not PASS**, and the reason is data, not code: criterion 1 needs a real FAIL run, and the artifact/masking negatives can only run on a labelled fixture root because the real records have no manifest. Unblock: the P7 owner records one genuinely failing scenario with `recorder.py` into the configured run root | browser `20261008T181740Z-p6-03c-exit-code-positive/` + `20261008T174844Z-p6-03c-validation-drilldown/`; `NEGATIVE-*` bundles are the exit-code failure negatives and are **not** acceptance runs |
 | P6-T07 maintainability | **D** (PASS) | P6-01 r3 |
@@ -228,7 +242,7 @@ remaining work. Historical failed reviews and author runs remain unchanged.
 | Remaining work | Required proof | Current boundary |
 | --- | --- | --- |
 | Historical Memory vs current Authority | Accurate dashboard anomaly display without false success | Context budget scoped acceptance signed at `74827cf`; failed-build dashboard receipt unavailable. Linked-origin comparison implemented and author-validated; independent signoff pending (see latest follow-up) |
-| Real Context injection receipt | Exact pack actually delivered to Agent | Built pack is insufficient; native receipt pending |
+| Real Context injection and full T04 trace | Exact pack actually delivered, linked to the original native chain and current tool/Evidence/State | CLI receiver slice author-verified; ordinary Desktop injection/full chain/independent signoff pending; see native-context result |
 | Real conversation → extraction → Review → write | Whole actual user chain | Synthetic isolated sources cannot close T03 |
 | Real Validation FAIL | Failure classification and original output, linked to real Run | Synthetic/NEGATIVE tool inputs cannot replace it |
 | Branch integration and final deployed entry acceptance | Signed slices work together in one fixed version | No main merge/deployment/daily-use release authorised |

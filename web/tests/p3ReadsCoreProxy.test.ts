@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const ID = '01M4B6VGC29ESRDRQR62DX8AK8'
 const PENDING = [
   `/v1/context/ctx_${ID}`,
+  `/v1/context/ctx_${ID}/delivery`,
   `/v1/tasks/tsk_${ID}/checkpoints/latest`,
   `/v1/checkpoints/ckp_${ID}`,
   `/v1/resumes/rms_${ID}`,
@@ -40,14 +41,14 @@ async function allowedWith(env: string | undefined): Promise<(path: string) => b
 
 describe('the Vite proxy host gates the P3 reads like the static host', () => {
   it.each([undefined, '', '0', 'no', 'off'])(
-    'refuses all four when the flag is %j',
+    'refuses all Context/continuity reads when the flag is %j',
     async (env) => {
       const allowed = await allowedWith(env)
       for (const path of PENDING) expect(allowed(path), `${env} ${path}`).toBe(false)
     },
   )
 
-  it.each(['1', 'true', 'yes'])('forwards all four when the flag is %j', async (env) => {
+  it.each(['1', 'true', 'yes'])('forwards all Context/continuity reads when the flag is %j', async (env) => {
     const allowed = await allowedWith(env)
     for (const path of PENDING) expect(allowed(path), `${env} ${path}`).toBe(true)
   })
@@ -57,6 +58,7 @@ describe('the Vite proxy host gates the P3 reads like the static host', () => {
     vi.resetModules()
     const proxy = await import('../server/core-proxy')
     expect(proxy.isAllowedCoreRequest('POST', '/v1/context/build')).toBe(false)
+    expect(proxy.isAllowedCoreRequest('POST', `/v1/context/ctx_${ID}/delivery`)).toBe(false)
     expect(proxy.isAllowedCoreRequest('POST', '/v1/checkpoints')).toBe(false)
     expect(proxy.isAllowedCoreRequest('POST', `/v1/tasks/tsk_${ID}/resume`)).toBe(false)
     expect(proxy.isAllowedCoreRequest('GET', '/v1/auth/keys')).toBe(false)

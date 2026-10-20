@@ -99,6 +99,7 @@ def _base_routes() -> list[Route]:
         Route("POST",re.compile(r"^/v1/evidence/codex-dynamic-observation$"),adapter_evidence,"evidence:write"),
         Route("POST", re.compile(r"^/v1/context/build$"), build_context, "context:build"),
         Route("GET", re.compile(r"^/v1/context/([^/]+)$"), get_context, "context:read"),
+        Route("GET", re.compile(r"^/v1/context/([^/]+)/delivery$"), get_context_delivery, "context:read"),
         Route("POST", re.compile(r"^/v1/context/([^/]+)/check-current$"), check_context_current, "context:build"),
         Route("POST", re.compile(r"^/v1/checkpoints$"), create_checkpoint, "checkpoint:write"),
         Route("GET", re.compile(r"^/v1/tasks/([^/]+)/checkpoints/latest$"), latest_checkpoint, "checkpoint:read"),
@@ -787,6 +788,16 @@ def get_context(request,core,principal,match):
     _context_read(principal)
     if request.query:raise errors.InvalidRequest('context GET accepts no query')
     return Response(200,{'context':core.context.get(match.group(1))})
+
+
+def get_context_delivery(request, core, principal, match):
+    _context_read(principal)
+    if request.query:
+        raise errors.InvalidRequest('context delivery GET accepts no query')
+    from ..context.delivery import project
+    pack = core.context.get(match.group(1))
+    source = core.objects.events.get(pack['source_event_id'])
+    return Response(200, {'delivery': project(pack, source)})
 
 
 def check_context_current(request,core,principal,match):

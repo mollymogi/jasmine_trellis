@@ -29,6 +29,7 @@
  * is displayed as what the P4 provider recorded, marked non-authoritative.
  */
 
+import { ContextDelivery } from './ContextDelivery'
 import { useId, useState } from 'react'
 
 import { isDependencyPending, type CoreApiError } from '../api/errors'
@@ -520,6 +521,7 @@ function ContextPackBody({
   return (
     <>
       <SliceStatus />
+      <ContextDelivery pack={pack} />
       <ContextBudget pack={pack} />
       <StatRow
         label="这是实际渲染记录:"

@@ -1,3 +1,4 @@
+import type { Delivery } from '../views/ContextDelivery'
 import { confirmationEndpoints } from './webConfirmations'
 import { memoryEngineEndpoints } from './memoryEngine'
 /**
@@ -283,6 +284,8 @@ export function makeEndpoints(client: CoreClient) {
         query: { session_id: sessionId },
         signal,
       }),
+    getContextDelivery: (contextPackId: string, signal?: AbortSignal) =>
+      client.get<{ delivery: Delivery }>(`/context/${id(contextPackId)}/delivery`, { signal }),
     getContextPack: (contextPackId: string, signal?: AbortSignal) =>
       client.get<{ context: ContextPack }>(`/context/${id(contextPackId)}`, { signal }),
     getResume: (resumeId: string, signal?: AbortSignal) =>

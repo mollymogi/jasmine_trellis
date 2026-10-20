@@ -76,6 +76,7 @@ p.add_argument('--binding',required=True,type=Path)
 p.add_argument('--project-root',required=True,type=Path)
 p.add_argument('--receipts',required=True,type=Path)
 p.add_argument('--launch-receipt',type=Path)
+p.add_argument('--context-probe',action='store_true',help='Opt-in task-bound Context probe for SessionStart/UserPromptSubmit; CLI invocation only')
 p.add_argument('codex_args',nargs=argparse.REMAINDER)
 a=p.parse_args()
 os.umask(0o077)
@@ -92,10 +93,12 @@ for hook in inventory:
     if hook.get('isManaged'):raise SystemExit('Managed hook is present; an isolated launch requires operator review')
     args+=['-c','hooks.state.'+json.dumps(hook['key'])+'.enabled=false']
 for event in ('SessionStart','UserPromptSubmit','Stop','SessionEnd'):
-    value='[{hooks=[{type="command",command='+json.dumps(command,ensure_ascii=False)+',timeout='+str(3 if event=='SessionEnd' else 10)+'}]}]'
+    selected=command.replace('jasmine_core.capture.codex_session','jasmine_core.capture.context_probe') if a.context_probe and event in ('SessionStart','UserPromptSubmit') else command
+    context_limit=',additionalContextLimit=0' if a.context_probe and event in ('SessionStart','UserPromptSubmit') else ''
+    value='[{hooks=[{type="command",command='+json.dumps(selected,ensure_ascii=False)+context_limit+',timeout='+str(3 if event=='SessionEnd' else 60 if a.context_probe else 10)+'}]}]'
     args+=['-c','hooks.'+event+'='+value]
 if a.launch_receipt:
-    a.launch_receipt.write_text(json.dumps({'project_root':str(a.project_root.resolve()),'disabled_inherited_hooks':[h['key'] for h in inventory],'scope':'session-only; persisted configuration and trust unchanged','capture_sha256':hashlib.sha256((repo/'src/jasmine_core/capture/codex_session.py').read_bytes()).hexdigest(),'launcher_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest()},indent=2)+'\n')
+    a.launch_receipt.write_text(json.dumps({'project_root':str(a.project_root.resolve()),'disabled_inherited_hooks':[h['key'] for h in inventory],'scope':'session-only; persisted configuration and trust unchanged','context_probe_enabled':a.context_probe,'context_probe_sha256':hashlib.sha256((repo/'src/jasmine_core/capture/context_probe.py').read_bytes()).hexdigest() if a.context_probe else None,'capture_sha256':hashlib.sha256((repo/'src/jasmine_core/capture/codex_session.py').read_bytes()).hexdigest(),'launcher_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest()},indent=2)+'\n')
 extra=a.codex_args[1:] if a.codex_args[:1]==['--'] else a.codex_args
 os.chdir(a.project_root)
 # Exec has its own configuration argument parser; pass overrides to that parser.
