@@ -478,7 +478,7 @@ class PairPreparation(unittest.TestCase):
         work = root / "work"
         work.mkdir()
         inputs = module.prepare(repo, ref, root / "trees", work, config, prompt,
-                       Path(sys.executable))
+                       Path(sys.executable).parent.resolve() / Path(sys.executable).name)
         for label in ("baseline", "lesson"):
             tree = root / "trees" / f"g01-v2-{label}"
             self.assertTrue((tree / "calc.py").is_file())
@@ -493,7 +493,7 @@ class PairPreparation(unittest.TestCase):
         self.assertTrue((work / "g01-v2-inputs.json").is_file())
         with self.assertRaises(SystemExit):
             module.prepare(repo, ref, root / "trees", work, config, prompt,
-                       Path(sys.executable))
+                       Path(sys.executable).parent.resolve() / Path(sys.executable).name)
 
     def test_a_wrong_prompt_hash_is_refused(self) -> None:
         import tempfile

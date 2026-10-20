@@ -87,6 +87,12 @@ describe('formatting', () => {
     expect(formatTimestamp(null)).toBe('—')
   })
 
+  it('formats local wall time with the correct daylight saving offset', () => {
+    expect(formatTimestamp('2026-10-19T10:03:18Z', 'America/Los_Angeles')).toContain('03:03:18 GMT-7')
+    expect(formatTimestamp('2026-12-19T10:03:18Z', 'America/Los_Angeles')).toContain('02:03:18 GMT-8')
+    expect(formatTimestamp('2026-10-19T10:03:18Z', 'Asia/Shanghai')).toContain('18:03:18 GMT+8')
+  })
+
   it('stringifies structures for the JSON viewer', () => {
     expect(stringifyJson({ a: 1 })).toContain('"a": 1')
   })

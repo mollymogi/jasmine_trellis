@@ -44,6 +44,7 @@ const webConfirmationsEnabled = flagEnabled('P6_ENABLE_WEB_CONFIRMATIONS')
 const memoryEngineControl = flagEnabled('P6_ENABLE_MEMORY_ENGINE_CONTROL')
 const pendingPaths = allowlist as {
   p3_pending_paths?: string[]
+  context_delivery_paths?: string[]
   p4_pending_paths?: string[]
   p7_pending_paths?: string[]
 }
@@ -52,6 +53,7 @@ const ALLOWED_PATHS = [
   ...(memoryEngineControl ? allowlist.memory_engine_read_paths : []),
   ...(webConfirmationsEnabled ? allowlist.web_confirmation_read_paths : []),
   ...(p3ReadsEnabled ? pendingPaths.p3_pending_paths ?? [] : []),
+  ...(p3ReadsEnabled ? pendingPaths.context_delivery_paths ?? [] : []),
   ...(p4ReadsEnabled ? pendingPaths.p4_pending_paths ?? [] : []),
   ...(p7ReadsEnabled ? pendingPaths.p7_pending_paths ?? [] : []),
 ].map((pattern) => new RegExp(pattern))

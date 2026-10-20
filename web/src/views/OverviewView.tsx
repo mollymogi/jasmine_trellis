@@ -217,7 +217,7 @@ export function OverviewView(): JSX.Element {
       <Panel title="Memory">
         <p>长期记忆的实际状态、队列与历史记录由 Core 返回。Memory 属于历史参考，不能修改当前 Rule/State。</p>
         <p><a href="#/memory/health">Memory 健康</a> · <a href="#/memory/jobs">写入队列</a> · <a href="#/memory/items">记忆条目</a> · <a href="#/memory/traces">召回记录</a></p>
-        <p>Agent 自动采集与实际 Context 注入尚未接入；P4 收益实验保持停止，完整阶段验收尚未完成。</p>
+        <p>Codex 会话采集需先绑定项目并信任 Hook；历史 Context 接收凭证需单独采集，不代表当前轮次已注入。P4 收益实验保持停止，完整阶段验收尚未完成。</p>
       </Panel>
       <LocalBackupStatus />
       <Panel title="尚未实现的领域能力">

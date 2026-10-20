@@ -144,6 +144,7 @@ export function loadAllowlist(directory = HERE, {
       ...(enableMemoryEngineControl ? (raw.memory_engine_read_paths ?? []).map(pattern => new RegExp(pattern)) : []),
       ...(enableWebConfirmations ? (raw.web_confirmation_read_paths ?? []).map((pattern) => new RegExp(pattern)) : []),
       ...(enableP3Reads ? pending : []),
+      ...(enableP3Reads ? (raw.context_delivery_paths ?? []).map(pattern => new RegExp(pattern)) : []),
       ...(enableP4Reads ? pendingP4 : []),
       ...(enableP7Reads ? pendingP7 : []),
     ],

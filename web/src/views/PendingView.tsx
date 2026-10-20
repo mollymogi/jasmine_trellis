@@ -41,7 +41,7 @@ const SPECS: Record<string, PendingSpec> = {
     title: 'Context Inspector',
     feature: '实际注入的 Context Pack、分区/总 token、rule versions、memory IDs',
     owner: 'P3 主线(Context 生命周期)',
-    pending: '已提供按 ID 的 persisted pack 与原文读取；自动 Agent 注入接线尚未开放。',
+    pending: '已提供按 ID 的持久 Context 与原文读取，以及本机采集的历史原生输入凭证；通用桌面自动注入尚未开放。',
     note: 'built/persisted 不等于 injected;没有真实 receipt 时显示“注入未验证”,不会在 UI 里重新 build 一份冒充实际文本。',
   },
   memory: {
@@ -51,7 +51,7 @@ const SPECS: Record<string, PendingSpec> = {
     // The read slice exists (P6-03b1: health/jobs/items/traces) but its dependency is
     // unmerged, so it stays under this heading rather than in the nav. The writes and the
     // management contract are genuinely still missing.
-    pending: 'Memory 写入队列、读取与管理已经整合；实际运行状态在主导航 Memory 中读取。Agent 自动采集/注入尚未接入，P4 收益实验保持停止。',
+    pending: 'Memory 写入队列、读取、管理与当前规则对照已经整合。Codex 会话采集需明确绑定并信任 Hook；普通对话不会自动成为记忆，P4 收益实验保持停止。',
     note: 'Memory 是 NON_AUTHORITATIVE;它不会修改 Rule/State,浏览器也不会接触 Hindsight 凭据。',
   },
   validation: {

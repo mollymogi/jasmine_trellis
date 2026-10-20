@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jasmine-core"
-version = "0.1.0"
+version = "0.2.0"
 description = "Jasmine Core V1 baseline: immutable raw event store and truth foundation"
 requires-python = ">=3.11"
 dependencies = []
