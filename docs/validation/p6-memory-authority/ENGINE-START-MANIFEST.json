@@ -1,0 +1,29 @@
+{
+  "candidate": "cfc30cf6fadfc7f0c8f42efcb2ef1cecf78f84f7",
+  "scope": "real engine startup and health readback only; no retain/recall claim",
+  "sources": {
+    "src/jasmine_core/auth.py": "92b405549932cf2a368411089f6234e4499760337d5cf595f8d218e5fc4066af",
+    "src/jasmine_core/api/server.py": "78cf0dc956c510768692ed20b2d059c29089200c00a65203e58b257822466473",
+    "src/jasmine_core/api/handlers.py": "f5f7c4ba798a029f14f5e1fa7ecd96f8aebb7e4755de7be5326edb3e7253c5f2",
+    "src/jasmine_core/memory/api.py": "fa7e6757543ff723628fa9ee8768d333daad1c649cda873bba54760545b7259e",
+    "src/jasmine_core/memory/engine_control.py": "bdfa24fb6a2c5f28c8c6ea3a726fec6d0306885eafb3b071d28d51e990e5f0b8",
+    "src/jasmine_core/memory/engine_api.py": "7571c8dcf5132d043d4b80d7e180231438e3825fece5b310ea2865268c1b0426",
+    "web/server/core-paths.json": "684724736bf24377a76caaebd081849f406aa232f84ea26e7bf94466df9b9e8a",
+    "web/server/core-proxy.ts": "035a42f61f5ff525d89c74ca4aa24c246f1e7f88eebd838deda04b02d69aee3e",
+    "web/server/serve.mjs": "fe11b342a18d23d60be6f26fb8ea92d0d67d6f19db1c2f0b7a58434981edd75e",
+    "web/src/views/MemoryEngineStart.tsx": "12ae4732a303572598011b1982e66128fb814cf099d4b63ef6e868e30d044758",
+    "web/src/views/MemoryHealthDashboard.tsx": "b69dab618e0541bfec931ebd9ee134bb286885501715bfb09fb27f2033bf7e4a",
+    "web/src/api/memoryEngine.ts": "84fb759256cfa361281e7aebdf3b3049e53d0fc1fbed2f02e7bf7acba2cf8d60"
+  },
+  "evidence": {
+    "/Users/mercuryliu/Documents/JasmineCoreWork/p6-memory-authority-20261018-201955/evidence/engine-control-real-01/starting.png": "cdbae31e6416f74a19b800a2862b522da142c0f7eae7c9594891f5403e9d125f",
+    "/Users/mercuryliu/Documents/JasmineCoreWork/p6-memory-authority-20261018-201955/evidence/engine-control-real-01/connected.png": "db4ce12b5d16359fedc58ff9da558044c039eaabe0c94f9a78f8022d81dab33a",
+    "/Users/mercuryliu/Documents/JasmineCoreWork/p6-memory-authority-20261018-201955/evidence/engine-control-real-01/checks.json": "a4e0fb6b4fbb89982f7aa777750276b5ca3be24b4fd69f0cb99315bc29aceee5",
+    "/Users/mercuryliu/Documents/JasmineCoreWork/p6-memory-authority-20261018-201955/evidence/engine-control-ui-final/mobile-light.png": "f4248dda3611cbf4883e857b29f77f2a35750432c7fd71b0b05061bbbc3ee934",
+    "/Users/mercuryliu/Documents/JasmineCoreWork/p6-memory-authority-20261018-201955/evidence/engine-control-ui-final/checks.json": "a265a8a5cbb6e389595a7c568cb1245321f6be07224f4724934a34347e41e2c0",
+    "/Users/mercuryliu/Documents/JasmineCoreWork/p6-memory-authority-20261018-201955/evidence/engine-control-ui-final/mobile-dark.png": "802fecf612aaaa3ff992e5af5582c9ddea1e648c2d3025d4c6b66afd9f6d0ba8",
+    "/Users/mercuryliu/Documents/JasmineCoreWork/p6-memory-authority-20261018-201955/evidence/engine-control-ui-final/desktop-light.png": "77909d8a30080454ebe7e32ea92a1fdeed78f8258546edf914c8e4265bd56ba7",
+    "/Users/mercuryliu/Documents/JasmineCoreWork/p6-memory-authority-20261018-201955/evidence/engine-control-ui-final/desktop-dark.png": "73d366d360cc58c3c81c6bf4662c884aba0e4c871148d0bd58798ce34a106826",
+    "/Users/mercuryliu/Documents/JasmineCoreWork/p6-memory-authority-20261018-201955/isolated-dashboard/engine-control-boundaries.json": "4680a9a69a625dd950c10a22d9ad1fa5abdb1eea5a3ec6957f34e0dbedd61299"
+  }
+}

@@ -43,7 +43,7 @@ REPO = Path(__file__).resolve().parents[1]
 HOOK = REPO / "scripts" / "jasmine-p4-session-start.py"
 GATE = REPO / "scripts" / "p4-memory-gate.py"
 INSTALLER = REPO / "scripts" / "p4-codex-hook-install.py"
-PYTHON = sys.executable
+PYTHON = str(Path(sys.executable).parent.resolve() / Path(sys.executable).name)
 RENDERED = "JASMINE CONTEXT v1\n{}\nMEMORY — NON AUTHORITATIVE\n内存\n"
 
 

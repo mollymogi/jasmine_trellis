@@ -83,11 +83,17 @@ export function clip(value: string, max = 160): string {
   return value.length <= max ? value : `${value.slice(0, max)}…(+${value.length - max})`
 }
 
-export function formatTimestamp(value: string | null | undefined): string {
+export function formatTimestamp(value: string | null | undefined, timeZone?: string): string {
   if (!value) return '—'
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return value
-  return parsed.toISOString().replace('T', ' ').replace('Z', 'Z')
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    timeZoneName: 'shortOffset', ...(timeZone ? { timeZone } : {}),
+  }).formatToParts(parsed)
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(value => value.type === type)?.value ?? ''
+  return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}:${part('second')} ${part('timeZoneName')}`
 }
 
 /** Raw Event text, when the payload carries it as a string. */

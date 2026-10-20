@@ -1,0 +1,24 @@
+{
+  "scope": "Native CLI and real Hindsight retention PASS; ordinary Desktop auto-capture awaits user trust",
+  "run": "codex-live-20261019T092021Z",
+  "source_sha256": {
+    "src/jasmine_core/capture/codex_session.py": "3dc53f108b560cd81a7ef39712e5a32cb9b74c434615211dce337b22cc9791a0",
+    "scripts/deployment/codex-isolated-session.py": "2c6e8959002d2f570101af2bcfc8e26d4a1d16d50efec37b13f55f6d660fa00e",
+    "tests/test_codex_session_capture.py": "435167363f6d466b02231bbd1a04b913925194a2c8c5ab6fe4969a12aed51246",
+    "docs/adr/0024-opt-in-native-codex-conversation-capture.md": "9b5dc123da4364654af69e03a2cbe163449ef7e67f15c530be662554dca638cb",
+    "docs/validation/p6-memory-authority/NATIVE-CONVERSATION-RESULT.md": "786ae665ed7291307a99aeb002f168487cbb6ea3955da9fee444fcb495bf8325"
+  },
+  "receipt_sha256": {
+    "evidence/codex-live-20261019T092021Z/native-result.json": "51b8a1aa0d12ba9a70a49b34cb56deb624dd8da59266e629bd80f5bce8bb5712",
+    "evidence/codex-live-20261019T092021Z/retain-result.json": "0b538b83db56a4bcf813d313acc9136bbaa48cf085c5580fac9e5b9f20ce13c1",
+    "evidence/codex-live-20261019T092021Z/final-native-result.json": "0da30af54fa3631552064debc62ff35dd112b9c3d4a853be4f719b337d6f628a",
+    "evidence/codex-live-20261019T092021Z/final-isolated-launch.json": "3358adca9a1313d6ba04b7fd582df6a2000b554b15790a54a7ab068df8fd5962",
+    "evidence/codex-live-20261019T092021Z/hooks-list-readonly.json": "b7505ec797e4a96e74ac506a03572eadc37305daf533903787ef2681a028c9d4",
+    "evidence/codex-live-20261019T092021Z/boundaries.json": "71106475ab0a114dd90dbf7f05a0f39c1c406a013c44cfa48be1e04856a273d8",
+    "evidence/codex-live-20261019T092021Z/browser-final/checks.json": "7d2bac64f310fac63c4e86a4124d776575615cbf4ca16d75f786b810642b6e74",
+    "evidence/codex-live-20261019T092021Z/hindsight-document.json": "0df0ebc44f9000418d1af5a8596bcf6dc9a63d69e087599b376306775fdbbca5",
+    "evidence/codex-live-20261019T092021Z/hindsight-units.json": "d60737e568f0f715d9f3b44a390bbdd87b8fba0ce185a11e9f962780d41f39ad",
+    "conversation-capture-component-final.log": "742acf41725affd6a6088190509722ffb65059709432312e909e4b3544dbeb87",
+    "conversation-hosthook-regression.log": "5d959c283fc343b797a058b441250414ae081530264d8bacd0684965a7314a5e"
+  }
+}

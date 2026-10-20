@@ -1,4 +1,8 @@
-# Trellis (Jasmine Core V1)
+# Jasmine Core
+
+**当前正式单机版：0.2.0（schema 13）。** [发布说明与安装](docs/releases/0.2.0.md)。这是有明确功能边界的单机发布，完整 P0–P7/V1 验收仍未完成。下方阶段记录保留其原始验证范围。
+
+## 阶段背景
 
 > **Naming:** the product is now called **Trellis**; the repository is `jasmine_trellis`. The Python package (`jasmine_core`), the CLI (`jasmine-core`), the `JASMINE_CORE_*` environment variables and the on-disk locations keep their current names for now, so existing installs, hooks and services are unaffected. Renaming those is a separate, migration-gated change.
 

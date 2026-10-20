@@ -10,6 +10,7 @@
 
 import type { ReactNode } from 'react'
 
+import { formatTimestamp } from '../lib/text'
 import { CoreApiError, describeError } from '../api/errors'
 import { DescriptionItem, DescriptionList } from '@/components/ui/description-list'
 import { EmptyState, LoadingState } from '@/components/ui/empty-state'
@@ -140,7 +141,7 @@ export function Unavailable({
 export function StaleBanner({ loadedAt, scope }: { loadedAt: string; scope: string }): JSX.Element {
   return (
     <p className="state state--meta">
-      本段显示的是 <time dateTime={loadedAt}>{loadedAt}</time> 从 Core 读回的
+      本段显示的是 <time dateTime={loadedAt}>{formatTimestamp(loadedAt)}</time> 从 Core 读回的
       <strong> {scope} </strong>内容;它不是事务快照,也不是实时推送。
     </p>
   )

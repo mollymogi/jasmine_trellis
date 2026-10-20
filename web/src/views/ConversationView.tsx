@@ -13,17 +13,19 @@
  * what Core recorded rather than inferring it from event text.
  */
 
-import { useId, useMemo, useState } from 'react'
+import { useId, useMemo, useRef, useState } from 'react'
 
-import { DEFAULT_EVENT_LIMIT, DEFAULT_OBJECT_LIMIT } from '../api/endpoints'
-import type { RawEvent, Session } from '../api/types'
+import { DEFAULT_OBJECT_LIMIT } from '../api/endpoints'
+import type { Session } from '../api/types'
 import { sourceHref } from '../app/router'
 import { useSession } from '../app/session'
-import { afterSeqLoader, offsetLoader, usePagedResource } from '../app/usePagedResource'
+import { offsetLoader, usePagedResource } from '../app/usePagedResource'
 import { EventRow } from '../components/EventRow'
+import { ConversationMessage, isConversationMessage } from '../components/ConversationMessage'
+import { useConversationEvents } from '../app/useConversationEvents'
 import { Pager } from '../components/Pager'
 import { StatusBadge } from '../components/StatusBadge'
-import { Empty, ErrorPanel, Loading, Panel, StaleBanner } from '../components/States'
+import { Empty, ErrorPanel, Loading, Panel } from '../components/States'
 import { formatTimestamp } from '../lib/text'
 import { HookDecisions } from '../components/HookDecisions'
 
@@ -78,6 +80,7 @@ export function ConversationView({
   const [sourceSystem, setSourceSystem] = useState('')
   const eventTypeId = useId()
   const sourceId = useId()
+  const latestMessage = useRef<HTMLDivElement>(null)
 
   const sessions = usePagedResource(
     offsetLoader<Session>({
@@ -104,27 +107,16 @@ export function ConversationView({
     [projectId],
   )
 
-  const events = usePagedResource(
-    afterSeqLoader<RawEvent>({
-      limit: DEFAULT_EVENT_LIMIT,
-      fetch: async (afterSeq, limit, signal) => {
-        const page = await endpoints.listEvents(
-          {
-            session_id: sessionId,
-            task_id: sessionId === null ? taskId : null,
-            project_id: sessionId === null && taskId === null ? projectId : null,
-            event_type: eventType || null,
-            source_system: sourceSystem || null,
-            after_seq: afterSeq,
-            limit,
-          },
-          signal,
-        )
-        return { items: page.events, count: page.count }
-      },
-    }),
-    [projectId, taskId, sessionId, eventType, sourceSystem],
-  )
+  const events = useConversationEvents(endpoints, {
+    session_id: sessionId,
+    task_id: sessionId === null ? taskId : null,
+    project_id: sessionId === null && taskId === null ? projectId : null,
+    event_type: eventType || null,
+    source_system: sourceSystem || null,
+  })
+  const messages = events.items.filter(isConversationMessage)
+  const systemEvents = events.items.filter(event => !isConversationMessage(event))
+  const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
   const scopeLabel = useMemo(() => {
     if (sessionId) return `session ${sessionId}`
@@ -168,8 +160,8 @@ export function ConversationView({
           </label>
         </div>
         <p className="state state--meta">
-          当前范围:<strong>{scopeLabel}</strong>;按 <code>after_seq</code> 分页,每页{' '}
-          {DEFAULT_EVENT_LIMIT} 条。切换范围会取消上一范围的请求并丢弃其响应。
+          当前范围：<strong>{scopeLabel}</strong>。时间按本地时区 {localZone} 显示。
+          对话从上到下按发生顺序排列，每 3 秒自动刷新。
         </p>
         <div className="scope-links">
           <a href={sourceHref.conversation(projectId)} aria-current={sessionId === null && taskId === null ? 'true' : undefined}>
@@ -185,15 +177,18 @@ export function ConversationView({
 
       <div className="split">
         <Panel
-          title={`Raw Event(${events.items.length} 条已载入)`}
+          title={`对话（${messages.length} 条消息）`}
           actions={
-            <button type="button" onClick={events.reload} disabled={events.loading}>
-              重新读取
-            </button>
+            <>
+              <button type="button" onClick={() => latestMessage.current?.scrollIntoView({ block: 'center' })} disabled={messages.length === 0}>
+                跳到最新消息
+              </button>
+              <button type="button" onClick={events.reload} disabled={events.loading}>重新读取</button>
+            </>
           }
         >
           {events.loading && events.items.length === 0 ? <Loading what="Event" /> : null}
-          {events.error && events.items.length === 0 ? (
+          {events.error ? (
             <ErrorPanel error={events.error} what="Event" onRetry={events.reload} />
           ) : null}
           {!events.loading && events.error === null && events.items.length === 0 ? (
@@ -202,21 +197,28 @@ export function ConversationView({
               hint="本地采集没有这些事件;本页绝不凭 UI 状态或本地对话补造。"
             />
           ) : null}
-          {events.items.length > 0 ? (
+          {events.items.length > 0 && messages.length === 0 ? <p className="muted">此范围暂无用户或助手消息。</p> : null}
+          <ol className="chat-messages" aria-label="用户和助手对话">
+            {messages.map(event => <ConversationMessage key={event.event_id} event={event} taskId={taskId} />)}
+          </ol>
+          <div ref={latestMessage} />
+          <p className="state state--meta" role="status">
+            {events.error ? '自动刷新失败，保留上次内容；将自动重试。' : events.loading ? '正在同步对话…' : '每 3 秒自动刷新'}
+            {events.loadedAt ? <> · 上次同步 <time dateTime={events.loadedAt}>{formatTimestamp(events.loadedAt)}</time></> : null}
+          </p>
+          <p className="muted">助手回复完成后显示；生成中的文字和过程更新尚未采集。</p>
+          <details className="system-events">
+            <summary>系统事件（{systemEvents.length} 条，默认折叠）</summary>
             <ol className="events">
-              {events.items.map((event) => (
-                <EventRow key={event.event_id} event={event} taskId={taskId} />
-              ))}
+              {systemEvents.map(event => <EventRow key={event.event_id} event={event} taskId={taskId} />)}
             </ol>
-          ) : null}
-          <Pager paged={events} noun="Event" limit={DEFAULT_EVENT_LIMIT} />
-          {events.loadedAt ? <StaleBanner loadedAt={events.loadedAt} scope={scopeLabel} /> : null}
+          </details>
         </Panel>
 
         <div className="stack">
           <Panel title="Interpretation / Resolver(读取视图已交付)">
             <p className="state state--meta">
-              左列是 Core 逐字保留的 Raw Event;解释、候选、Resolver 计划与待审批 Review 现在有独立的只读视图。
+              左列展示已采集的用户和助手消息，系统事件与来源详情可展开查看；解释、候选、Resolver 计划与待审批 Review 现在有独立的只读视图。
               P2 契约已合并,browser 只读这几条 GET:
             </p>
             <ul className="plain">

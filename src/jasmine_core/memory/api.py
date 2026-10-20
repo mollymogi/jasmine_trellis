@@ -35,6 +35,7 @@ from . import health as health_module
 from . import jobs as jobs_module
 from . import scope as scope_module
 from .adapter import MemoryAdapter
+from .authority_comparison import compare_authority
 from .hindsight import config_from_env
 from .lifecycle import MemoryLifecycle, lifecycle_summary
 from .store import MemoryStore
@@ -88,6 +89,14 @@ class MemoryServices:
                 from .hindsight import HindsightTransport
 
                 self._transport = HindsightTransport(config)
+        # ADR 0023: explicit startup may activate a fixed operator profile.
+        # This fallback never accepts an origin or credential from a request.
+        if self._transport is None:
+            from .engine_control import running_origin
+            from .hindsight import HindsightConfig, HindsightTransport
+            database=next(row[2] for row in self.conn.execute('PRAGMA database_list') if row[1]=='main')
+            origin=running_origin(database)
+            if origin is not None:self._transport=HindsightTransport(HindsightConfig(origin))
         return self._transport
 
     def visible_projects(self, actor_id: str, requested: str | None) -> tuple[str, ...] | None:
@@ -250,7 +259,9 @@ def get_item(request: Request, core: "Core", principal: auth.Principal,
     memory_id = match.group(1)
     _require_id(memory_id, "mem", "memory_id")
     detail = svc.lifecycle.detail(memory_id, actor_id=principal.actor_id)
-    return _respond(200, {**detail, "non_authoritative": True},
+    comparison = compare_authority(
+        core.conn, detail["memory"], may_read_authority="authority:read" in principal.scopes)
+    return _respond(200, {**detail, "authority_comparison": comparison, "non_authoritative": True},
                     core.actor_kind(principal.actor_id))
 
 

@@ -35,7 +35,7 @@ SCOPES = ("adapter:report", "adapter:attest", "adapter:read", "admin", "objects:
           # same reason `authority:manage` is: an Agent must not be able to
           # curate what the next turn will be told, and must not be the thing
           # that decides a history question is worth an LLM call.
-          "memory:read", "memory:manage", "memory:reflect",
+          "memory:read", "memory:manage", "memory:reflect", "memory:engine:manage",
           # P7-01 (ADR 0015 §6). `validation:read` is read-only over the
           # operator's recorded Validation runs, so any actor may hold it.
           # `validation:unattributed` reads a run that carries no project
@@ -100,6 +100,8 @@ class Auth:
             raise errors.ForbiddenActorKind(
                 "memory:reflect runs an LLM over the bank and is an explicit human request"
             )
+        if kind == "agent" and "memory:engine:manage" in scopes:
+            raise errors.ForbiddenActorKind("agent keys cannot start the local Memory engine")
         if kind == "agent" and "validation:unattributed" in scopes:
             raise errors.ForbiddenActorKind(
                 "agent keys cannot carry validation:unattributed; unattributed evidence has no "

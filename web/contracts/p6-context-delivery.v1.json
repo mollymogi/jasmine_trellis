@@ -1,0 +1,14 @@
+{
+  "contract": "jasmine.p6-context-delivery.v1",
+  "method": "GET",
+  "path": "/v1/context/{ctx}/delivery",
+  "required_scopes": ["context:read", "checkpoint:read", "objects:read", "state:read", "authority:read", "evidence:read", "events:read"],
+  "proxy_flag": "P6_ENABLE_P3_READS",
+  "root_configuration": "JASMINE_CONTEXT_DELIVERY_ROOT",
+  "statuses": ["UNAVAILABLE", "NO_RECORD", "INVALID_RECORD", "MATCHED_NATIVE_INPUT"],
+  "historical": true,
+  "current_use_proved": false,
+  "trust_boundary": "operator_owned_native_collector",
+  "schema_migration": false,
+  "legacy_contract_rebound": false
+}

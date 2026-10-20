@@ -1,8 +1,8 @@
 /**
  * The application sidebar (mogi-ui `Sidebar`).
  *
- * Holds the business navigation, the pending-confirmation links and the placeholder list of
- * domains whose contracts are not frozen. The footer is a single account menu: theme choice and
+ * Holds business navigation and pending-confirmation links. Feature explanations have one
+ * help entry. The footer is a single account menu: theme choice and
  * sign-out live there, not in a separate header. Nothing here reads or stores the token.
  */
 
@@ -12,21 +12,27 @@ import {
   CircleDashed,
   ClipboardCheck,
   FileSearch,
+  Flower2,
+  HelpCircle,
   LayoutDashboard,
   ListChecks,
+  LogOut,
   MessagesSquare,
+  Moon,
+  PawPrint,
   ShieldCheck,
+  Sun,
   type LucideIcon,
 } from 'lucide-react'
 
 import { hrefFor, type Route } from '../app/router'
 import type { PendingConfirmation } from '../api/webConfirmations'
-import { pendingKeys } from '../views/PendingView'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -47,13 +53,13 @@ import {
 
 // Each item carries an icon, so the collapsed icon rail still says what a button opens.
 export const NAV: { label: string; href: string; icon: LucideIcon }[] = [
-  { label: 'Memory', href: '#/memory/health', icon: Brain },
-  { label: 'Validation', href: '#/validation/runs', icon: ShieldCheck },
   { label: 'Overview', href: hrefFor({ name: 'overview' }), icon: LayoutDashboard },
   { label: 'Conversation', href: hrefFor({ name: 'conversation', projectId: null, taskId: null, sessionId: null }), icon: MessagesSquare },
+  { label: 'Memory', href: hrefFor({ name: 'memoryHealth' }), icon: Brain },
+  { label: 'Rules', href: hrefFor({ name: 'rules', projectId: null, taskId: null, ruleId: null }), icon: ListChecks },
   { label: 'Interpretations', href: hrefFor({ name: 'interpretations', projectId: null, taskId: null, eventId: null, status: null }), icon: FileSearch },
   { label: '待审批 Review', href: hrefFor({ name: 'reviews', projectId: null, taskId: null }), icon: ClipboardCheck },
-  { label: 'Rules', href: hrefFor({ name: 'rules', projectId: null, taskId: null, ruleId: null }), icon: ListChecks },
+  { label: 'Validation', href: '#/validation/runs', icon: ShieldCheck },
 ]
 
 /** Decorative or brand text: removed from view when the sidebar is collapsed to its icon rail. */
@@ -97,10 +103,19 @@ export function AppSidebar({
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <div className="px-2 py-1">
-          <p className={`font-semibold ${LABEL}`}>Jasmine Core</p>
-          <p className={`text-xs text-muted-foreground ${LABEL}`}>本机可用版</p>
-        </div>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild size="lg" tooltip="Jasmine Core 看板">
+              <a href={hrefFor({ name: 'memoryHealth' })} onClick={closeOnMobile} aria-label="Jasmine Core 看板">
+                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground"><PawPrint className="size-4" /></div>
+                <div className={`grid text-left leading-tight ${LABEL}`}>
+                  <span className="font-bold">Jasmine Core</span>
+                  <span className="text-xs text-muted-foreground">工作看板</span>
+                </div>
+              </a>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarHeader>
 
       <SidebarContent>
@@ -145,19 +160,17 @@ export function AppSidebar({
         ) : null}
 
         <SidebarGroup>
-          <SidebarGroupLabel>尚未开放 / 使用范围</SidebarGroupLabel>
+          <SidebarGroupLabel>帮助</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {pendingKeys().map((key) => (
-                <SidebarMenuItem key={key}>
-                  <SidebarMenuButton asChild tooltip={key}>
-                    <a href={hrefFor({ name: 'pending', key })} onClick={closeOnMobile}>
-                      <CircleDashed />
-                      <span className={LINK_LABEL}>{key}</span>
-                    </a>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={route.name === 'pending'} tooltip="功能说明">
+                  <a href={hrefFor({ name: 'pending', key: 'features' })} onClick={closeOnMobile} aria-current={route.name === 'pending' ? 'page' : undefined}>
+                    <HelpCircle />
+                    <span className={LINK_LABEL}>功能说明</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -183,26 +196,25 @@ function AccountMenu({
   const { isMobile, state } = useSidebar()
   // Opens upward in the full sidebar, and to the right when the sidebar is collapsed to icons.
   const side = state === 'collapsed' && !isMobile ? 'right' : 'top'
+  const avatar = <Avatar className="size-8"><AvatarFallback className="bg-primary/10 text-primary"><Flower2 className="size-4" /></AvatarFallback></Avatar>
+  const identity = <div className="grid min-w-0 flex-1 text-left leading-tight"><span className="truncate font-bold">本机会话</span><span className="truncate text-xs text-muted-foreground">Core 已连接</span></div>
   return (
     <SidebarMenu>
       <SidebarMenuItem>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <SidebarMenuButton size="lg" tooltip="账户与设置">
-              <Avatar className="size-8 rounded-lg">
-                <AvatarFallback className="rounded-lg">CM</AvatarFallback>
-              </Avatar>
-              <div className="grid flex-1 text-left leading-tight group-data-[collapsible=icon]:sr-only">
-                <span className="truncate font-medium">Core 已连接</span>
-                <span className="truncate text-xs text-muted-foreground">token 仅在内存中</span>
-              </div>
+            <SidebarMenuButton size="lg" tooltip="账户与设置" aria-label="本机会话 · Core 已连接 · 账户与设置" className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
+              {avatar}
+              <div className={`min-w-0 flex-1 ${LINK_LABEL}`}>{identity}</div>
               <ChevronsUpDown className={`ml-auto ${LABEL}`} />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
-          <DropdownMenuContent side={side} align="start" className="min-w-56">
-            <DropdownMenuItem onSelect={onToggleTheme}>{dark ? '切换到浅色主题' : '切换到深色主题'}</DropdownMenuItem>
+          <DropdownMenuContent side={side} align={side === 'right' ? 'end' : 'start'} sideOffset={6} className="w-(--radix-dropdown-menu-trigger-width) min-w-56">
+            <DropdownMenuLabel className="flex items-center gap-2 font-normal">{avatar}{identity}</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={onSignOut}>退出(清除内存中的 token)</DropdownMenuItem>
+            <DropdownMenuItem onSelect={onToggleTheme}>{dark ? <Sun /> : <Moon />}{dark ? '切换到浅色主题' : '切换到深色主题'}</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onSelect={onSignOut}><LogOut />退出登录</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>

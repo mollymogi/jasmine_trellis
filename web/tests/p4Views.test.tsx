@@ -139,6 +139,10 @@ async function enter(
   await screen.findByText('Core 健康与 Schema')
   window.location.hash = hash
   window.dispatchEvent(new HashChangeEvent('hashchange'))
+  const detail = routes?.[`GET /v1/${hash.slice(2)}`]?.body
+  if (hash.startsWith('#/memory/items/') && detail && typeof detail === 'object' && 'memory' in detail) {
+    await user.click(await screen.findByRole('button', { name: /查看条目与来源/ }))
+  }
 }
 
 const VIEWS: ReadonlyArray<[string, string, RegExp, string]> = [
@@ -146,7 +150,7 @@ const VIEWS: ReadonlyArray<[string, string, RegExp, string]> = [
   ['jobs list', '#/memory/jobs', /Memory Jobs/, '/v1/memory/jobs'],
   ['job detail', `#/memory/jobs/${JOB}`, /Memory Job/, `/v1/memory/jobs/${JOB}`],
   ['items list', '#/memory/items', /Memory Items/, '/v1/memory/items'],
-  ['item detail', `#/memory/items/${ITEM}`, /Memory Item/, `/v1/memory/items/${ITEM}`],
+  ['item detail', `#/memory/items/${ITEM}`, /记忆详情/, `/v1/memory/items/${ITEM}`],
   ['traces list', '#/memory/traces', /Memory Traces/, '/v1/memory/traces'],
   ['trace detail', `#/memory/traces/${TRACE}`, /Memory Trace/, `/v1/memory/traces/${TRACE}`],
 ]
@@ -201,6 +205,7 @@ describe('a refused P4 read is shown as a missing dependency', () => {
     const user = userEvent.setup()
     await enter(user, hash, { ...SIGNED_IN, ['GET ' + route]: { body: bodies[route] } })
     const panel = await screen.findByRole('region', { name: region })
+    if (hash === '#/memory/health') await user.click(await within(panel).findByRole('button', { name: /查看运行详情/ }))
     const status = await within(panel).findByTestId('slice-status')
     expect(status.textContent).toContain('Memory 功能读取 / 管理')
     // And it must name the pin and the unpassed acceptance, not just the status word.
@@ -247,7 +252,7 @@ describe('Memory is marked non-authoritative from Core own field', () => {
         },
       },
     })
-    const panel = await screen.findByRole('region', { name: /Memory Item/ })
+    const panel = await screen.findByRole('region', { name: /记忆详情/ })
     expect((await within(panel).findByTestId('non-authoritative')).textContent).toContain('NON_AUTHORITATIVE')
   })
 })
@@ -308,7 +313,7 @@ describe('empty, not-found, refused and pending stay four different states', () 
       ...SIGNED_IN,
       ['GET /v1/memory/items/' + UNKNOWN_ITEM]: coreError(404, 'not_found', 'memory not found'),
     })
-    const panel = await screen.findByRole('region', { name: /Memory Item/ })
+    const panel = await screen.findByRole('region', { name: /记忆详情/ })
     await waitFor(() => expect(within(panel).getByTestId('not-found')).toBeTruthy())
     expect(within(panel).queryByRole('alert')).toBeNull()
     expect(within(panel).queryByTestId('dependency-pending')).toBeNull()
@@ -331,7 +336,7 @@ describe('empty, not-found, refused and pending stay four different states', () 
 describe('a malformed id is refused locally', () => {
   it.each([
     ['job', '#/memory/jobs/mjb_short', /Memory Job/, 'mjb', '/v1/memory/jobs/'],
-    ['item', '#/memory/items/mem_short', /Memory Item/, 'mem', '/v1/memory/items/'],
+    ['item', '#/memory/items/mem_short', /记忆详情/, 'mem', '/v1/memory/items/'],
     ['trace', '#/memory/traces/mtr_short', /Memory Trace/, 'mtr', '/v1/memory/traces/'],
   ])('does not blame the missing P4 for a bad %s id, and sends no request', async (
     _name, hash, region, prefix, route,
@@ -470,7 +475,7 @@ describe('the view renders the engine text exactly as Core sent it', () => {
         },
       },
     })
-    const panel = await screen.findByRole('region', { name: /Memory Item/ })
+    const panel = await screen.findByRole('region', { name: /记忆详情/ })
     await waitFor(() => expect(panel.textContent).toContain('the engine rejected this item'))
     expect(within(panel).getByText('safe_error_summary')).toBeTruthy()
   })
@@ -487,7 +492,7 @@ describe('the view renders the engine text exactly as Core sent it', () => {
         },
       },
     })
-    const panel = await screen.findByRole('region', { name: /Memory Item/ })
+    const panel = await screen.findByRole('region', { name: /记忆详情/ })
     await waitFor(() => expect(panel.textContent).toContain('engine_rejected'))
     expect(within(panel).queryByText('safe_error_summary')).toBeNull()
   })
@@ -533,7 +538,10 @@ describe('the read views stay read-only, and the write controls are gated', () =
    * (`▸`/`▾`), and `RawText`'s copy button. None of them changes anything in Core.
    */
   const READ_ONLY_CONTROLS: ReadonlyArray<[string, (name: string) => boolean]> = [
-    ['reload', (name) => name === '从 Core 重新读取'],
+    ['reload', (name) => name === '从 Core 重新读取' || name === '刷新状态'],
+    ['read health details', (name) => name === '查看运行详情'],
+    ['disabled engine control', (name) => name === '一键启动引擎' || name === '重新读取启动状态'],
+    ['read filter records', (name) => name === '查看过滤记录'],
     ['by-id form submit', (name) => name === '打开'],
     ['JsonBlock expander', (name) => /^[▸▾]/.test(name)],
     ['RawText copy', (name) => name.startsWith('复制')],
@@ -588,7 +596,7 @@ describe('the read views stay read-only, and the write controls are gated', () =
    *   successful integration.
    */
   it.each([['job detail', `#/memory/jobs/${JOB}`, /Memory Job/, `/v1/memory/jobs/${JOB}`],
-           ['item detail', `#/memory/items/${ITEM}`, /Memory Item/, `/v1/memory/items/${ITEM}`]] as const)(
+           ['item detail', `#/memory/items/${ITEM}`, /记忆详情/, `/v1/memory/items/${ITEM}`]] as const)(
     '%s carries the gated write panel and still sends no write on render', async (
       _name, hash, region, route,
     ) => {
@@ -597,6 +605,7 @@ describe('the read views stay read-only, and the write controls are gated', () =
       const panel = await screen.findByRole('region', { name: region })
       await waitFor(() => expect(panel.textContent).not.toContain('读取失败'))
 
+      if (hash.startsWith('#/memory/items/')) await user.click(within(panel).getByRole('tab', { name: '管理记忆' }))
       // The write section is present, and it names the dependency rather than pretending.
       expect(panel.textContent).toContain('P6_ENABLE_P4_WRITES')
       expect(panel.textContent).toContain('P4 阶段验收未通过')

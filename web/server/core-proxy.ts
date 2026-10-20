@@ -41,15 +41,19 @@ const p4ReadsEnabled = flagEnabled('P6_ENABLE_P4_READS')
 const p4WritesEnabled = flagEnabled('P6_ENABLE_P4_WRITES')
 const p7ReadsEnabled = flagEnabled('P6_ENABLE_P7_READS')
 const webConfirmationsEnabled = flagEnabled('P6_ENABLE_WEB_CONFIRMATIONS')
+const memoryEngineControl = flagEnabled('P6_ENABLE_MEMORY_ENGINE_CONTROL')
 const pendingPaths = allowlist as {
   p3_pending_paths?: string[]
+  context_delivery_paths?: string[]
   p4_pending_paths?: string[]
   p7_pending_paths?: string[]
 }
 const ALLOWED_PATHS = [
   ...allowlist.paths,
+  ...(memoryEngineControl ? allowlist.memory_engine_read_paths : []),
   ...(webConfirmationsEnabled ? allowlist.web_confirmation_read_paths : []),
   ...(p3ReadsEnabled ? pendingPaths.p3_pending_paths ?? [] : []),
+  ...(p3ReadsEnabled ? pendingPaths.context_delivery_paths ?? [] : []),
   ...(p4ReadsEnabled ? pendingPaths.p4_pending_paths ?? [] : []),
   ...(p7ReadsEnabled ? pendingPaths.p7_pending_paths ?? [] : []),
 ].map((pattern) => new RegExp(pattern))
@@ -58,6 +62,7 @@ const WRITE_METHODS = new Set(
 )
 const WRITE_PATHS = [
   ...(allowlist.write_paths ?? []),
+  ...(memoryEngineControl ? allowlist.memory_engine_write_paths : []),
   ...(webConfirmationsEnabled ? allowlist.web_confirmation_write_paths : []),
   // Only ever appended to the POST list: `isAllowedCoreRequest` selects a list by method, so
   // a b2 write cannot be reached with GET even when the switch is on.
@@ -200,10 +205,10 @@ export function proxyCoreRequest(
     return
   }
 
-  if (method.toUpperCase() === 'POST' && target.pathname.startsWith('/v1/evidence/confirmations/')) {
+  if (method.toUpperCase() === 'POST' && (target.pathname.startsWith('/v1/evidence/confirmations/') || target.pathname === '/v1/memory/engine/start')) {
     const browserOrigin = req.headers.origin
     if (browserOrigin !== undefined && browserOrigin !== `http://${req.headers.host}`) {
-      refuse(res, req, 403, 'proxy_origin_not_allowed', 'confirmation writes require a same-origin browser request')
+      refuse(res, req, 403, 'proxy_origin_not_allowed', 'local writes require a same-origin browser request')
       return
     }
   }

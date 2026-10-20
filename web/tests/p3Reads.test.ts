@@ -25,20 +25,21 @@ const load = (enableP3Reads: boolean) => loadAllowlist(ALLOWLIST_DIR, { enableP3
 const ID = '01M4B6VGC29ESRDRQR62DX8AK8'
 const PENDING = [
   `/v1/context/ctx_${ID}`,
+  `/v1/context/ctx_${ID}/delivery`,
   `/v1/tasks/tsk_${ID}/checkpoints/latest`,
   `/v1/checkpoints/ckp_${ID}`,
   `/v1/resumes/rms_${ID}`,
 ]
 
 describe('P3 continuity reads are opt-in', () => {
-  it('refuses all four on a baseline proxy', () => {
+  it('refuses all Context/continuity reads on a baseline proxy', () => {
     const allowlist = load(false)
     for (const path of PENDING) {
       expect(isAllowed(allowlist, 'GET', path), path).toBe(false)
     }
   })
 
-  it('forwards all four when the operator states the Core has P3', () => {
+  it('forwards all Context/continuity reads when the operator states the Core has P3', () => {
     const allowlist = load(true)
     for (const path of PENDING) {
       expect(isAllowed(allowlist, 'GET', path), path).toBe(true)

@@ -1,4 +1,6 @@
+import type { Delivery } from '../views/ContextDelivery'
 import { confirmationEndpoints } from './webConfirmations'
+import { memoryEngineEndpoints } from './memoryEngine'
 /**
  * The frozen P6-01 endpoint surface.
  *
@@ -33,6 +35,7 @@ import type {
   Host,
   MemoryHealth,
   MemoryItem,
+  MemoryAuthorityComparison,
   MemoryItemListRow,
   MemoryJob,
   MemoryJobAttempt,
@@ -111,6 +114,7 @@ function id(value: string): string {
 export function makeEndpoints(client: CoreClient) {
   return {
     ...confirmationEndpoints(client),
+    ...memoryEngineEndpoints(client),
     health: (signal?: AbortSignal) => client.get<Health>('/health', { signal }),
     metaSchema: (signal?: AbortSignal) => client.get<MetaSchema>('/meta/schema', { signal }),
 
@@ -280,6 +284,8 @@ export function makeEndpoints(client: CoreClient) {
         query: { session_id: sessionId },
         signal,
       }),
+    getContextDelivery: (contextPackId: string, signal?: AbortSignal) =>
+      client.get<{ delivery: Delivery }>(`/context/${id(contextPackId)}/delivery`, { signal }),
     getContextPack: (contextPackId: string, signal?: AbortSignal) =>
       client.get<{ context: ContextPack }>(`/context/${id(contextPackId)}`, { signal }),
     getResume: (resumeId: string, signal?: AbortSignal) =>
@@ -315,6 +321,7 @@ export function makeEndpoints(client: CoreClient) {
     getMemoryItem: (memoryId: string, signal?: AbortSignal) =>
       client.get<{
         memory: MemoryItem
+        authority_comparison?: MemoryAuthorityComparison
         sources: unknown[]
         jobs: MemoryJob[]
         recallable: boolean

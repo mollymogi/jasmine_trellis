@@ -33,7 +33,7 @@ export function ContextBudget({ pack }: { pack: ContextPack }): JSX.Element {
         仅表示已渲染 pack 的编码计数，不表示模型完整提示额度。
       </p>
       <p className="state state--meta" data-testid="context-injection-boundary">
-        这是构建时的历史记录；重新读取不证明当前可注入。本页没有 Agent 实际接收回执，构建不等于注入。
+        这是构建时的历史记录；重新读取不证明当前可注入。构建不等于注入；接收凭证在独立卡片中核对。
       </p>
       {state === 'unknown' ? (
         <div className="state state--error" role="alert" data-testid="context-budget-warning">

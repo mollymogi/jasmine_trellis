@@ -1,0 +1,18 @@
+{
+  "contract": "p6-memory-authority.v1",
+  "adr": "0022",
+  "baseline": "66071992e7764147f51863f70509a03a6e789eb3",
+  "method": "GET",
+  "path": "/v1/memory/items/{mem}",
+  "extension_field": "authority_comparison",
+  "required_scope": "memory:read",
+  "snapshot_scope": "authority:read",
+  "project_acl": "existing Memory item ACL; checked before comparison",
+  "fields": ["status", "reason", "sampled_at", "historical_rule", "current_rule"],
+  "statuses": ["VERSION_CHANGED", "ORIGIN_RETIRED", "VERSION_MATCH", "UNVERIFIABLE", "UNAVAILABLE", "NOT_APPLICABLE"],
+  "comparison_basis": "explicit origin_rule_id and origin_rule_version; no semantic classifier",
+  "writes_truth_or_memory": false,
+  "calls_engine": false,
+  "older_core": "missing extension is unavailable",
+  "trace_policy": "display existing recorded filter reasons; no recomputation"
+}

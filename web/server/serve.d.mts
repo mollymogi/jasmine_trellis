@@ -63,6 +63,7 @@ export function loadAllowlist(
     enableP4Writes?: boolean
     enableP7Reads?: boolean
     enableWebConfirmations?: boolean
+    enableMemoryEngineControl?: boolean
   },
 ): Allowlist
 export function resolveCoreOrigin(raw?: string): URL

@@ -27,7 +27,8 @@ body {
     overflow-wrap: normal;
   }
 
-  a {
+  /* Component links own their text color; ordinary content links remain primary. */
+  a:not([data-slot]) {
     color: var(--primary);
     text-underline-offset: 3px;
   }
@@ -634,3 +635,41 @@ main {
 .write-field .state {
   padding: 4px 6px;
 }
+
+/* Conversation: keep chat readable, with technical records behind disclosure. */
+.chat-messages {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+}
+.chat-message {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  background: var(--card);
+}
+.chat-message--user { border-left: 4px solid var(--primary); }
+.chat-message__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.chat-message__head time { color: var(--muted-foreground); font-size: 12px; }
+.chat-message .rawtext__body {
+  max-height: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.8;
+}
+.chat-message__source, .system-events { margin-top: 12px; }
+.chat-message__source summary, .system-events summary { cursor: pointer; color: var(--muted-foreground); }
+.chat-message__source > .events, .system-events > .events { margin-top: 10px; }

@@ -1,0 +1,199 @@
+/*
+ * Mogi 语义层（Semantic tokens），变量名与 shadcn/ui 保持一致，
+ * 所以任何 shadcn 组件都能直接套用这套主题。
+ * 需要在 Tailwind v4 入口文件中引入：
+ *   @import "tailwindcss";
+ *   @import "@mogi-ui/tokens/theme.css";
+ */
+@import "./primitives.css";
+@import "./motion.css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.75rem;
+
+  --background: var(--sand-50);
+  --foreground: var(--sand-900);
+  --card: #fffdf9;
+  --card-foreground: var(--sand-900);
+  --popover: #fffdf9;
+  --popover-foreground: var(--sand-900);
+  --primary: var(--corgi-600);
+  --primary-foreground: var(--petal);
+  --secondary: var(--sand-100);
+  --secondary-foreground: var(--sand-700);
+  --muted: #f3e8da;
+  --muted-foreground: var(--sand-650);
+  --accent: var(--corgi-100);
+  --accent-foreground: var(--corgi-700);
+  --destructive: var(--rose-600);
+  --destructive-foreground: var(--petal);
+  --success: var(--jasmine-700);
+  --success-foreground: var(--petal);
+  --success-soft: var(--jasmine-100);
+  --warning: var(--honey-500);
+  --warning-foreground: var(--sand-900);
+  --warning-soft: var(--honey-100);
+  --highlight: var(--terracotta-800);
+  --highlight-soft: var(--terracotta-100);
+  --border: #e9dccb;
+  --input: #e3d4c1;
+  --ring: var(--corgi-400);
+
+  --chart-1: var(--corgi-500);
+  --chart-2: var(--jasmine-500);
+  --chart-3: var(--terracotta-500);
+  --chart-4: var(--honey-500);
+  --chart-5: var(--sand-500);
+
+  --sidebar: #fffdf9; /* 暖白底 */
+  --sidebar-foreground: var(--sand-900);
+  --sidebar-primary: var(--corgi-600);
+  --sidebar-primary-foreground: var(--petal);
+  --sidebar-accent: var(--corgi-100); /* 选中浅橘底 + 深色字，悬停用它的 60% */
+  --sidebar-accent-foreground: var(--sand-900);
+  --sidebar-border: #e9dccb;
+  --sidebar-ring: var(--corgi-400);
+}
+
+/* 暗色：摩卡底，主色提亮一档 */
+.dark {
+  --background: #241811;
+  --foreground: #f6ebdd;
+  --card: #2e2017;
+  --card-foreground: #f6ebdd;
+  --popover: #2e2017;
+  --popover-foreground: #f6ebdd;
+  --primary: #e0a06c;
+  --primary-foreground: #2a1a10;
+  --secondary: #3a2a1f;
+  --secondary-foreground: #e6d3bf;
+  --muted: #3a2a1f;
+  --muted-foreground: var(--sand-400);
+  --accent: #4a3425;
+  --accent-foreground: var(--corgi-200);
+  --destructive: #e0735a;
+  --destructive-foreground: #2a1a10;
+  --success: #a3bd6c;
+  --success-foreground: #1d2410;
+  --success-soft: #33401f;
+  --warning: #e6b94f;
+  --warning-foreground: #2a1a10;
+  --warning-soft: #4a3a12;
+  --highlight: #e3a082;
+  --highlight-soft: #4a2e22;
+  --border: #44332a;
+  --input: #4e3b30;
+  --ring: #e0a06c;
+
+  --chart-1: #e0a06c;
+  --chart-2: #a3bd6c;
+  --chart-3: #e3a082;
+  --chart-4: #e6b94f;
+  --chart-5: var(--sand-400);
+
+  --sidebar: #2e2017;
+  --sidebar-foreground: #f6ebdd;
+  --sidebar-primary: #e0a06c;
+  --sidebar-primary-foreground: #2a1a10;
+  --sidebar-accent: #4a3425;
+  --sidebar-accent-foreground: #f6ebdd;
+  --sidebar-border: #44332a;
+  --sidebar-ring: #e0a06c;
+}
+
+@theme inline {
+  --font-sans: "JetBrains Mono Variable", "JetBrains Mono", "Jiangcheng Yuanti", "Noto Sans SC", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", "Jiangcheng Yuanti", ui-monospace, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-soft: var(--warning-soft);
+  --color-highlight: var(--highlight);
+  --color-highlight-soft: var(--highlight-soft);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-corgi-50: var(--corgi-50);
+  --color-corgi-100: var(--corgi-100);
+  --color-corgi-200: var(--corgi-200);
+  --color-corgi-300: var(--corgi-300);
+  --color-corgi-400: var(--corgi-400);
+  --color-corgi-500: var(--corgi-500);
+  --color-corgi-600: var(--corgi-600);
+  --color-corgi-700: var(--corgi-700);
+  --color-corgi-800: var(--corgi-800);
+  --color-corgi-900: var(--corgi-900);
+  --color-sand-50: var(--sand-50);
+  --color-sand-100: var(--sand-100);
+  --color-sand-200: var(--sand-200);
+  --color-sand-300: var(--sand-300);
+  --color-sand-400: var(--sand-400);
+  --color-sand-500: var(--sand-500);
+  --color-sand-600: var(--sand-600);
+  --color-sand-650: var(--sand-650);
+  --color-sand-700: var(--sand-700);
+  --color-sand-800: var(--sand-800);
+  --color-sand-900: var(--sand-900);
+  --color-sand-950: var(--sand-950);
+  --color-terracotta-100: var(--terracotta-100);
+  --color-terracotta-300: var(--terracotta-300);
+  --color-terracotta-500: var(--terracotta-500);
+  --color-terracotta-700: var(--terracotta-700);
+  --color-terracotta-800: var(--terracotta-800);
+  --color-jasmine-100: var(--jasmine-100);
+  --color-jasmine-300: var(--jasmine-300);
+  --color-jasmine-500: var(--jasmine-500);
+  --color-jasmine-700: var(--jasmine-700);
+  --color-petal: var(--petal);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+}

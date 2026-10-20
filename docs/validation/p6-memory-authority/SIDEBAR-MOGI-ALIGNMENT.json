@@ -1,0 +1,37 @@
+{
+  "upstream": "https://github.com/mollymogi/mogi-ui",
+  "upstream_commit": "3b957fc6b91254383791328dfd5a1d2406fd9464",
+  "source_sha256": {
+    "web/src/components/AppSidebar.tsx": "a568961c98871885211da2e6fb4d6d1013825835d59c047a49c58d0a5976eead",
+    "web/src/components/ui/sidebar.tsx": "9248680ccdb6f026acc91f74249808d859717c5cfef42f3c70120b67e606ac27",
+    "web/src/styles.css": "6f1175a288185a4e10c0c8b6e30a2736c1ed4ad297dedb773bd88944e450ea9a",
+    "web/src/app.css": "a0258d50c965896ff9e51c0246196a9055a81896f0236d9a4ff7f2460ce32138",
+    "web/src/views/PendingView.tsx": "594745fb92142bd726d535e4acdc994c49a703b8c193bdbe09dba594daae1e64",
+    "web/tests/appSidebar.test.tsx": "4040398e9141d4b1803602e1cd4021ce98401140810de35f7e03a5b847508c5a",
+    "web/mogi-sidebar-source.json": "57bab994ea02217ad624a4cde78e94fd5f11285025c0713c057f37c7216d925a",
+    "web/src/styles/mogi/theme.css": "e2a320deb245aeff853a3ba2c08de2a8861eca0b8a92fd2e0c6cff1971606f71",
+    "web/src/styles/mogi/primitives.css": "c3904599f97d4de22de2e146afd21bc25370cde56f650d983f8d3719958c578e",
+    "web/src/styles/mogi/motion.css": "991ebde51755a28f6566e8a249802f73b4919dedba957643bdfacbf448560e94"
+  },
+  "receipt_sha256": {
+    "evidence/sidebar-mogi-alignment-20261019-passed/boundaries.json": "e89f0e3f8263e2af9720d5e307b5752c09c6d697069afded910792ea9ba1c7c3",
+    "evidence/sidebar-mogi-alignment-20261019-passed/desktop-light-expanded.png": "ef7fcd22d84877431b86b6f4152466d515b64ff417f2bf25649fa476117d4a14",
+    "evidence/sidebar-mogi-alignment-20261019-passed/checks.json": "c0ee28b150079b8a502edfbd780cd090867cf4695fb80373c57e51e49ee314cd",
+    "evidence/sidebar-mogi-alignment-20261019-passed/desktop-dark-expanded.png": "37b91be7b0c25045d0c5e1604558e23644073fac7636e08d8262ca5a8bbf4ee2",
+    "evidence/sidebar-mogi-alignment-20261019-passed/desktop-light-account.png": "65f22bffab81cdd68510b35326b1ee6385178e8805407e02611b29850db33f13",
+    "evidence/sidebar-mogi-alignment-20261019-passed/desktop-dark-account.png": "d0dc92f27a0bf5107e466c9a4045100611139cd14865930366b4a65d091d6190",
+    "evidence/sidebar-mogi-alignment-20261019-passed/desktop-dark-collapsed.png": "09ec7b06f7d2f1005b975ad6b87b31196a3e3697020c8e184f2f1062018681b8",
+    "evidence/sidebar-mogi-alignment-20261019-passed/mobile-light-drawer.png": "f2b5604754574023f1279f6d99638ed69fe454e1615bdac33519636c63f39a30",
+    "evidence/sidebar-mogi-alignment-20261019-passed/desktop-light-collapsed.png": "2abf77379a30b70853abc6bcf0c0b95a26183e96ad9c598a6480b75037132213",
+    "evidence/sidebar-mogi-alignment-20261019-passed/mobile-dark-drawer.png": "92306be2ba13fa49e938888f8f5a295f157d79ab42e365d943f083c8aa4dba4d",
+    "sidebar-alignment-web-tests.log": "f18bea6d47687c36a30baf26488e76df98e58e1384b4c9fc3ec7fce8ebc1f36b",
+    "sidebar-alignment-build.log": "bb96b0fefb0267e72fb5183ad691c33f6cfceecaa94abc82b4c77add1df3026a"
+  },
+  "web_tests_passed": 580,
+  "browser_checks_passed": 21,
+  "min_contrast": {
+    "light": 5.29265981749072,
+    "dark": 7.23283185164747
+  },
+  "scope": "Isolated Dashboard frontend only; native capture findings remain unchanged"
+}

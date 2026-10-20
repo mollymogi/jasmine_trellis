@@ -23,7 +23,8 @@
  *    typo is never explained as a missing dependency.
  */
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
+import { FileText, RefreshCw, Settings2 } from 'lucide-react'
 
 import type { CoreApiError } from '../api/errors'
 import type {
@@ -38,6 +39,7 @@ import type {
 import { hrefFor, sourceHref } from '../app/router'
 import { useSession } from '../app/session'
 import { useResource } from '../app/useResource'
+import { Disclosure } from '../components/Disclosure'
 import { JsonBlock } from '../components/JsonBlock'
 import { RawText } from '../components/RawText'
 import { Empty, ErrorPanel, Loading, Panel, StaleBanner } from '../components/States'
@@ -55,12 +57,26 @@ import {
   isMemoryPending,
 } from './MemoryDependency'
 import { MemoryLifecyclePanel, MemoryRetryPanel } from './MemoryWrites'
+import { MemoryAuthority, HistoricalMemoryFilters } from './MemoryAuthority'
+import { MemoryHealthDashboard } from './MemoryHealthDashboard'
+import { MemoryEngineStart } from './MemoryEngineStart'
+import type { MemoryEngineState } from '../api/memoryEngine'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { DescriptionItem, DescriptionList } from '@/components/ui/description-list'
+import { Sheet, SheetBody, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 /** Every route in this slice requires exactly this scope; P4 adds no helper scopes. */
 const READ_SCOPES = ['memory:read'] as const
+const MEMORY_STATUS_LABEL: Record<string, string> = { ACTIVE: '保留中', OBSOLETE: '已过期', DELETED: '已删除' }
 
 type BadId = { prefix: string; field: string; value: string }
+
+function MemoryFrame({ dashboard, title, children }: { dashboard: boolean; title: string; children: ReactNode }): JSX.Element {
+  return dashboard ? <section aria-label={title}>{children}</section> : <Panel title={title}>{children}</Panel>
+}
 
 /** The shared shape of a Memory view: pick the read, then render one of the four states. */
 function MemoryPanel<T>({
@@ -72,11 +88,13 @@ function MemoryPanel<T>({
   badId,
   unusedBadIds = [],
   resource,
+  dashboard = false,
   isEmpty,
   emptyHint,
   children,
 }: {
   title: string
+  dashboard?: boolean
   what: string
   method: string
   path: string
@@ -97,9 +115,9 @@ function MemoryPanel<T>({
   const pending = isMemoryPending(resource.error)
   const empty = badId === null && resource.data !== null && isEmpty?.(resource.data) === true
   return (
-    <Panel title={title}>
+    <MemoryFrame dashboard={dashboard} title={title}>
       <div className="stack">
-        <MemorySliceStatus />
+        {!dashboard ? <MemorySliceStatus /> : null}
         {badId ? <MemoryInvalidId {...badId} /> : null}
         {badId === null
           ? unusedBadIds.map((unused) => <MemoryUnusedInvalidId key={unused.field} {...unused} />)
@@ -130,12 +148,12 @@ function MemoryPanel<T>({
           ? children(resource.data)
           : null}
 
-        {resource.loadedAt ? <StaleBanner loadedAt={resource.loadedAt} scope={title} /> : null}
-        <button type="button" onClick={resource.reload}>
+        {!dashboard && resource.loadedAt ? <Disclosure title="读取信息"><StaleBanner loadedAt={resource.loadedAt} scope={title} /></Disclosure> : null}
+        {!dashboard ? <button type="button" onClick={resource.reload}>
           从 Core 重新读取
-        </button>
+        </button> : null}
       </div>
-    </Panel>
+    </MemoryFrame>
   )
 }
 
@@ -189,9 +207,11 @@ function MemoryIdForm({
 
 export function MemoryHealthView(): JSX.Element {
   const { endpoints } = useSession()
+  const [engineState, setEngineState] = useState<MemoryEngineState | null>(null)
   const resource = useResource<MemoryHealth>((signal) => endpoints.memoryHealth(signal), [])
   return (
     <MemoryPanel
+      dashboard
       title="Memory 健康"
       what="Memory health"
       method="GET"
@@ -201,7 +221,8 @@ export function MemoryHealthView(): JSX.Element {
       resource={resource}
     >
       {(health) => (
-        <>
+        <MemoryHealthDashboard health={health} onRefresh={resource.reload} engineState={engineState} engineControl={<MemoryEngineStart onConnected={resource.reload} onStateChange={setEngineState} />} details={<>
+          <MemorySliceStatus />
           <NonAuthoritative payload={health} />
           <KeyValue
             rows={[
@@ -257,9 +278,11 @@ export function MemoryHealthView(): JSX.Element {
               },
             ]}
           />
+          {health.safe_error_summary ? <RawText value={health.safe_error_summary} label="错误摘要" machine={false} /> : null}
           <JsonBlock value={health.features} label="features" />
           <JsonBlock value={health.deployment} label="deployment" />
-        </>
+          {resource.loadedAt ? <StaleBanner loadedAt={resource.loadedAt} scope="Memory 健康" /> : null}
+        </>} />
       )}
     </MemoryPanel>
   )
@@ -497,7 +520,8 @@ export function MemoryItemsView({ memoryId }: { memoryId: string | null }): JSX.
   if (memoryId !== null) {
     return (
       <MemoryPanel
-        title="Memory Item"
+        title="记忆详情"
+        dashboard
         what="Memory item"
         method="GET"
         path="/v1/memory/items/{mem}"
@@ -506,44 +530,32 @@ export function MemoryItemsView({ memoryId }: { memoryId: string | null }): JSX.
         resource={detail}
       >
         {(payload) => (
-          <>
-            <NonAuthoritative payload={payload} />
-            <MemoryItemBody item={payload.memory} />
-            <KeyValue
-              rows={[
-                { label: 'recallable', value: String(payload.recallable) },
-                {
-                  label: 'lifecycle',
-                  value: (
-                    <span className="stack">
-                      {Object.entries(payload.lifecycle).map(([key, value]) => (
-                        <span key={key}>
-                          <code>{key}</code> {value === null ? '—' : String(value)}
-                        </span>
-                      ))}
-                    </span>
-                  ),
-                },
-                { label: 'engine_claim', value: payload.engine_claim },
-              ]}
-            />
-            <MemoryLifecyclePanel
+          <MemoryAuthority
+            key={memoryId}
+            comparison={payload.authority_comparison}
+            actions={<Button variant="outline" onClick={detail.reload}><RefreshCw /> 刷新</Button>}
+            aside={<MemoryItemSupport
+              key={memoryId}
               item={payload.memory}
-              loadedAt={detail.loadedAt}
-              onWritten={detail.reload}
-            />
-            <JsonBlock value={payload.sources} label={`sources(${String((payload.sources as unknown[]).length)})`} />
-            <JsonBlock value={payload.jobs} label={`jobs(${String(payload.jobs.length)})`} />
-            <MemoryIdForm
-              label="打开另一个 item"
-              prefix="mem"
-              draft={draft}
-              setDraft={setDraft}
-              onSubmit={() => {
-                globalThis.location.hash = hrefFor({ name: 'memoryItem', memoryId: draft.trim() })
-              }}
-            />
-          </>
+              record={<>
+                <MemorySliceStatus />
+                <NonAuthoritative payload={payload} />
+                <MemoryItemBody item={payload.memory} />
+                <KeyValue rows={[
+                  { label: 'recallable', value: String(payload.recallable) },
+                  { label: 'engine_claim', value: payload.engine_claim },
+                ]} />
+                <JsonBlock value={payload.lifecycle} label="生命周期详情" />
+                <JsonBlock value={payload.sources} label={`sources(${String((payload.sources as unknown[]).length)})`} />
+                <JsonBlock value={payload.jobs} label={`jobs(${String(payload.jobs.length)})`} />
+                {detail.loadedAt ? <StaleBanner loadedAt={detail.loadedAt} scope="记忆详情" /> : null}
+                <MemoryIdForm label="打开另一条记忆" prefix="mem" draft={draft} setDraft={setDraft} onSubmit={() => {
+                  globalThis.location.hash = hrefFor({ name: 'memoryItem', memoryId: draft.trim() })
+                }} />
+              </>}
+              management={<MemoryLifecyclePanel item={payload.memory} loadedAt={detail.loadedAt} onWritten={detail.reload} />}
+            />}
+          />
         )}
       </MemoryPanel>
     )
@@ -578,6 +590,45 @@ export function MemoryItemsView({ memoryId }: { memoryId: string | null }): JSX.
       )}
     </MemoryPanel>
   )
+}
+
+function MemoryItemSupport({ item, record, management }: { item: MemoryItem; record: ReactNode; management: ReactNode }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [tab, setTab] = useState('record')
+  const [container, setContainer] = useState<HTMLDivElement | null>(null)
+  const show = (next: string): void => { setTab(next); setOpen(true) }
+  return <div ref={setContainer} className="grid gap-4">
+    <Card>
+      <CardHeader><CardTitle className="text-sm">来源概况</CardTitle></CardHeader>
+      <CardContent><DescriptionList compact>
+        <DescriptionItem term="类型">{item.memory_type === 'CONFIRMED_DECISION' ? '决策记忆' : item.memory_type}</DescriptionItem>
+        <DescriptionItem term="范围">{item.project_id ? '项目内' : '全局'}</DescriptionItem>
+        <DescriptionItem term="生命周期">{MEMORY_STATUS_LABEL[item.status] ?? item.status}</DescriptionItem>
+        <DescriptionItem term="置顶">{item.pinned ? '已置顶' : '未置顶'}</DescriptionItem>
+      </DescriptionList></CardContent>
+    </Card>
+    <Card>
+      <CardHeader><CardTitle className="text-sm">来源与操作</CardTitle></CardHeader>
+      <CardContent className="grid gap-3">
+        <Button variant="outline" onClick={() => show('record')}><FileText /> 查看条目与来源</Button>
+        <Button variant="ghost" onClick={() => show('manage')}><Settings2 /> 管理记忆</Button>
+        <p className="text-xs text-muted-foreground">来源、原始记录和修改操作在辅助面板中查看。</p>
+      </CardContent>
+    </Card>
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetContent container={container} className="sm:max-w-2xl">
+        <SheetHeader><SheetTitle>记忆详情与操作</SheetTitle><SheetDescription>先核对来源，再明确提交修改。</SheetDescription></SheetHeader>
+        <SheetBody>
+          <Tabs value={tab} onValueChange={setTab}>
+            <TabsList><TabsTrigger value="record">条目与来源</TabsTrigger><TabsTrigger value="manage">管理记忆</TabsTrigger></TabsList>
+            <TabsContent value="record" className="grid gap-4" data-testid="memory-item-record">{record}</TabsContent>
+            <TabsContent value="manage" className="grid gap-4" data-testid="memory-item-manage">{management}</TabsContent>
+          </Tabs>
+        </SheetBody>
+        <SheetFooter><Button variant="outline" onClick={() => setOpen(false)}>返回看板</Button></SheetFooter>
+      </SheetContent>
+    </Sheet>
+  </div>
 }
 
 function MemoryItemBody({ item }: { item: MemoryItem }): JSX.Element {
@@ -692,8 +743,13 @@ export function MemoryTracesView({ traceId }: { traceId: string | null }): JSX.E
       >
         {({ trace }) => (
           <>
-            <MemoryTraceBody trace={trace} />
-            <JsonBlock value={trace.items} label={`items(${String(trace.items.length)})`} startsOpen />
+            <HistoricalMemoryFilters key={traceId} filtered={trace.filtered} />
+            <Disclosure title="召回记录与来源" testId="memory-trace-record">
+              <MemoryTraceBody trace={trace} />
+              <JsonBlock value={trace.filtered} label={`filtered(${String(trace.filtered.length)})`} startsOpen />
+              <JsonBlock value={trace.authority_refs} label="召回当时的 Authority 引用" />
+              <JsonBlock value={trace.items} label={`items(${String(trace.items.length)})`} />
+            </Disclosure>
             <MemoryIdForm
               label="打开另一个 trace"
               prefix="mtr"

@@ -1,0 +1,43 @@
+/*
+ * Mogi 动效 token：轻、软、带一点回弹，像柯基小跑后停下来。
+ * 时长是普通 CSS 变量（组件里写 duration-(--duration-mogi)），使用方可以整体调快调慢；
+ * 缓动注册进 Tailwind 主题，生成 ease-mogi / ease-mogi-spring / ease-mogi-in。
+ */
+
+:root {
+  --duration-mogi-fast: 120ms; /* 按下、悬停、颜色变化 */
+  --duration-mogi: 200ms; /* 浮层、开关、侧边栏 */
+  --duration-mogi-slow: 320ms; /* 抽屉滑入、空态图标 */
+}
+
+@theme inline {
+  --ease-mogi: cubic-bezier(0.22, 1, 0.36, 1); /* 进入：快起慢停 */
+  --ease-mogi-spring: cubic-bezier(0.34, 1.4, 0.64, 1); /* 进入：末尾轻轻回弹 */
+  --ease-mogi-in: cubic-bezier(0.4, 0, 1, 1); /* 退出：干脆收走 */
+
+  --animate-mogi-pop: mogi-pop var(--duration-mogi-slow) var(--ease-mogi-spring) both;
+
+  @keyframes mogi-pop {
+    from {
+      opacity: 0;
+      transform: scale(0.6);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+}
+
+/* 系统开启“减弱动态效果”时，动画和过渡几乎瞬间完成；加载转圈保留，它表达的是状态 */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.animate-spin),
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -87,5 +87,16 @@
   "web_confirmation_write_paths": [
     "^/v1/evidence/confirmations/prepare$",
     "^/v1/evidence/confirmations/submit$"
+  ],
+  "memory_engine_read_paths": [
+    "^/v1/memory/engine$"
+  ],
+  "memory_engine_write_paths": [
+    "^/v1/memory/engine/start$"
+  ],
+  "memory_engine_note": "ADR 0023 opt-in local process control. P6_ENABLE_MEMORY_ENGINE_CONTROL enables only these routes; Core requires memory:read for status and human/system memory:engine:manage for startup. Browser requests cannot specify commands, destinations or credentials.",
+  "context_delivery_note": "ADR 0025 adds one independently grouped GET under P6_ENABLE_P3_READS. The historical four-route P3 group remains unchanged. No write or receipt upload is forwarded.",
+  "context_delivery_paths": [
+    "^/v1/context/ctx_[0-9ABCDEFGHJKMNPQRSTVWXYZ]{26}/delivery$"
   ]
 }
