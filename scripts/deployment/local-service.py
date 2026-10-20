@@ -19,7 +19,7 @@ if args.component in ('core','memory'):
  else:argv=[c['python'],'-I','-m','jasmine_core.cli','serve','--db',c['database'],'--host','127.0.0.1','--port',str(c.get('core_port',18787))]
 else:
  assert (r/'web/dist/index.html').is_file()
- env.update(P6_CORE_ORIGIN=c['core_origin'],P6_ENABLE_WEB_CONFIRMATIONS=str(c['web_confirmation_flag']),P6_ENABLE_P3_READS='1',P6_ENABLE_P7_READS='1',P6_ENABLE_P4_READS='1' if enabled else '0',P6_ENABLE_P4_WRITES='1' if enabled else '0')
+ env.update(P6_CORE_ORIGIN=c['core_origin'],P6_ENABLE_WEB_CONFIRMATIONS=str(c['web_confirmation_flag']),P6_ENABLE_P3_READS='1',P6_ENABLE_P7_READS='1',P6_ENABLE_P4_READS='1' if enabled else '0',P6_ENABLE_P4_WRITES='1' if enabled else '0',P6_ENABLE_MEMORY_ENGINE_CONTROL='1' if enabled else '0')
  # Only public operational metadata reaches the dashboard; never configuration or keys.
  backups=[]
  for report in sorted((b/'backups').glob('*/BACKUP.json'),reverse=True):
