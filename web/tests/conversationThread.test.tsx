@@ -52,12 +52,13 @@ it('resets reading state on a different conversation and never scrolls the outer
 })
 
 it('labels Codex, Claude, Grok and unknown sources using producer metadata, never message content', () => {
-  for (const [source, label] of [['codex-native-conversation-v1', 'Codex'], ['claude-code', 'Claude'], ['grok-build', 'Grok'], ['legacy-import', '未知助手']]) {
+  for (const [source, label] of [['codex-native-conversation-v1', 'Codex'], ['claude-code', 'Claude'], ['grok-build', 'Grok'], ['legacy-import', '未知助手']] as const) {
     const row = message(1, source)
     row.payload.text = 'Codex, Claude and Grok appear in the text; <script>not code</script>'
     const { unmount, container } = render(<ul><ConversationMessage event={row} taskId={null} /></ul>)
     expect(screen.getByRole('img', { name: `${label}头像` })).toBeTruthy()
     expect(container.querySelector('script')).toBeNull()
+    expect(container.querySelector('[data-agent-logo]')?.getAttribute('data-agent-logo')).toBe(label === '未知助手' ? 'unknown' : label.toLowerCase())
     unmount()
   }
   const hook = message(2, 'host-hook-v1'); hook.payload.agent = { name: 'claude-code', version: '1' }

@@ -17,6 +17,7 @@ import { Pager } from '../components/Pager'
 import { Empty, ErrorPanel, Loading, Panel } from '../components/States'
 import { AgentConnections } from '../components/AgentConnections'
 import { useAgentDiscovery } from '../app/useAgentDiscovery'
+import { sortSessionsByStart } from '../lib/conversationTime'
 import { maskedSummary } from '../lib/text'
 import { HookDecisions } from '../components/HookDecisions'
 const EVENT_TYPES = [
@@ -63,6 +64,9 @@ export function ConversationView({ projectId, taskId, sessionId }: {
   const { endpoints } = useSession()
   const discovery = useAgentDiscovery()
   const [expandedProjects, setExpandedProjects] = useState<string[]>([])
+  const [navigationMode, setNavigationMode] = useState<'agent' | 'time'>('agent')
+  const [navigationSearch, setNavigationSearch] = useState('')
+  const [timelineLimit, setTimelineLimit] = useState(40)
   const [eventType, setEventType] = useState('')
   const [sourceSystem, setSourceSystem] = useState('')
   const eventTypeId = useId()
@@ -90,7 +94,14 @@ export function ConversationView({ projectId, taskId, sessionId }: {
   const [defaultSession, setDefaultSession] = useState<{ scope: string; id: string | null }>({ scope: '', id: null })
   const projectSessions = sessions.items.filter(session => session.project_id === activeProject && (!taskId || session.task_id === taskId))
     .sort((a, b) => b.started_at.localeCompare(a.started_at) || b.session_id.localeCompare(a.session_id))
-  const previews = useSessionPreviews(endpoints, sessions.items.filter(session => session.project_id === activeProject || (session.project_id !== null && expandedProjects.includes(session.project_id))).map(session => session.session_id))
+  const timeMatches = sortSessionsByStart(sessions.items.filter(session => {
+    const project = projects.items.find(project => project.project_id === session.project_id)
+    return `${project?.name ?? '未关联项目'} ${project?.description ?? ''}`.toLocaleLowerCase().includes(navigationSearch.trim().toLocaleLowerCase())
+  }))
+  const timelineSessions = timeMatches.slice(0, timelineLimit)
+  const previewSessions = navigationMode === 'time' ? [...projectSessions, ...timelineSessions]
+    : sessions.items.filter(session => session.project_id === activeProject || (session.project_id !== null && expandedProjects.includes(session.project_id)))
+  const previews = useSessionPreviews(endpoints, [...new Set(previewSessions.map(session => session.session_id))])
   useEffect(() => {
     if (sessionId || !activeProject || sessions.loading) return
     if (defaultSession.scope === scope && defaultSession.id !== null) return
@@ -135,6 +146,9 @@ export function ConversationView({ projectId, taskId, sessionId }: {
     <div className="conversation-browser">
       <ConversationNavigator projects={projects.items} registrations={registrations.items} sessions={sessions.items}
         activeProject={activeProject} activeSession={validSession ? activeSession : null} previews={previews}
+        mode={navigationMode} onModeChange={setNavigationMode} search={navigationSearch}
+        onSearchChange={value => { setNavigationSearch(value); setTimelineLimit(40) }} timelineSessions={timelineSessions}
+        timelineTotal={timeMatches.length} onMoreTimeline={() => setTimelineLimit(value => value + 40)}
         agents={discovery.agents} discoveryStatus={discovery.status} expandedProjects={expandedProjects}
         onToggleProject={id => setExpandedProjects(previous => previous.includes(id) ? previous.filter(value => value !== id) : [...previous, id])}
         loading={projects.loading || sessions.loading} />

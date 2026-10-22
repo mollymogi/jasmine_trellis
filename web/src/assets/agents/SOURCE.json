@@ -1,0 +1,43 @@
+{
+  "repository": "https://github.com/lobehub/lobe-icons",
+  "revision": "ab8cbcc6ce806b923c547628132957c8a8b61509",
+  "path": "packages/static-svg/icons",
+  "license": "MIT",
+  "files": [
+    {
+      "name": "codex",
+      "sha256": "d08b4e824cd6727e89617f59e4737273ff53e44c1da849d016dd64dfd08b33e1",
+      "viewBox": "0 0 24 24"
+    },
+    {
+      "name": "claude",
+      "sha256": "365a70a7eb3956d9b9a96086058ebe04e1dbd8e291a756ad964e8a283fbd6d38",
+      "viewBox": "0 0 24 24"
+    },
+    {
+      "name": "grok",
+      "sha256": "9175fc90c22655160231976c849f25a03b888d7cc0e04c5f1b987b659bb07c95",
+      "viewBox": "0 0 24 24"
+    },
+    {
+      "name": "opencode",
+      "sha256": "7cfa6e9d6726f7c9fa26c7d9aef0dfec52d20a137380454340f30f12ccbfd302",
+      "viewBox": "0 0 24 24"
+    },
+    {
+      "name": "gemini",
+      "sha256": "87d5b3c4be75a66f54c1936482a263df68185545b741129badd1b7c2449c18d3",
+      "viewBox": "0 0 24 24"
+    },
+    {
+      "name": "cursor",
+      "sha256": "0cb51bddf264ae108926fd554c063ef40fc1aac3c5c921ddb39ad184e4e5d0ef",
+      "viewBox": "0 0 24 24"
+    },
+    {
+      "name": "windsurf",
+      "sha256": "e3c836aae05a3741e33d5c5a38d4167aacfbb69e480d098b8b94cad8c90e0d08",
+      "viewBox": "0 0 24 24"
+    }
+  ]
+}

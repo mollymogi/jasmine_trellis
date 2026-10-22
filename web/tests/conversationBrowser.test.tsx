@@ -33,7 +33,10 @@ it('shows installed agents and nests independent sessions beneath projects witho
   const manual = event(2, 'project.created', '', null);manual.event_id = b.source_event_id;manual.source_system = 'core-api'
   function Tree() {
     const [expanded, setExpanded] = useState(['prj_A'])
+    const [mode, setMode] = useState<'agent' | 'time'>('agent')
+    const [search, setSearch] = useState('')
     return <ConversationNavigator projects={[a,b]} registrations={[registered,manual]} sessions={[session('ses_A','prj_A',1)]}
+      mode={mode} onModeChange={setMode} search={search} onSearchChange={setSearch} timelineSessions={[session('ses_A','prj_A',1)]} timelineTotal={1} onMoreTimeline={()=>{}}
       activeProject="prj_A" activeSession="ses_A" loading={false} previews={{ses_A:{title:'整理开发文档',state:'ready',agent:'Codex'}}}
       agents={[{id:'claude',name:'Claude',cli:true,desktop:true,detected:true,capture_supported:false},{id:'opencode',name:'OpenCode',cli:true,desktop:false,detected:true,capture_supported:false}]}
       discoveryStatus="" expandedProjects={expanded} onToggleProject={id=>setExpanded(rows=>rows.includes(id)?rows.filter(row=>row!==id):[...rows,id])} />
@@ -42,6 +45,7 @@ it('shows installed agents and nests independent sessions beneath projects witho
   expect(screen.getByText('Claude-named-folder').closest('.project-group')?.querySelector('summary')?.textContent).toBe('Codex1 项目')
   expect(screen.getByText('Operations').closest('.project-group')?.querySelector('summary')?.textContent).toContain('Core / 其他登记')
   expect(screen.getByText('OpenCode').closest('summary')?.textContent).toContain('已安装 · 待接入')
+  for (const name of ['Codex','Claude','OpenCode']) expect(screen.getByText(name,{exact:true}).closest('summary')?.querySelector('[data-agent-logo]')?.getAttribute('data-agent-logo')).toBe(name.toLowerCase())
   fireEvent.click(screen.getByText('Claude',{exact:true}))
   expect(screen.getByText('Claude',{exact:true}).closest('details')?.open).toBe(true)
   expect(screen.getAllByText('已检测到客户端，尚未接入采集。').length).toBe(2)
@@ -50,6 +54,10 @@ it('shows installed agents and nests independent sessions beneath projects witho
   expect(screen.queryByRole('link',{name:/整理开发文档/})).toBeNull()
   fireEvent.click(screen.getByRole('button',{name:'展开项目 Claude-named-folder'}))
   expect(screen.getByRole('link',{name:/整理开发文档/}).getAttribute('aria-current')).toBe('true')
+  fireEvent.click(screen.getByRole('button',{name:'按时间'}))
+  expect(screen.getByRole('link',{name:/整理开发文档/}).getAttribute('href')).toContain('session_id=ses_A')
+  expect(screen.getByRole('link',{name:/整理开发文档/}).textContent).toContain('Claude-named-folder')
+  fireEvent.click(screen.getByRole('button',{name:'按 Agent'}))
   fireEvent.change(screen.getByRole('textbox',{name:'搜索项目或路径'}),{target:{value:'/work/Claude'}})
   expect(screen.queryByText('Operations')).toBeNull()
   expect(screen.getByRole('link',{name:/Claude-named-folder/}).getAttribute('aria-current')).toBe('true')
@@ -85,6 +93,10 @@ it('opens one recent session, keeps it selected on new arrivals, and isolates a 
   await flush()
   expect(container.querySelector('.chat-messages')?.textContent).toContain('SELECTED SESSION B')
   expect(container.querySelector('.chat-messages')?.textContent).not.toContain('OLD SESSION A')
+  fireEvent.click(screen.getByRole('button',{name:'按时间'}));await flush()
+  expect(container.querySelector('.chat-messages')?.textContent).toContain('SELECTED SESSION B')
+  expect(screen.getByRole('link',{name:/OTHER PROJECT D/})).toBeTruthy()
+  fireEvent.click(screen.getByRole('button',{name:'按 Agent'}));await flush()
   sessions = [...sessions, session('ses_C','prj_A',4)]
   await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
   expect(container.querySelector('.chat-messages')?.textContent).toContain('SELECTED SESSION B')

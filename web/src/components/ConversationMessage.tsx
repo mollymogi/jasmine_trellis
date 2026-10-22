@@ -1,5 +1,6 @@
 import type { RawEvent } from '../api/types'
-import { Asterisk, Bot, Orbit, SquareTerminal, UserRound } from 'lucide-react'
+import { UserRound } from 'lucide-react'
+import { AgentLogo } from './AgentLogo'
 import { agentIdentity } from '../lib/agentIdentity'
 import { formatTimestamp, payloadText } from '../lib/text'
 import { EventRow } from './EventRow'
@@ -17,8 +18,6 @@ export function ConversationMessage({ event, taskId, onOpenSource, dateLabel }: 
 }) {
   const user = event.event_type === 'user.prompt'
   const agent = agentIdentity(event)
-  const Icon = user ? UserRound : agent.kind === 'codex' ? SquareTerminal
-    : agent.kind === 'claude' ? Asterisk : agent.kind === 'grok' ? Orbit : Bot
   const name = user ? '你' : agent.label
   const date = new Date(event.occurred_at)
   const time = Number.isNaN(date.getTime()) ? event.occurred_at : new Intl.DateTimeFormat('zh-CN', {
@@ -29,7 +28,7 @@ export function ConversationMessage({ event, taskId, onOpenSource, dateLabel }: 
       data-message-id={event.event_id} data-seq={event.seq}>
       {dateLabel ? <div className="chat-date">{dateLabel}</div> : null}
       <span className={`chat-avatar chat-avatar--${user ? 'user' : agent.kind}`} role="img" aria-label={`${name}头像`}>
-        <Icon size={19} aria-hidden="true" />
+        {user ? <UserRound size={19} aria-hidden="true" /> : <AgentLogo agent={agent.kind} size={19} />}
       </span>
       <div className="chat-message__content">
         <div className="chat-message__head">

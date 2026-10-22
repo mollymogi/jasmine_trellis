@@ -1,8 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ChevronRight, Folder, MessageSquare, Search, Bot } from 'lucide-react'
+import { ChevronRight, Folder, MessageSquare, Search } from 'lucide-react'
 import type { Project, RawEvent, Session } from '../api/types'
 import type { DetectedAgent } from '../app/useAgentDiscovery'
 import type { SessionPreview } from '../app/useSessionPreviews'
+import { AgentLogo } from './AgentLogo'
+import { groupSessionsByTime } from '../lib/conversationTime'
 import { agentIdentity } from '../lib/agentIdentity'
 import { formatTimestamp, maskedSummary } from '../lib/text'
 import { sourceHref } from '../app/router'
@@ -19,12 +21,13 @@ export function projectOrigin(project: Project, registrations: RawEvent[]): Orig
   return agent.kind === 'unknown' ? 'other' : agent.kind
 }
 
-export function ConversationNavigator({ projects, registrations, sessions, activeProject, activeSession, previews, agents, discoveryStatus, expandedProjects, onToggleProject, loading }: {
+export function ConversationNavigator({ projects, registrations, sessions, activeProject, activeSession, previews, agents, discoveryStatus, expandedProjects, onToggleProject, loading, mode, onModeChange, search, onSearchChange, timelineSessions, timelineTotal, onMoreTimeline }: {
+  mode: 'agent' | 'time'; onModeChange: (mode: 'agent' | 'time') => void; search: string; onSearchChange: (value: string) => void
+  timelineSessions: Session[]; timelineTotal: number; onMoreTimeline: () => void
   projects: Project[]; registrations: RawEvent[]; sessions: Session[]
   activeProject: string | null; activeSession: string | null; previews: Record<string, SessionPreview>
   agents: DetectedAgent[]; discoveryStatus: string; expandedProjects: string[]; onToggleProject: (id: string) => void; loading: boolean
 }) {
-  const [search, setSearch] = useState('')
   const [compactOpen, setCompactOpen] = useState(false)
   const [agentOpen, setAgentOpen] = useState<Record<string, boolean>>({})
   const projectList = useRef<HTMLDivElement>(null)
@@ -33,7 +36,15 @@ export function ConversationNavigator({ projects, registrations, sessions, activ
   const activeOrigin = projects.find(project => project.project_id === activeProject)
   const currentOrigin = activeOrigin ? projectOrigin(activeOrigin, registrations) : null
   useEffect(() => { if (currentOrigin) setAgentOpen(previous => ({ ...previous, [currentOrigin]: true })) }, [currentOrigin, activeProject, activeSession])
-  useLayoutEffect(() => { scrolledSelection.current = '' }, [search, compactOpen])
+  useLayoutEffect(() => {
+    const list = projectList.current
+    if (mode === 'time' && list) {
+      // A grouping/search change opens at newest; keep the conversation reader.
+      list.scrollTop = 0
+      const selected = list.querySelector('.session-choice[aria-current="true"]')
+      scrolledSelection.current = JSON.stringify([activeProject, activeSession, selected?.getAttribute('href')])
+    } else scrolledSelection.current = ''
+  }, [search, compactOpen, mode])
   useLayoutEffect(() => {
     const nav = navigation.current
     if (nav) nav.style.setProperty('--navigation-top', `${Math.round(nav.getBoundingClientRect().top + window.scrollY)}px`)
@@ -64,17 +75,21 @@ export function ConversationNavigator({ projects, registrations, sessions, activ
     </button>
     <div className={`navigation-panels${compactOpen ? ' is-open' : ''}`}>
       <section className="panel project-browser" aria-label="Agent、项目与会话导航">
-        <header className="panel__head"><h2>项目与会话</h2><span className="muted">{projects.length} 个项目</span></header>
+        <header className="panel__head"><h2>项目与会话</h2><span className="muted">{mode === 'agent' ? `${projects.length} 个项目` : `${timelineTotal} 个会话`}</span></header>
         <div className="project-browser__tools">
-          <label className="project-search"><Search size={15} aria-hidden="true" /><input aria-label="搜索项目或路径" placeholder="搜索项目或路径" value={search} onChange={event => setSearch(event.target.value)} /></label>
+          <div className="conversation-view-switch" role="group" aria-label="浏览方式">
+            <button type="button" aria-pressed={mode === 'agent'} onClick={() => onModeChange('agent')}>按 Agent</button>
+            <button type="button" aria-pressed={mode === 'time'} onClick={() => onModeChange('time')}>按时间</button>
+          </div>
+          <label className="project-search"><Search size={15} aria-hidden="true" /><input aria-label="搜索项目或路径" placeholder="搜索项目或路径" value={search} onChange={event => onSearchChange(event.target.value)} /></label>
         </div>
         <div ref={projectList} className="project-browser__list">
-          <ul className="conversation-tree" aria-label="按 Agent 浏览">
+          {mode === 'agent' ? <ul className="conversation-tree" aria-label="按 Agent 浏览">
             {visible.map(group => {
               const open = query.length > 0 || (agentOpen[group.key] ?? group.key === currentOrigin)
               return <li key={group.key}><details className="project-group agent-tree-node" open={open}>
                 <summary onClick={event => { event.preventDefault(); setAgentOpen(previous => ({ ...previous, [group.key]: !open })) }}>
-                  <ChevronRight size={14} className="tree-chevron" aria-hidden="true" /><Bot size={16} aria-hidden="true" />
+                  <ChevronRight size={14} className="tree-chevron" aria-hidden="true" /><AgentLogo agent={group.key} size={17} />
                   <strong>{group.label}</strong><span>{group.recorded.length > 0 ? `${group.recorded.length} 项目` : '已安装 · 待接入'}</span>
                 </summary>
                 {group.rows.length > 0 ? <ul className="tree-children">{[...group.rows].reverse().map(project => {
@@ -101,8 +116,29 @@ export function ConversationNavigator({ projects, registrations, sessions, activ
                 })}</ul> : <p className="tree-note">{group.installed && !group.installed.capture_supported ? '已检测到客户端，尚未接入采集。' : '尚无项目或会话记录。'}</p>}
               </details></li>
             })}
-          </ul>
-          {!loading && visible.length === 0 ? <p className="muted project-no-results">没有匹配的项目或 Agent</p> : null}
+          </ul> : <div className="conversation-timeline" aria-label="按会话开始时间浏览">
+            <p className="timeline-basis">按会话开始时间 · 本地时区</p>
+            {groupSessionsByTime(timelineSessions).map(group => <section className="timeline-group" key={group.key}>
+              <h3>{group.label}<span>{group.sessions.length}</span></h3>
+              <ul>{group.sessions.map(session => {
+                const project = projects.find(project => project.project_id === session.project_id)
+                const preview = previews[session.session_id]
+                const origin = preview?.agent?.toLocaleLowerCase() ?? (project ? projectOrigin(project, registrations) : 'pending')
+                const date = new Date(session.started_at)
+                return <li key={session.session_id}><a className="session-choice timeline-choice"
+                  href={sourceHref.conversation(session.project_id, session.task_id, session.session_id)}
+                  onClick={() => setCompactOpen(false)} aria-current={session.session_id === activeSession ? 'true' : undefined}>
+                  <AgentLogo agent={origin} size={17} /><span><strong>{preview?.title ?? '正在读取摘要…'}</strong>
+                    <small title={maskedSummary(project?.description ?? '')}>{maskedSummary(project?.name ?? '未关联项目')}</small>
+                    <time dateTime={session.started_at} title={formatTimestamp(session.started_at)}>{Number.isNaN(date.getTime()) ? '时间未记录' : date.toLocaleString('zh-CN', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false })}</time>
+                  </span>
+                </a></li>
+              })}</ul>
+            </section>)}
+            {!loading && timelineSessions.length === 0 ? <p className="tree-note">没有匹配的会话记录</p> : null}
+            {timelineSessions.length < timelineTotal ? <button className="timeline-more" type="button" onClick={onMoreTimeline}>继续加载会话（已显示 {timelineSessions.length} / {timelineTotal}）</button> : null}
+          </div>}
+          {mode === 'agent' && !loading && visible.length === 0 ? <p className="muted project-no-results">没有匹配的项目或 Agent</p> : null}
           {discoveryStatus ? <p className="tree-note">{discoveryStatus}</p> : null}
         </div>
       </section>
