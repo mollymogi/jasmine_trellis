@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowDown, RefreshCw } from 'lucide-react'
 import type { RawEvent } from '../api/types'
@@ -11,7 +12,8 @@ import { Button } from './ui/button'
 /** The parent keys this reader by scope. Scroll only this viewport; scrolling
  * an ancestor into view would move the entire Dashboard on every poll.
  */
-export function ConversationThread({ messages, systemEvents, taskId, loading, error, loadedAt, onReload }: {
+export function ConversationThread({ messages, systemEvents, taskId, loading, error, loadedAt, onReload, sessionPicker }: {
+  sessionPicker?: ReactNode
   messages: RawEvent[]
   systemEvents: RawEvent[]
   taskId: string | null
@@ -75,7 +77,7 @@ export function ConversationThread({ messages, systemEvents, taskId, loading, er
   return (
     <section ref={panel} className="panel conversation-panel" aria-label={`对话（${messages.length} 条消息）`}>
       <header className="panel__head">
-        <div className="chat-heading"><h2>对话</h2><span>{messages.length} 条消息</span></div>
+        <div className="chat-heading"><h2>对话</h2>{sessionPicker}<span>{messages.length} 条消息</span></div>
         <Button type="button" variant="ghost" size="sm" onClick={onReload} disabled={loading}>
           <RefreshCw size={14} aria-hidden="true" />重新读取
         </Button>

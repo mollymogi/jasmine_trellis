@@ -31,12 +31,14 @@ it('groups recorded sources rather than names, and searches directories without 
   const registered = event(1, 'project.created', '', null);registered.event_id = a.source_event_id
   const manual = event(2, 'project.created', '', null);manual.event_id = b.source_event_id;manual.source_system = 'core-api'
   render(<ConversationNavigator projects={[a, b]} registrations={[registered, manual]} sessions={[session('ses_A','prj_A',1)]}
-    activeProject="prj_A" activeSession="ses_A" previews={{ ses_A: { title: '整理开发文档', agent: 'Codex', state: 'ready' } }} loading={false} />)
+    activeProject="prj_A" loading={false} />)
   expect(screen.getByText('Claude-named-folder').closest('.project-group')?.querySelector('summary')?.textContent).toBe('Codex1')
   expect(screen.getByText('Operations').closest('.project-group')?.querySelector('summary')?.textContent).toContain('Core / 其他登记')
   fireEvent.change(screen.getByRole('textbox', { name: '搜索项目或路径' }), { target: { value: '/work/Claude' } })
   expect(screen.queryByText('Operations')).toBeNull()
-  expect(screen.getByRole('link', { name: /整理开发文档/ }).getAttribute('aria-current')).toBe('true')
+  expect(screen.getByRole('link', { name: /Claude-named-folder/ }).getAttribute('aria-current')).toBe('true')
+  expect(document.querySelector('.session-browser')).toBeNull()
+  fireEvent.click(screen.getByText('按来源筛选'))
   fireEvent.change(screen.getByRole('combobox', { name: '项目来源' }), { target: { value: 'other' } })
   expect(screen.getByText('没有匹配的已登记项目')).toBeTruthy()
 })
@@ -70,7 +72,7 @@ it('opens one recent session, keeps it selected on new arrivals, and isolates a 
   sessions = [...sessions, session('ses_C','prj_A',4)]
   await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
   expect(container.querySelector('.chat-messages')?.textContent).toContain('SELECTED SESSION B')
-  expect(screen.getByRole('link', { name: /NEW SESSION C/ })).toBeTruthy()
+  expect(screen.getByRole('option', { name: /NEW SESSION C/ })).toBeTruthy()
   rerender(<SessionProvider><ConversationView projectId="prj_B" taskId={null} sessionId={null} /></SessionProvider>)
   await flush()
   expect(container.querySelector('.chat-messages')?.textContent).toContain('OTHER PROJECT D')

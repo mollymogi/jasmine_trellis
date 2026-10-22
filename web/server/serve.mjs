@@ -14,6 +14,7 @@
  */
 
 import http from 'node:http'
+import { serveLocalAgents } from './local-agents.mjs'
 import { randomUUID } from 'node:crypto'
 import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { extname, join, normalize, resolve, sep } from 'node:path'
@@ -367,6 +368,7 @@ export function createDashboardServer({ root, origin, allowlist = loadAllowlist(
       }, proxyRequestId(req))
       return
     }
+    if (target.pathname === '/_local/agents') { void serveLocalAgents(req, res, origin); return }
     if (target.kind === 'api') proxy(req, res, origin, allowlist)
     else serveStatic(req, res, root)
   })

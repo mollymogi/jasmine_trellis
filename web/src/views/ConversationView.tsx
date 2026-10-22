@@ -15,7 +15,8 @@ import { ConversationThread } from '../components/ConversationThread'
 import { ConversationNavigator } from '../components/ConversationNavigator'
 import { Pager } from '../components/Pager'
 import { Empty, ErrorPanel, Loading, Panel } from '../components/States'
-import { maskedSummary } from '../lib/text'
+import { AgentConnections } from '../components/AgentConnections'
+import { formatTimestamp, maskedSummary } from '../lib/text'
 import { HookDecisions } from '../components/HookDecisions'
 const EVENT_TYPES = [
   'user.prompt',
@@ -119,20 +120,23 @@ export function ConversationView({ projectId, taskId, sessionId }: {
   return <div className="stack conversation-page">
     <section className="conversation-context" aria-label="当前会话范围">
       <div><h1>{selectedProject ? maskedSummary(selectedProject.name) : '项目对话'}</h1>
-        <p>{activeSession ? previews[activeSession]?.title ?? '正在读取会话摘要…' : '按来源选择项目，再查看其中的独立会话'}</p></div>
-      <details className="conversation-origin-help"><summary>这些项目来自哪里？</summary>
-        <p>这里只显示当前 Core 已登记的项目，不扫描整台机器。自动登记来自已接入 Agent 使用过的工作目录；“Core / 其他登记”保留手动或系统创建的项目。来源分类不代表所有 Agent 都已开启采集。</p>
-        <p>不同工作副本按各自目录登记。切换项目后选择一个会话阅读，不混合其他会话的消息。</p>
-      </details>
+      </div>
+      <AgentConnections />
     </section>
     {projects.error ? <ErrorPanel error={projects.error} what="项目列表" onRetry={projects.reload} /> : null}
     {sessions.error ? <ErrorPanel error={sessions.error} what="会话列表" onRetry={sessions.reload} /> : null}
     {registrations.error ? <p className="state state--meta">项目来源暂未读取，未确认的项目保留在“来源待确认”中。</p> : null}
     <div className="conversation-browser">
       <ConversationNavigator projects={projects.items} registrations={registrations.items} sessions={sessions.items}
-        activeProject={activeProject} activeSession={validSession ? activeSession : null} previews={previews} loading={projects.loading || sessions.loading} />
+        activeProject={activeProject} loading={projects.loading || sessions.loading} />
       <div className="stack conversation-reader">
         {validSession ? <ConversationThread key={JSON.stringify([activeProject, activeSession, eventType, sourceSystem])}
+          sessionPicker={projectSessions.length > 1 ? <select className="chat-session-picker" aria-label="选择会话" value={activeSession ?? ''} onChange={event => {
+            const next = projectSessions.find(session => session.session_id === event.target.value)
+            if (next) window.location.hash = sourceHref.conversation(next.project_id, next.task_id, next.session_id).slice(1)
+          }}>{projectSessions.map(session => <option key={session.session_id} value={session.session_id}>
+            {previews[session.session_id]?.title ?? '正在读取摘要…'} · {formatTimestamp(session.started_at)}
+          </option>)}</select> : undefined}
           messages={messages} systemEvents={systemEvents} taskId={selectedSession?.task_id ?? taskId}
           loading={events.loading} error={events.error} loadedAt={events.loadedAt} onReload={events.reload} />
           : <Panel title="对话">{sessions.loading || !sessionId && projectSessions.length > 0 ? <Loading what="会话" />

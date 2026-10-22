@@ -1,0 +1,11 @@
+# Local Agent discovery and Conversation navigation
+
+The Conversation page lists projects registered in Core. It is not a machine-wide project crawler. Recorded project-created event metadata determines source groups; client installation never creates a source group or a project.
+
+The reader has one full-height project navigator. Project paths remain available as tooltips, search terms, and advanced scope details. A session selector appears in the reader header only when the project has multiple sessions. A single session has no duplicate panel. The page omits the global release-status banner. Existing explicit session/project/task boundaries, source details, polling, and manual review links remain available.
+
+“Agent 接入” discovers known clients when opened and supports refreshing. The dashboard host checks executable files in its PATH, standard Homebrew/local/npm user bin locations, Grok/OpenCode user bin locations, and explicitly named macOS application directories. It does not execute clients, recurse through disks, read conversation files, install hooks, or register projects. An absent result means not found at those locations; it does not establish that the client is absent elsewhere. CLI and desktop installation indicators are independent. Only Codex currently has a native conversation capture adapter in this release.
+
+The dashboard-local `GET /_local/agents` route is separate from the frozen `/v1` Core contract. Both production hosting and Vite use the same implementation. It requires a loopback Host, refuses foreign browser origins/cross-site fetches, and validates the caller's Bearer credential against the configured Core's fixed `/v1/projects?limit=1` read before inspecting files. No credentials are supplied by the server, no caller-selected target/path is used, and no file paths or token are included in the response. Other methods are refused. Results use `Cache-Control: no-store`.
+
+To capture another Agent, implement its native event adapter, preserve working directory/session/actor/source attribution, configure the appropriate least-privilege Core credentials, enable the client's hook/plugin under its own trust rules, and verify an ordinary real conversation through Core and the dashboard. A detected installation, project registration, or existing icon alone is insufficient proof of capture.

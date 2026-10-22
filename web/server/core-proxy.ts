@@ -15,6 +15,7 @@
  *    memory is what Core sees, and Core remains the only authority on scopes.
  */
 
+import { serveLocalAgents } from './local-agents.mjs'
 import { randomUUID } from 'node:crypto'
 import http from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -265,6 +266,7 @@ export function coreProxyPlugin(origin: URL): Plugin {
       refuse(res, req, 400, 'proxy_bad_target', `refused request target: ${target.reason ?? 'malformed'}`)
       return
     }
+    if (target.pathname === '/_local/agents') { void serveLocalAgents(req, res, origin); return }
     if (target.kind === 'static') {
       next()
       return

@@ -418,6 +418,6 @@ describe('untrusted text rendering', () => {
     await user.click(screen.getByText(/系统事件与来源/))
     expect(document.querySelectorAll('.chat-message')).toHaveLength(0)
     expect(screen.getAllByText('机器事件(非用户发言)').length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/尚未开放/).length).toBeGreaterThan(0)
+    expect(document.querySelector('.readonly-banner')).toBeNull()
   })
 })
