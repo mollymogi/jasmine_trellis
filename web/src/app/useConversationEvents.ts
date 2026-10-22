@@ -20,14 +20,19 @@ const empty = (key: string): Snapshot => ({ key, items: [], loading: true, error
  * Each scope owns its cursor, timer and abort signal. Failed refreshes retain
  * the last successful rows; neither retries nor scope changes can mix sessions.
  */
-export function useConversationEvents(endpoints: Endpoints, scope: Scope) {
-  const key = JSON.stringify(scope)
+export function useConversationEvents(endpoints: Endpoints, scope: Scope, enabled = true) {
+  const queryKey = JSON.stringify(scope)
+  const key = enabled ? queryKey : `disabled:${queryKey}`
   const [snapshot, setSnapshot] = useState<Snapshot>(() => empty(key))
   const [retry, setRetry] = useState(0)
   const reload = useCallback(() => setRetry(value => value + 1), [])
 
   useEffect(() => {
-    const query: Scope = JSON.parse(key)
+    if (!enabled) {
+      setSnapshot({ ...empty(key), loading: false })
+      return
+    }
+    const query: Scope = JSON.parse(queryKey)
     const controller = new AbortController()
     let running = false
     let cursor: number | null = null
@@ -69,7 +74,7 @@ export function useConversationEvents(endpoints: Endpoints, scope: Scope) {
       document.removeEventListener('visibilitychange', resume)
       window.removeEventListener('focus', resume)
     }
-  }, [endpoints, key, retry])
+  }, [endpoints, key, queryKey, enabled, retry])
 
-  return { ...(snapshot.key === key ? snapshot : empty(key)), reload }
+  return { ...(snapshot.key === key ? snapshot : { ...empty(key), loading: enabled }), reload }
 }

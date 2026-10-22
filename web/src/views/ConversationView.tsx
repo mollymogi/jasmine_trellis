@@ -1,35 +1,22 @@
-/**
- * Conversation / Event view (P6-A05).
- *
- * Events come from `GET /v1/events` with Core-side filters (`session_id`,
- * `task_id`, `project_id`, `event_type`, `source_system`) and `after_seq` paging.
- * There is no task-timeline endpoint in the baseline, so the panel states its
- * exact read scope and read time instead of implying a transactional snapshot or
- * complete chat capture.
- *
- * Tool results and other machine events keep their own label and can never be
- * rendered as a human utterance. The Interpretation column links to the delivered
- * read views instead of guessing: P2 owns that contract, and the dashboard shows
- * what Core recorded rather than inferring it from event text.
+/** Conversation browser: recorded source -> workspace -> one native session.
+ * Registry reads never imply a scan of the machine or capture for every Agent.
  */
-
-import { useId, useMemo, useState } from 'react'
-
+import { useEffect, useId, useState } from 'react'
 import { DEFAULT_OBJECT_LIMIT } from '../api/endpoints'
 import type { Project, Session } from '../api/types'
 import { sourceHref } from '../app/router'
 import { useSession } from '../app/session'
 import { offsetLoader, usePagedResource } from '../app/usePagedResource'
-import { isConversationMessage } from '../components/ConversationMessage'
-import { useConversationEvents } from '../app/useConversationEvents'
-import { ConversationThread } from '../components/ConversationThread'
 import { useLiveObjects } from '../app/useLiveObjects'
+import { useConversationEvents } from '../app/useConversationEvents'
+import { useSessionPreviews } from '../app/useSessionPreviews'
+import { isConversationMessage } from '../components/ConversationMessage'
+import { ConversationThread } from '../components/ConversationThread'
+import { ConversationNavigator } from '../components/ConversationNavigator'
 import { Pager } from '../components/Pager'
-import { StatusBadge } from '../components/StatusBadge'
 import { Empty, ErrorPanel, Loading, Panel } from '../components/States'
-import { formatTimestamp } from '../lib/text'
+import { maskedSummary } from '../lib/text'
 import { HookDecisions } from '../components/HookDecisions'
-
 const EVENT_TYPES = [
   'user.prompt',
   'human.confirmation_prepared',
@@ -67,205 +54,111 @@ const EVENT_TYPES = [
   'review.rejected',
 ] as const
 
-export function ConversationView({
-  projectId,
-  taskId,
-  sessionId,
-}: {
-  projectId: string | null
-  taskId: string | null
-  sessionId: string | null
+
+export function ConversationView({ projectId, taskId, sessionId }: {
+  projectId: string | null; taskId: string | null; sessionId: string | null
 }): JSX.Element {
   const { endpoints } = useSession()
   const [eventType, setEventType] = useState('')
   const [sourceSystem, setSourceSystem] = useState('')
   const eventTypeId = useId()
   const sourceId = useId()
-
   const projects = useLiveObjects<Project>(async (offset, limit, signal) => {
     const page = await endpoints.listProjects({ limit, offset }, signal)
     return { items: page.projects, count: page.count }
   }, null)
   const sessions = useLiveObjects<Session>(async (offset, limit, signal) => {
-    const page = await endpoints.listSessions(projectId, { limit, offset }, signal)
+    const page = await endpoints.listSessions(null, { limit, offset }, signal)
     return { items: page.sessions, count: page.count }
-  }, projectId)
-
-  const tasks = usePagedResource(
-    offsetLoader<{ task_id: string; title: string }>({
-      limit: DEFAULT_OBJECT_LIMIT,
-      fetch: async (offset, limit, signal) => {
-        const page = await endpoints.listTasks(projectId, { limit, offset }, signal)
-        return {
-          items: page.tasks.map((task) => ({ task_id: task.task_id, title: task.title })),
-          count: page.count,
-        }
-      },
-    }),
-    [projectId],
-  )
-
+  }, null)
+  const registrations = useConversationEvents(endpoints, { event_type: 'project.created' })
+  const [initialProject, setInitialProject] = useState<string | null>(null)
+  const requestedSession = sessions.items.find(session => session.session_id === sessionId)
+  useEffect(() => {
+    if (projectId || sessionId || initialProject || projects.loading || sessions.loading) return
+    const recent = [...sessions.items].sort((a, b) => b.started_at.localeCompare(a.started_at))
+      .find(session => projects.items.some(project => project.project_id === session.project_id))
+    setInitialProject(recent?.project_id ?? projects.items.at(-1)?.project_id ?? null)
+  }, [projectId, sessionId, initialProject, projects.items, projects.loading, sessions.items, sessions.loading])
+  const activeProject = projectId ?? requestedSession?.project_id ?? initialProject
+  const selectedProject = projects.items.find(project => project.project_id === activeProject)
+  const scope = JSON.stringify([activeProject, taskId])
+  const [defaultSession, setDefaultSession] = useState<{ scope: string; id: string | null }>({ scope: '', id: null })
+  const projectSessions = sessions.items.filter(session => session.project_id === activeProject && (!taskId || session.task_id === taskId))
+    .sort((a, b) => b.started_at.localeCompare(a.started_at) || b.session_id.localeCompare(a.session_id))
+  const previews = useSessionPreviews(endpoints, projectSessions.map(session => session.session_id))
+  useEffect(() => {
+    if (sessionId || !activeProject || sessions.loading) return
+    if (defaultSession.scope === scope && defaultSession.id !== null) return
+    const rows = [...sessions.items].filter(session => session.project_id === activeProject && (!taskId || session.task_id === taskId))
+      .sort((a, b) => b.started_at.localeCompare(a.started_at) || b.session_id.localeCompare(a.session_id))
+    const readyIndex = rows.findIndex(session => previews[session.session_id]?.state === 'ready')
+    // Prefer a conversation that already has user content over a newer empty
+    // SessionStart. Wait for newer summaries before choosing once; never move
+    // an explicit selection when a new conversation later arrives.
+    if ((readyIndex < 0 ? rows : rows.slice(0, readyIndex)).some(session => !previews[session.session_id])) return
+    const recent = readyIndex >= 0 ? rows[readyIndex] : rows[0]
+    if (defaultSession.scope !== scope || recent) setDefaultSession({ scope, id: recent?.session_id ?? null })
+  }, [sessionId, activeProject, taskId, scope, sessions.items, sessions.loading, defaultSession, previews])
+  const activeSession = sessionId ?? (defaultSession.scope === scope ? defaultSession.id : null)
+  const selectedSession = sessions.items.find(session => session.session_id === activeSession)
+  const validSession = !!selectedSession && selectedSession.project_id === activeProject && (!taskId || selectedSession.task_id === taskId)
   const events = useConversationEvents(endpoints, {
-    session_id: sessionId,
-    task_id: sessionId === null ? taskId : null,
-    project_id: sessionId === null && taskId === null ? projectId : null,
-    event_type: eventType || null,
-    source_system: sourceSystem || null,
-  })
+    session_id: activeSession, event_type: eventType || null, source_system: sourceSystem || null,
+  }, validSession)
   const messages = events.items.filter(isConversationMessage)
   const systemEvents = events.items.filter(event => !isConversationMessage(event))
-  const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  const tasks = usePagedResource(activeProject ? offsetLoader<{ task_id: string; title: string }>({
+    limit: DEFAULT_OBJECT_LIMIT,
+    fetch: async (offset, limit, signal) => {
+      const page = await endpoints.listTasks(activeProject, { limit, offset }, signal)
+      return { items: page.tasks.map(task => ({ task_id: task.task_id, title: task.title })), count: page.count }
+    },
+  }) : null, [activeProject])
 
-  const scopeLabel = useMemo(() => {
-    if (sessionId) return `session ${sessionId}`
-    if (taskId) return `task ${taskId}`
-    if (projectId) return `project ${projectId}`
-    return '全部 Event(无过滤)'
-  }, [projectId, taskId, sessionId])
-
-  return (
-    <div className="stack conversation-page">
-      <section className="conversation-toolbar" aria-label="项目">
-        <div className="filters">
-          <label><span>查看项目</span>
-            <select aria-label="查看项目" value={projectId ?? ''} onChange={event => {
-              window.location.hash = sourceHref.conversation(event.target.value || null)
-            }}>
-              <option value="">全部项目</option>
-              {[...projects.items].reverse().map(project => <option key={project.project_id} value={project.project_id}>
-                {project.name}{project.description ? ` · ${project.description}` : ''}
-              </option>)}
-            </select>
-          </label>
-          <span className="muted">项目、会话和消息每 3 秒自动更新</span>
-        </div>
-        {projects.error ? <ErrorPanel error={projects.error} what="项目" onRetry={projects.reload} /> : null}
-      </section>
-
-      <details className="conversation-filters">
-        <summary>筛选与来源详情</summary>
-      <Panel title="读取范围">
-        <div className="filters">
-          <label htmlFor={eventTypeId}>
-            event_type
-            <select
-              id={eventTypeId}
-              value={eventType}
-              onChange={(event) => setEventType(event.target.value)}
-            >
-              <option value="">(全部)</option>
-              {EVENT_TYPES.map((candidate) => (
-                <option key={candidate} value={candidate}>
-                  {candidate}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label htmlFor={sourceId}>
-            source_system
-            <input
-              id={sourceId}
-              value={sourceSystem}
-              onChange={(event) => setSourceSystem(event.target.value)}
-              placeholder="例如 codex"
-              autoComplete="off"
-            />
-          </label>
-        </div>
-        <p className="state state--meta">
-          当前范围：<strong>{scopeLabel}</strong>。时间按本地时区 {localZone} 显示。
-          对话从上到下按发生顺序排列，每 3 秒自动刷新。
-        </p>
-        <div className="scope-links">
-          <a href={sourceHref.conversation(projectId)} aria-current={sessionId === null && taskId === null ? 'true' : undefined}>
-            整个 Project
-          </a>
-          {taskId ? (
-            <a href={sourceHref.conversation(projectId, taskId)} aria-current={sessionId === null ? 'true' : undefined}>
-              当前 Task
-            </a>
-          ) : null}
-        </div>
-      </Panel>
+  return <div className="stack conversation-page">
+    <section className="conversation-context" aria-label="当前会话范围">
+      <div><h1>{selectedProject ? maskedSummary(selectedProject.name) : '项目对话'}</h1>
+        <p>{activeSession ? previews[activeSession]?.title ?? '正在读取会话摘要…' : '按来源选择项目，再查看其中的独立会话'}</p></div>
+      <details className="conversation-origin-help"><summary>这些项目来自哪里？</summary>
+        <p>这里只显示当前 Core 已登记的项目，不扫描整台机器。自动登记来自已接入 Agent 使用过的工作目录；“Core / 其他登记”保留手动或系统创建的项目。来源分类不代表所有 Agent 都已开启采集。</p>
+        <p>不同工作副本按各自目录登记。切换项目后选择一个会话阅读，不混合其他会话的消息。</p>
       </details>
-
-      <div className="split">
-        <ConversationThread key={JSON.stringify([projectId, taskId, sessionId, eventType, sourceSystem])}
-          messages={messages} systemEvents={systemEvents} taskId={taskId}
+    </section>
+    {projects.error ? <ErrorPanel error={projects.error} what="项目列表" onRetry={projects.reload} /> : null}
+    {sessions.error ? <ErrorPanel error={sessions.error} what="会话列表" onRetry={sessions.reload} /> : null}
+    {registrations.error ? <p className="state state--meta">项目来源暂未读取，未确认的项目保留在“来源待确认”中。</p> : null}
+    <div className="conversation-browser">
+      <ConversationNavigator projects={projects.items} registrations={registrations.items} sessions={sessions.items}
+        activeProject={activeProject} activeSession={validSession ? activeSession : null} previews={previews} loading={projects.loading || sessions.loading} />
+      <div className="stack conversation-reader">
+        {validSession ? <ConversationThread key={JSON.stringify([activeProject, activeSession, eventType, sourceSystem])}
+          messages={messages} systemEvents={systemEvents} taskId={selectedSession?.task_id ?? taskId}
           loading={events.loading} error={events.error} loadedAt={events.loadedAt} onReload={events.reload} />
-
-        <div className="stack">
-          <details className="conversation-explanation">
-            <summary>解释与审批说明</summary>
-          <Panel title="Interpretation / Resolver(读取视图已交付)">
-            <p className="state state--meta">
-              左列展示已采集的用户和助手消息，系统事件与来源详情可展开查看；解释、候选、Resolver 计划与待审批 Review 现在有独立的只读视图。
-              P2 契约已合并,browser 只读这几条 GET:
-            </p>
-            <ul className="plain">
-              <li>
-                <a href={sourceHref.interpretations(projectId, taskId)}>当前范围的全部解释</a>
-                {' · '}
-                <a href={sourceHref.interpretations(projectId, taskId, null, 'EXTRACTED')}>
-                  仅 EXTRACTED
-                </a>
-                {' · '}
-                <a href={sourceHref.interpretations(projectId, taskId, null, 'PROCESSING')}>
-                  处理中
-                </a>
-              </li>
-              <li>
-                <a href={sourceHref.reviews(projectId, taskId)}>当前范围的待审批 Review</a>
-              </li>
-            </ul>
-            <p className="state state--meta">
-              本页不会用关键词或本地推断顶替解释结果;<strong>写入</strong>(correct/reject/rerun、
-              approve/reject)在<strong>解释详情页</strong>与<strong>Review 详情页</strong>交付,
-              本页只读 Raw Event,不提供写按钮。
-            </p>
+          : <Panel title="对话">{sessions.loading || !sessionId && projectSessions.length > 0 ? <Loading what="会话" />
+            : sessionId ? <p className="state state--error">该会话不在当前项目或任务范围内，或尚未读取到对应会话。不会合并展示其他会话。</p>
+            : <Empty what="会话" hint={activeProject ? '此项目尚未采集到会话。' : '请从左侧选择一个已登记项目。'} />}</Panel>}
+        <details className="conversation-filters"><summary>筛选与来源详情</summary>
+          <Panel title="读取范围"><div className="filters">
+            <label htmlFor={eventTypeId}>event_type<select id={eventTypeId} value={eventType} onChange={event => setEventType(event.target.value)}>
+              <option value="">(全部)</option>{EVENT_TYPES.map(candidate => <option key={candidate} value={candidate}>{candidate}</option>)}
+            </select></label>
+            <label htmlFor={sourceId}>source_system<input id={sourceId} value={sourceSystem} onChange={event => setSourceSystem(event.target.value)} placeholder="例如 codex" autoComplete="off" /></label>
+          </div><p className="state state--meta">当前只读取所选会话。时间按本地时区 {Intl.DateTimeFormat().resolvedOptions().timeZone} 显示，每 3 秒自动同步。</p>
+          <dl className="conversation-identifiers"><dt>工作目录 / 描述</dt><dd>{maskedSummary(selectedProject?.description ?? '尚未读取')}</dd>
+            <dt>项目编号</dt><dd>{activeProject ?? '未选择'}</dd><dt>会话编号</dt><dd>{activeSession ?? '未选择'}</dd></dl>
           </Panel>
-          </details>
-
-          <Panel title="Sessions">
-            {sessions.items.length === 0 && !sessions.loading ? <Empty what="Session" /> : null}
-            <ul className="plain">
-              {[...sessions.items].reverse().map((session) => (
-                <li key={session.session_id}>
-                  <a
-                    href={sourceHref.conversation(session.project_id, session.task_id, session.session_id)}
-                    aria-current={session.session_id === sessionId ? 'true' : undefined}
-                  >
-                    <code>{session.session_id}</code>
-                  </a>{' '}
-                  <StatusBadge kind="session" status={session.status} />{' '}
-                  <span className="muted">{formatTimestamp(session.started_at)}</span>
-                  {' · '}{projects.items.find(project => project.project_id === session.project_id)?.name ?? session.project_id}
-                </li>
-              ))}
-            </ul>
-            {sessions.loading ? <Loading what="Session" /> : null}
-            {sessions.error ? <ErrorPanel error={sessions.error} what="Session" onRetry={sessions.reload} /> : null}
-          </Panel>
-
-          <Panel title="Tasks">
-            {tasks.items.length === 0 && !tasks.loading ? <Empty what="Task" /> : null}
-            <ul className="plain">
-              {tasks.items.map((task) => (
-                <li key={task.task_id}>
-                  <a
-                    href={sourceHref.conversation(projectId, task.task_id)}
-                    aria-current={task.task_id === taskId ? 'true' : undefined}
-                  >
-                    {task.title}
-                  </a>
-                </li>
-              ))}
-            </ul>
+        </details>
+        <details className="conversation-explanation"><summary>任务、解释与运行记录</summary>
+          <Panel title="当前项目任务"><ul className="plain">{tasks.items.map(task => <li key={task.task_id}><a href={sourceHref.task(task.task_id)}>{task.title}</a></li>)}</ul>
             <Pager paged={tasks} noun="Task" limit={DEFAULT_OBJECT_LIMIT} />
           </Panel>
-        </div>
+          <Panel title="Interpretation / Resolver(读取视图已交付)">
+            <p><a href={sourceHref.interpretations(activeProject, taskId)}>当前范围的全部解释</a>{' · '}<a href={sourceHref.reviews(activeProject, taskId)}>当前范围的待审批 Review</a></p>
+            <p className="muted">写入操作位于解释详情页与 Review 详情页，本页只读 Raw Event，不根据消息内容推断审批结果。</p>
+          </Panel><HookDecisions />
+        </details>
       </div>
-      <HookDecisions />
     </div>
-  )
+  </div>
 }

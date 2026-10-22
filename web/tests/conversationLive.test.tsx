@@ -68,7 +68,9 @@ describe('live conversation', () => {
     assistant.payload = { text: '回复正文'.repeat(200) }
     fake = installFakeCore({
       'GET /v1/events': { body: { events: [assistant, event(1, 'session.started'), user], count: 3 } },
-      'GET /v1/sessions': { body: { sessions: [], count: 0 } },
+      'GET /v1/sessions': { body: { sessions: [{ session_id: 'ses_A', project_id: 'prj_1', task_id: null,
+        host_id: 'hst_1', actor_id: 'act_1', status: 'open', revision: 1, source_event_id: 'evt_1',
+        started_at: '2026-10-19T15:37:44Z', ended_at: null, created_at: '2026-10-19T15:37:44Z', updated_at: '2026-10-19T15:37:44Z' }], count: 1 } },
       'GET /v1/tasks': { body: { tasks: [], count: 0 } },
       'GET /v1/host-hooks/deliveries': { body: { deliveries: [], count: 0, has_more: false } },
     })

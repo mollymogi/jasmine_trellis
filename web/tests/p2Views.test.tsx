@@ -321,6 +321,7 @@ describe('Conversation event filter', () => {
       'GET /v1/tasks': { body: { tasks: [], count: 0 } },
       'GET /v1/events': { body: { events: [], count: 0 } },
     })
+    await user.click(await screen.findByText('任务、解释与运行记录'))
     const panel = await screen.findByRole('region', { name: /Interpretation \/ Resolver/ })
     expect(panel.textContent).toContain('读取视图已交付')
     expect(within(panel).getByRole('link', { name: /当前范围的全部解释/ })).toBeTruthy()
