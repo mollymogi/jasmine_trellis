@@ -17,7 +17,7 @@ it('detects fixed CLI and app paths without treating installation as capture sup
   })
   const agents = discoverAgents({ home:'/home/test', envPath:'/opt/homebrew/bin:relative', stat })
   expect(agents.find(agent => agent.id === 'codex')).toMatchObject({ cli:true, desktop:false, capture_supported:true })
-  expect(agents.find(agent => agent.id === 'claude')).toMatchObject({ cli:false, desktop:true, capture_supported:false })
+  expect(agents.find(agent => agent.id === 'claude')).toMatchObject({ cli:false, desktop:true, capture_supported:true })
   expect(agents.find(agent => agent.id === 'opencode')?.detected).toBe(true)
   expect(agents.find(agent => agent.id === 'grok')?.detected).toBe(false)
   expect(JSON.stringify(agents)).not.toContain('/home/test')

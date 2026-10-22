@@ -20,7 +20,7 @@ LABEL = "Jasmine daily conversation capture"
 
 
 def install(home: Path, binding: Path, receipts: Path, *, python: str = sys.executable,
-            confirmed: bool = False) -> dict:
+            confirmed: bool = False, disable: bool = False) -> dict:
     if not confirmed:
         raise InstallError("user-wide conversation capture requires explicit opt-in")
     device = load_device(binding)
@@ -59,15 +59,16 @@ def install(home: Path, binding: Path, receipts: Path, *, python: str = sys.exec
                     remaining.append(handler)
             if remaining:
                 kept.append({**group, "hooks": remaining})
-        kept.append({"hooks": [{"type": "command", "command": command,
+        if not disable:
+            kept.append({"hooks": [{"type": "command", "command": command,
                                "timeout": 3 if event == "SessionEnd" else 10,
                                "statusMessage": LABEL}]})
         document["hooks"][event] = kept
     if original == (json.dumps(document, ensure_ascii=False, indent=2) + "\n").encode():
-        return {"status": "unchanged", "config": str(target)}
+        return {"status": "disabled" if disable else "unchanged", "config": str(target)}
     backup = _backup(target, original)
     _write(target, document)
-    return {"status": "installed", "config": str(target), "backup": str(backup) if backup else None,
+    return {"status": "disabled" if disable else "installed", "config": str(target), "backup": str(backup) if backup else None,
             "events": list(EVENTS), "trust": "review the four hooks in Codex /hooks"}
 
 
@@ -76,10 +77,12 @@ def main() -> None:
     parser.add_argument("--device-binding", type=Path, required=True)
     parser.add_argument("--receipts", type=Path, required=True)
     parser.add_argument("--confirm-user-scope", action="store_true")
+    parser.add_argument("--disable", action="store_true")
+    parser.add_argument("--codex-home", type=Path)
     args = parser.parse_args()
-    home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+    home = args.codex_home or Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
     print(json.dumps(install(home, args.device_binding, args.receipts,
-                             confirmed=args.confirm_user_scope), ensure_ascii=False))
+                             confirmed=args.confirm_user_scope, disable=args.disable), ensure_ascii=False))
 
 
 if __name__ == "__main__":

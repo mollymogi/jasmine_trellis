@@ -70,8 +70,8 @@ def session_origin(n, home):
         return {'check':'persisted_main_session_summary','identity_sha256':hashlib.sha256(identity.encode()).hexdigest()}
     except (OSError,ValueError,TypeError,KeyError,AttributeError): return None
 
-def bind_workspace(n, device):
-    root=workspace_root(n['cwd']);source=SOURCE+'-workspace'
+def bind_workspace(n, device, source=SOURCE):
+    root=workspace_root(n['cwd']);source=source+'-workspace'
     identity=canonical_json([source,device.host_id,str(root)])
     project=CoreClient(device.core_url,read_key(device.api_key_file),timeout=2).post('/v1/projects',{
         'name':root.name or str(root),'description':str(root),'host_id':device.host_id,
@@ -90,23 +90,25 @@ def _stage_start(device,n):
     finally:
         if os.path.exists(temp):os.unlink(temp)
 
-def _publish(n,binding,origin):
+def _publish(n,binding,origin,source=SOURCE,agent="grok"):
     client=CoreClient(binding.core_url,read_key(binding.api_key_file),timeout=3)
-    identity=canonical_json([SOURCE,binding.host_id,binding.project_id,n['sid']])
-    session=client.post('/v1/sessions',{'title':'Grok '+n['sid'],'project_id':binding.project_id,'task_id':None,'host_id':binding.host_id,
-        'source_system':SOURCE+'-registration','source_event_id':identity,'event_id':_deterministic_event_id(SOURCE,identity,'registration')})['object']['session_id']
+    identity=canonical_json([source,binding.host_id,binding.project_id,n['sid']])
+    session=client.post('/v1/sessions',{'title':agent.capitalize()+' '+n['sid'],'project_id':binding.project_id,'task_id':None,'host_id':binding.host_id,
+        'source_system':source+'-registration','source_event_id':identity,'event_id':_deterministic_event_id(source,identity,'registration')})['object']['session_id']
     payload={'text':n['text'],'native_session_id':n['sid'],'native_turn_id':n['turn'],'native_hook_event':n['event'],
-             'native_timestamp':n['timestamp'],'trust':'NATIVE_HOOK','origin':origin}
+             'trust':'NATIVE_HOOK','origin':origin}
+    timestamp_field={'native_typed_prompt':'native_prompt_timestamp','hook_observation':'hook_observed_at'}.get(n.get('timestamp_source'),'native_timestamp')
+    payload[timestamp_field]=n['timestamp']
     if n['event']=='SessionStart':payload['source']=n.get('source')
     if n['event']=='SessionEnd':payload['reason']=n.get('reason')
     source_id=hashlib.sha256(canonical_json([identity,n['event'],n['turn'],n['timestamp'],n['text']]).encode()).hexdigest()
     if n['event']=='UserPromptSubmit':
         if binding.human_api_key_file is None: raise ValueError('separate prompt credential required')
         client=CoreClient(binding.core_url,read_key(binding.human_api_key_file),timeout=3)
-    response=client.post('/v1/events',{'event_type':EVENTS[n['event']],'source_system':SOURCE,'source_event_id':source_id,
-        'event_id':_deterministic_event_id(SOURCE,source_id),'host_id':binding.host_id,'project_id':binding.project_id,
+    response=client.post('/v1/events',{'event_type':EVENTS[n['event']],'source_system':source,'source_event_id':source_id,
+        'event_id':_deterministic_event_id(source,source_id),'host_id':binding.host_id,'project_id':binding.project_id,
         'task_id':None,'session_id':session,'payload':payload})
-    return {'status':'accepted','agent':'grok','native_hook_event':n['event'],'native_session_id':n['sid'],
+    return {'status':'accepted','agent':agent,'native_hook_event':n['event'],'native_session_id':n['sid'],
         'native_turn_id':n['turn'],'project_id':binding.project_id,'session_id':session,'event_id':response['event']['event_id'],
         'event_type':EVENTS[n['event']],'replayed':response['replayed'],'origin':origin,'text_sha256':hashlib.sha256(n['text'].encode()).hexdigest()}
 

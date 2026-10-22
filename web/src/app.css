@@ -783,7 +783,8 @@ main {
  .conversation-identifiers { grid-template-columns: 1fr; }
 }
 
-.agent-logo { display: inline-block; flex-shrink: 0; background-color: currentColor; mask-size: contain; mask-repeat: no-repeat; mask-position: center; -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
+.agent-logo { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; padding: 2px; border-radius: 5px; background: var(--muted); color: var(--foreground); box-sizing: border-box; }
+.agent-logo__mark { display: block; width: 100%; height: 100%; background-color: currentColor; mask-size: contain; mask-repeat: no-repeat; mask-position: center; -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
 .agent-inventory-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .chat-avatar .agent-logo { vertical-align: middle; }
 .conversation-view-switch { display: flex; gap: 3px; padding: 3px; background: var(--muted); border-radius: 7px; }
@@ -804,3 +805,20 @@ main {
 .agent-capture-action { display: flex; flex-direction: column; align-items: end; gap: 6px; max-width: 235px; text-align: right; font-size: 10px; color: var(--muted-foreground); }
 .agent-capture-buttons { display: flex; flex-wrap: wrap; gap: 5px; }
 .agent-capture-action small { overflow-wrap: anywhere; }
+
+/* Brand recognition colors stay legible in both themes. Monochrome brands
+   use white marks on distinct colored badges, rather than disappearing in ink. */
+.agent-logo[data-agent-logo="codex"] { background: #087f70; color: #fff; }
+.agent-logo[data-agent-logo="claude"] { background: #b34f34; color: #fff; }
+.agent-logo[data-agent-logo="grok"] { background: #4357c6; color: #fff; }
+.agent-logo[data-agent-logo="opencode"] { background: #7253a1; color: #fff; }
+.agent-logo[data-agent-logo="gemini"] { background: linear-gradient(135deg,#426cdb,#ab3979); color: #fff; }
+.agent-logo[data-agent-logo="cursor"] { background: #52657e; color: #fff; }
+.agent-logo[data-agent-logo="windsurf"] { background: #087e80; color: #fff; }
+.chat-avatar:has(.agent-logo) { background: transparent; border: 0; }
+.chat-avatar .agent-logo { width: 32px !important; height: 32px !important; padding: 6px; border-radius: 10px; }
+.agent-setup-explanation { border-radius: 8px; padding: 12px; background: var(--accent); font-size: 12px; }
+.agent-setup-explanation p { margin: 6px 0 0; font-size: 11px; color: var(--muted-foreground); line-height: 1.7; }
+.agent-connections { max-height: min(85dvh, 780px); overflow-y: auto; }
+.agent-inventory li { align-items: flex-start; }
+@media(max-width: 520px) { .agent-inventory li { flex-direction: column; gap: 10px; } .agent-capture-action { align-items: flex-start; text-align: left; max-width: 100%; } }

@@ -368,7 +368,7 @@ export function createDashboardServer({ root, origin, allowlist = loadAllowlist(
       }, proxyRequestId(req))
       return
     }
-    if ((target.pathname === '/_local/agents' || target.pathname === '/_local/agents/grok/capture')) { void serveLocalAgents(req, res, origin); return }
+    if ((target.pathname === '/_local/agents' || /^\/_local\/agents\/(codex|claude|grok)\/capture$/.test(target.pathname))) { void serveLocalAgents(req, res, origin); return }
     if (target.kind === 'api') proxy(req, res, origin, allowlist)
     else serveStatic(req, res, root)
   })

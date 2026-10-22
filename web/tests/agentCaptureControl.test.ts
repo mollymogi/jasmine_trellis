@@ -44,3 +44,18 @@ it('coalesces simultaneous enable clicks and distinguishes configuration from na
  writeFileSync(profile.receipts,JSON.stringify({status:'accepted',event_type:'assistant.message',event_id:'evt_native',checked_at:'2026-10-22T10:00:00Z'})+'\n',{mode:0o600})
  expect(captureStates(profile,'Bearer reader').grok).toMatchObject({configured:false,can_manage:false,last_event_id:'evt_native'})
 })
+
+it('routes each v2 client to its pinned installer and validates every adapter path',async()=>{
+ const {root,file,profile}=fixture()
+ const adapters=Object.fromEntries(['claude','codex','grok'].map(agent=>[agent,{...profile,home:join(root,agent)}]))
+ const multi={...profile,version:2,adapters};writeFileSync(file,JSON.stringify(multi));expect(loadCaptureProfile(file)).not.toBeNull()
+ const core=await listen((_req,res)=>{res.writeHead(200);res.end('{}')})
+ const host=await listen((req,res)=>{void serveLocalAgents(req,res,core,discoverAgents,multi)})
+ for(const agent of ['claude','codex','grok']){
+  const reply=await fetch(new URL(`/_local/agents/${agent}/capture`,host),{method:'POST',headers:{Authorization:'Bearer manager',Origin:host.origin},body:JSON.stringify({action:'enable'})})
+  expect(reply.status).toBe(200)
+ }
+ expect(readFileSync(join(root,'called'),'utf8')).toBe('xxx')
+ expect(captureStates(multi,'Bearer manager').claude).toMatchObject({can_manage:true,available:true,configured:false})
+ multi.adapters.claude!.installer='relative-path';writeFileSync(file,JSON.stringify(multi));expect(loadCaptureProfile(file)).toBeNull()
+})

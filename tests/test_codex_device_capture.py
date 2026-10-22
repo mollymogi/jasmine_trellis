@@ -67,6 +67,13 @@ class DeviceCapture(bound_capture.ConversationCapture):
         self.assertNotIn('trusted_hash', path.read_text())
         self.assertEqual(install(home, device_path, home/'receipts', confirmed=True)['status'], 'unchanged')
         self.assertEqual(sum(h.get('statusMessage') == LABEL for groups in after['hooks'].values() for g in groups for h in g['hooks']),4)
+        self.assertEqual(install(home, device_path, home/'receipts', confirmed=True, disable=True)['status'], 'disabled')
+        disabled=json.loads(path.read_text())
+        self.assertEqual(disabled['description'],'keep');self.assertEqual(disabled['hooks']['Stop'],[foreign])
+        self.assertFalse(any(h.get('statusMessage')==LABEL for groups in disabled['hooks'].values() for group in groups for h in group['hooks']))
+        self.assertEqual(install(home,device_path,home/'receipts',confirmed=True)['status'],'installed')
+        self.assertEqual(json.loads(path.read_text()),after)
+
 
 
 class WorkspaceRoots(unittest.TestCase):

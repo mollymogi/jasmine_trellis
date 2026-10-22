@@ -5,7 +5,8 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 const execute = promisify(execFile)
-const LABEL='Jasmine daily Grok conversation capture'
+const LABELS={grok:'Jasmine daily Grok conversation capture',claude:'Jasmine daily Claude conversation capture',codex:'Jasmine daily conversation capture'}
+export const CAPTURE_AGENTS=Object.keys(LABELS)
 const EVENTS=['SessionStart','UserPromptSubmit','Stop','SessionEnd']
 const inflight=new Map()
 const quoted=value=>/^[\w@%+=:,./-]+$/.test(value)?value:"'"+value.replaceAll("'", "'\"'\"'")+"'"
@@ -16,8 +17,19 @@ export function loadCaptureProfile(path=process.env.JASMINE_AGENT_CAPTURE_CONTRO
   fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK)
   const stat=fstatSync(fd);if(!stat.isFile()||stat.uid!==process.getuid()||(stat.mode&0o077)||stat.size>16384)return null
   const profile=JSON.parse(readFileSync(fd,'utf8'))
-  if(profile.version!==1||profile.enabled!==true||!/^[a-f0-9]{64}$/.test(profile.browser_token_sha256))return null
-  for(const key of ['python','installer','launcher','device_binding','receipts','grok_home','control_receipts'])if(typeof profile[key]!=='string'||!isAbsolute(profile[key])||profile[key].includes('\0'))return null
+  if(![1,2].includes(profile.version)||profile.enabled!==true||!/^[a-f0-9]{64}$/.test(profile.browser_token_sha256))return null
+  const absolute=value=>typeof value==='string'&&isAbsolute(value)&&!value.includes('\0')
+  if(!absolute(profile.control_receipts))return null
+  if(profile.version===1){
+   for(const key of ['python','installer','launcher','device_binding','receipts','grok_home'])if(!absolute(profile[key]))return null
+  }else{
+   if(!profile.adapters||typeof profile.adapters!=='object'||Array.isArray(profile.adapters))return null
+   for(const [agent,adapter] of Object.entries(profile.adapters)){
+    if(!CAPTURE_AGENTS.includes(agent)||!adapter||typeof adapter!=='object')return null
+    for(const key of ['python','installer','device_binding','receipts','home'])if(!absolute(adapter[key]))return null
+    if(agent!=='codex'&&!absolute(adapter.launcher))return null
+   }
+  }
   return profile
  }catch{return null}finally{if(fd!==undefined)closeSync(fd)}
 }
@@ -26,7 +38,16 @@ export function canManageCapture(profile,token) {
  const digest=createHash('sha256').update(token.slice(7)).digest()
  const expected=Buffer.from(profile.browser_token_sha256,'hex');return expected.length===digest.length&&timingSafeEqual(digest,expected)
 }
-function expectedCommand(profile){return [profile.python,'-I','-B',profile.launcher,'--device-binding',profile.device_binding,'--receipts',profile.receipts,'--grok-home',profile.grok_home].map(quoted).join(' ')}
+function adapterFor(profile,agent) {
+ if(!profile)return null
+ if(profile.version===2)return profile.adapters?.[agent]??null
+ if(agent==='grok')return {...profile,home:profile.grok_home}
+ return null
+}
+function expectedCommand(adapter,agent){
+ const prefix=agent==='codex'?[adapter.python,'-I','-B','-m','jasmine_core.capture.codex_session']:[adapter.python,'-I','-B',adapter.launcher]
+ return [...prefix,'--device-binding',adapter.device_binding,'--receipts',adapter.receipts,...(agent==='codex'?[]:['--'+agent+'-home',adapter.home])].map(quoted).join(' ')
+}
 function readHookDocument(file) {
  let fd
  try {fd=openSync(file,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);const stat=fstatSync(fd)
@@ -51,35 +72,43 @@ function messageReceipt(file){
  }catch{return {}}finally{if(fd!==undefined)closeSync(fd)}
 }
 export function captureStates(profile,authorization) {
- let configured=false,drift=false
- if(profile){
-  const file=join(profile.grok_home,'hooks/jasmine-conversation.json')
-  try{
-   const doc=readHookDocument(file)
-   configured=doc.description===LABEL&&EVENTS.every(event=>doc.hooks?.[event]?.length===1&&doc.hooks[event][0].hooks?.length===1&&doc.hooks[event][0].hooks[0].command===expectedCommand(profile))
-   drift=!configured
-  }catch{drift=existsSync(file)}
+ const states={}
+ for(const agent of CAPTURE_AGENTS){
+  const adapter=adapterFor(profile,agent)
+  let configured=false,drift=false,blocked=false
+  if(adapter){
+   const file=join(adapter.home,agent==='grok'?'hooks/jasmine-conversation.json':agent==='claude'?'settings.json':'hooks.json')
+   try{
+    const doc=readHookDocument(file),command=expectedCommand(adapter,agent)
+    const owned=event=>doc.hooks?.[event]?.flatMap(group=>group.hooks??[]).filter(hook=>agent==='grok'||hook.statusMessage===LABELS[agent])??[]
+    configured=(agent!=='grok'||doc.description===LABELS.grok)&&EVENTS.every(event=>{const handlers=owned(event);return handlers.length===1&&handlers[0].type==='command'&&handlers[0].command===command})
+    drift=!configured&&(agent==='grok'||EVENTS.some(event=>owned(event).length>0))
+    blocked=agent==='claude'&&doc.disableAllHooks===true
+   }catch{drift=existsSync(file)&&agent==='grok'}
+  }
+  states[agent]={configured,can_manage:!!adapter&&canManageCapture(profile,authorization),available:!!adapter,configuration_changed:drift,client_hooks_disabled:blocked,...messageReceipt(adapter?.receipts)}
  }
- let codex
- if(profile?.codex_hooks){try{const doc=readHookDocument(profile.codex_hooks);codex={configured:EVENTS.every(event=>doc.hooks?.[event]?.some(group=>group.hooks?.some(hook=>hook.statusMessage==='Jasmine daily conversation capture'))),can_manage:false,available:true,configuration_changed:false,...messageReceipt(profile.codex_receipts)}}catch{}}
- return {...(codex?{codex}:{}),grok:{configured,can_manage:canManageCapture(profile,authorization),available:!!profile,configuration_changed:drift,...messageReceipt(profile?.receipts)}}
+ // Backward-compatible readback for an existing v1 Codex installation.
+ if(profile?.version===1&&profile.codex_hooks){try{const doc=readHookDocument(profile.codex_hooks);states.codex={configured:EVENTS.every(event=>doc.hooks?.[event]?.some(group=>group.hooks?.some(hook=>hook.statusMessage===LABELS.codex))),can_manage:false,available:true,configuration_changed:false,...messageReceipt(profile.codex_receipts)}}catch{}}
+ return states
 }
-export async function controlCapture(profile,action) {
- if(!profile||!['enable','disable'].includes(action))throw Error('capture_control_unavailable')
- const key=profile.grok_home
+export async function controlCapture(profile,action,agent='grok') {
+ const adapter=adapterFor(profile,agent)
+ if(!adapter||!['enable','disable'].includes(action)||!CAPTURE_AGENTS.includes(agent))throw Error('capture_control_unavailable')
+ const key=agent+':'+adapter.home
  if(inflight.has(key))return inflight.get(key)
  const operation=(async()=>{
   let status='failed'
   const audit=openSync(profile.control_receipts,constants.O_WRONLY|constants.O_CREAT|constants.O_APPEND|constants.O_NOFOLLOW,0o600)
   try{const stat=fstatSync(audit);if(!stat.isFile()||stat.uid!==process.getuid()||stat.mode&0o077)throw Error('unsafe_control_receipts')}finally{closeSync(audit)}
   try{
-   const args=['-I','-B',profile.installer,'--device-binding',profile.device_binding,'--receipts',profile.receipts,'--grok-home',profile.grok_home,'--launcher',profile.launcher,'--confirm-user-scope',...(action==='disable'?['--disable']:[])]
-   const reply=await execute(profile.python,args,{timeout:15000,maxBuffer:8192,env:{PATH:'/usr/bin:/bin',HOME:process.env.HOME??''}})
+   const args=['-I','-B',adapter.installer,'--device-binding',adapter.device_binding,'--receipts',adapter.receipts,'--'+agent+'-home',adapter.home,...(agent==='codex'?[]:['--launcher',adapter.launcher]),'--confirm-user-scope',...(action==='disable'?['--disable']:[])]
+   const reply=await execute(adapter.python,args,{timeout:15000,maxBuffer:8192,env:{PATH:'/usr/bin:/bin',HOME:process.env.HOME??''}})
    const result=JSON.parse(reply.stdout);if(!['installed','unchanged','disabled'].includes(result.status))throw Error('invalid_installer_result')
    status=result.status;return {status}
   }finally{
    const fd=openSync(profile.control_receipts,constants.O_WRONLY|constants.O_CREAT|constants.O_APPEND|constants.O_NOFOLLOW,0o600)
-   try {const stat=fstatSync(fd);if(!stat.isFile()||stat.uid!==process.getuid()||stat.mode&0o077)throw Error('unsafe_control_receipts');writeSync(fd,JSON.stringify({action,status,checked_at:new Date().toISOString()})+'\n')}finally{closeSync(fd)}
+   try {const stat=fstatSync(fd);if(!stat.isFile()||stat.uid!==process.getuid()||stat.mode&0o077)throw Error('unsafe_control_receipts');writeSync(fd,JSON.stringify({agent,action,status,checked_at:new Date().toISOString()})+'\n')}finally{closeSync(fd)}
   }
  })()
  inflight.set(key,operation)

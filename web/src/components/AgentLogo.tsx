@@ -12,6 +12,6 @@ const LOGOS: Record<string, string> = { codex, claude, grok, opencode, gemini, c
 export function AgentLogo({ agent, size = 17 }: { agent: string; size?: number }) {
   const source = LOGOS[agent.toLowerCase()]
   return source ? <span className="agent-logo" data-agent-logo={agent.toLowerCase()} aria-hidden="true"
-    style={{ width: size, height: size, maskImage: `url("${source}")`, WebkitMaskImage: `url("${source}")` }} />
+    style={{ width: size, height: size }}><span className="agent-logo__mark" style={{ maskImage: `url("${source}")`, WebkitMaskImage: `url("${source}")` }} /></span>
     : <Bot size={size} data-agent-logo="unknown" aria-hidden="true" />
 }
