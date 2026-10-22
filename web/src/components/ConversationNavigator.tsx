@@ -1,12 +1,14 @@
-import { useLayoutEffect, useRef, useState } from 'react'
-import { Folder, Search } from 'lucide-react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { ChevronRight, Folder, MessageSquare, Search, Bot } from 'lucide-react'
 import type { Project, RawEvent, Session } from '../api/types'
+import type { DetectedAgent } from '../app/useAgentDiscovery'
+import type { SessionPreview } from '../app/useSessionPreviews'
 import { agentIdentity } from '../lib/agentIdentity'
-import { maskedSummary } from '../lib/text'
+import { formatTimestamp, maskedSummary } from '../lib/text'
 import { sourceHref } from '../app/router'
 
 type Origin = 'codex' | 'claude' | 'grok' | 'other' | 'pending'
-const GROUPS: { key: Origin; label: string }[] = [
+const GROUPS = [
   { key: 'codex', label: 'Codex' }, { key: 'claude', label: 'Claude' }, { key: 'grok', label: 'Grok' },
   { key: 'other', label: 'Core / 其他登记' }, { key: 'pending', label: '来源待确认' },
 ]
@@ -17,66 +19,93 @@ export function projectOrigin(project: Project, registrations: RawEvent[]): Orig
   return agent.kind === 'unknown' ? 'other' : agent.kind
 }
 
-export function ConversationNavigator({ projects, registrations, sessions, activeProject, loading }: {
+export function ConversationNavigator({ projects, registrations, sessions, activeProject, activeSession, previews, agents, discoveryStatus, expandedProjects, onToggleProject, loading }: {
   projects: Project[]; registrations: RawEvent[]; sessions: Session[]
-  activeProject: string | null; loading: boolean
+  activeProject: string | null; activeSession: string | null; previews: Record<string, SessionPreview>
+  agents: DetectedAgent[]; discoveryStatus: string; expandedProjects: string[]; onToggleProject: (id: string) => void; loading: boolean
 }) {
   const [search, setSearch] = useState('')
-  const [origin, setOrigin] = useState<Origin | 'all'>('all')
   const [compactOpen, setCompactOpen] = useState(false)
+  const [agentOpen, setAgentOpen] = useState<Record<string, boolean>>({})
   const projectList = useRef<HTMLDivElement>(null)
   const navigation = useRef<HTMLElement>(null)
-  const scrolledProject = useRef<string | null>(null)
-  useLayoutEffect(() => { scrolledProject.current = null }, [origin, search])
+  const scrolledSelection = useRef('')
+  const activeOrigin = projects.find(project => project.project_id === activeProject)
+  const currentOrigin = activeOrigin ? projectOrigin(activeOrigin, registrations) : null
+  useEffect(() => { if (currentOrigin) setAgentOpen(previous => ({ ...previous, [currentOrigin]: true })) }, [currentOrigin, activeProject, activeSession])
+  useLayoutEffect(() => { scrolledSelection.current = '' }, [search, compactOpen])
   useLayoutEffect(() => {
     const nav = navigation.current
     if (nav) nav.style.setProperty('--navigation-top', `${Math.round(nav.getBoundingClientRect().top + window.scrollY)}px`)
     const list = projectList.current
-    const selected = list?.querySelector('[aria-current="true"]')
-    if (!list || !selected || scrolledProject.current === activeProject) return
+    const selected = list?.querySelector('.session-choice[aria-current="true"]') ?? list?.querySelector('.project-choice[aria-current="true"]')
+    const key = JSON.stringify([activeProject, activeSession, selected?.getAttribute('href')])
+    if (!list || !selected || scrolledSelection.current === key || selected.getClientRects().length === 0) return
     const box = list.getBoundingClientRect(), row = selected.getBoundingClientRect()
-    const heading = selected.closest('.project-group')?.querySelector('summary')
-    const visibleTop = box.top + (heading?.getBoundingClientRect().height ?? 0)
-    if (row.top < visibleTop) list.scrollTop += row.top - visibleTop
+    if (row.top < box.top) list.scrollTop += row.top - box.top
     else if (row.bottom > box.bottom) list.scrollTop += row.bottom - box.bottom
-    scrolledProject.current = activeProject
+    scrolledSelection.current = key
   })
   const query = search.trim().toLocaleLowerCase()
-  const visible = projects.filter(project => (origin === 'all' || projectOrigin(project, registrations) === origin)
-    && `${project.name} ${project.description}`.toLocaleLowerCase().includes(query))
+  const groups = [...GROUPS]
+  for (const agent of agents.filter(agent => agent.detected)) {
+    if (!groups.some(group => group.key === agent.id)) groups.splice(Math.max(0, groups.length - 2), 0, { key: agent.id, label: agent.name })
+  }
+  const visible = groups.map(group => {
+    const installed = agents.find(agent => agent.id === group.key && agent.detected)
+    const recorded = projects.filter(project => projectOrigin(project, registrations) === group.key)
+    const rows = recorded.filter(project => `${project.name} ${project.description} ${group.label}`.toLocaleLowerCase().includes(query))
+    return { ...group, installed, recorded, rows }
+  }).filter(group => (group.recorded.length > 0 || group.installed) && (!query || group.rows.length > 0 || group.label.toLocaleLowerCase().includes(query)))
 
   return <aside ref={navigation} className="conversation-navigation" aria-label="项目导航">
     <button type="button" className="conversation-nav-toggle" aria-expanded={compactOpen} onClick={() => setCompactOpen(value => !value)}>
       项目 · {maskedSummary(projects.find(project => project.project_id === activeProject)?.name ?? '选择项目')}
     </button>
     <div className={`navigation-panels${compactOpen ? ' is-open' : ''}`}>
-    <section className="panel project-browser" aria-label="按来源浏览项目">
-      <header className="panel__head"><h2>项目</h2><span className="muted">已载入 {projects.length} 项</span></header>
-      <div className="project-browser__tools">
-        <label className="project-search"><Search size={15} aria-hidden="true" /><input aria-label="搜索项目或路径" placeholder="搜索项目或路径" value={search} onChange={event => setSearch(event.target.value)} /></label>
-        <details className="project-source-filter"><summary>按来源筛选</summary><select aria-label="项目来源" value={origin} onChange={event => setOrigin(event.target.value as Origin | 'all')}>
-          <option value="all">全部来源</option>
-          {GROUPS.filter(group => group.key === origin || projects.some(project => projectOrigin(project, registrations) === group.key)).map(group => <option key={group.key} value={group.key}>{group.label}</option>)}
-        </select></details>
-      </div>
-      <div ref={projectList} className="project-browser__list">
-        {GROUPS.map(group => {
-          const rows = visible.filter(project => projectOrigin(project, registrations) === group.key)
-          if (rows.length === 0) return null
-          return <details className="project-group" key={group.key} open={group.key !== 'other' || rows.some(project => project.project_id === activeProject) || query.length > 0 || origin !== 'all'}>
-            <summary>{group.label}<span>{rows.length}</span></summary>
-            <ul>{[...rows].reverse().map(project => {
-              const count = sessions.filter(session => session.project_id === project.project_id).length
-              return <li key={project.project_id}><a className="project-choice" title={maskedSummary(project.description)} href={sourceHref.conversation(project.project_id)} onClick={() => setCompactOpen(false)} aria-current={project.project_id === activeProject ? 'true' : undefined}>
-                <Folder size={16} aria-hidden="true" /><span><strong title={maskedSummary(project.name)}>{maskedSummary(project.name)}</strong>
-                  <em>{count > 0 ? `${count} 个会话` : '暂无会话'}</em></span>
-              </a></li>
-            })}</ul>
-          </details>
-        })}
-        {!loading && visible.length === 0 ? <p className="muted project-no-results">没有匹配的已登记项目</p> : null}
-      </div>
-    </section>
+      <section className="panel project-browser" aria-label="Agent、项目与会话导航">
+        <header className="panel__head"><h2>项目与会话</h2><span className="muted">{projects.length} 个项目</span></header>
+        <div className="project-browser__tools">
+          <label className="project-search"><Search size={15} aria-hidden="true" /><input aria-label="搜索项目或路径" placeholder="搜索项目或路径" value={search} onChange={event => setSearch(event.target.value)} /></label>
+        </div>
+        <div ref={projectList} className="project-browser__list">
+          <ul className="conversation-tree" aria-label="按 Agent 浏览">
+            {visible.map(group => {
+              const open = query.length > 0 || (agentOpen[group.key] ?? group.key === currentOrigin)
+              return <li key={group.key}><details className="project-group agent-tree-node" open={open}>
+                <summary onClick={event => { event.preventDefault(); setAgentOpen(previous => ({ ...previous, [group.key]: !open })) }}>
+                  <ChevronRight size={14} className="tree-chevron" aria-hidden="true" /><Bot size={16} aria-hidden="true" />
+                  <strong>{group.label}</strong><span>{group.recorded.length > 0 ? `${group.recorded.length} 项目` : '已安装 · 待接入'}</span>
+                </summary>
+                {group.rows.length > 0 ? <ul className="tree-children">{[...group.rows].reverse().map(project => {
+                  const children = sessions.filter(session => session.project_id === project.project_id)
+                    .sort((a, b) => b.started_at.localeCompare(a.started_at) || b.session_id.localeCompare(a.session_id))
+                  const expanded = expandedProjects.includes(project.project_id)
+                  return <li className="project-node" key={project.project_id}>
+                    <div className="project-tree-row">
+                      <button type="button" className="tree-expand" aria-label={`${expanded ? '折叠' : '展开'}项目 ${maskedSummary(project.name)}`} aria-expanded={expanded} onClick={() => onToggleProject(project.project_id)}>
+                        <ChevronRight size={13} aria-hidden="true" />
+                      </button>
+                      <a className="project-choice" title={maskedSummary(project.description)} href={sourceHref.conversation(project.project_id)} onClick={() => setCompactOpen(false)} aria-current={project.project_id === activeProject ? 'true' : undefined}>
+                        <Folder size={15} aria-hidden="true" /><strong>{maskedSummary(project.name)}</strong><span>{children.length}</span>
+                      </a>
+                    </div>
+                    {expanded ? <ul className="tree-children session-tree">{children.map(session => <li key={session.session_id}>
+                      <a className="session-choice" href={sourceHref.conversation(session.project_id, session.task_id, session.session_id)} onClick={() => setCompactOpen(false)} aria-current={session.session_id === activeSession ? 'true' : undefined}>
+                        <MessageSquare size={13} aria-hidden="true" /><span><strong>{previews[session.session_id]?.title ?? '正在读取摘要…'}</strong>
+                          <small><time dateTime={session.started_at} title={formatTimestamp(session.started_at)}>{new Date(session.started_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}</time></small>
+                        </span>
+                      </a>
+                    </li>)}{children.length === 0 ? <li className="tree-note">尚无会话记录</li> : null}</ul> : null}
+                  </li>
+                })}</ul> : <p className="tree-note">{group.installed && !group.installed.capture_supported ? '已检测到客户端，尚未接入采集。' : '尚无项目或会话记录。'}</p>}
+              </details></li>
+            })}
+          </ul>
+          {!loading && visible.length === 0 ? <p className="muted project-no-results">没有匹配的项目或 Agent</p> : null}
+          {discoveryStatus ? <p className="tree-note">{discoveryStatus}</p> : null}
+        </div>
+      </section>
     </div>
   </aside>
 }

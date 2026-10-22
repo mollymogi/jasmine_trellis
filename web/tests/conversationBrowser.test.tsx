@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Project, RawEvent, Session } from '../src/api/types'
@@ -26,21 +27,35 @@ function event(seq: number, type: string, text: string, sessionId: string | null
 }
 const flush = async () => { await act(async () => { await vi.advanceTimersByTimeAsync(0) }) }
 
-it('groups recorded sources rather than names, and searches directories without losing the current selection', () => {
+it('shows installed agents and nests independent sessions beneath projects without a source selector', () => {
   const a = project('prj_A', 'Claude-named-folder'), b = project('prj_B', 'Operations')
   const registered = event(1, 'project.created', '', null);registered.event_id = a.source_event_id
   const manual = event(2, 'project.created', '', null);manual.event_id = b.source_event_id;manual.source_system = 'core-api'
-  render(<ConversationNavigator projects={[a, b]} registrations={[registered, manual]} sessions={[session('ses_A','prj_A',1)]}
-    activeProject="prj_A" loading={false} />)
-  expect(screen.getByText('Claude-named-folder').closest('.project-group')?.querySelector('summary')?.textContent).toBe('Codex1')
+  function Tree() {
+    const [expanded, setExpanded] = useState(['prj_A'])
+    return <ConversationNavigator projects={[a,b]} registrations={[registered,manual]} sessions={[session('ses_A','prj_A',1)]}
+      activeProject="prj_A" activeSession="ses_A" loading={false} previews={{ses_A:{title:'整理开发文档',state:'ready',agent:'Codex'}}}
+      agents={[{id:'claude',name:'Claude',cli:true,desktop:true,detected:true,capture_supported:false},{id:'opencode',name:'OpenCode',cli:true,desktop:false,detected:true,capture_supported:false}]}
+      discoveryStatus="" expandedProjects={expanded} onToggleProject={id=>setExpanded(rows=>rows.includes(id)?rows.filter(row=>row!==id):[...rows,id])} />
+  }
+  render(<Tree />)
+  expect(screen.getByText('Claude-named-folder').closest('.project-group')?.querySelector('summary')?.textContent).toBe('Codex1 项目')
   expect(screen.getByText('Operations').closest('.project-group')?.querySelector('summary')?.textContent).toContain('Core / 其他登记')
-  fireEvent.change(screen.getByRole('textbox', { name: '搜索项目或路径' }), { target: { value: '/work/Claude' } })
+  expect(screen.getByText('OpenCode').closest('summary')?.textContent).toContain('已安装 · 待接入')
+  fireEvent.click(screen.getByText('Claude',{exact:true}))
+  expect(screen.getByText('Claude',{exact:true}).closest('details')?.open).toBe(true)
+  expect(screen.getAllByText('已检测到客户端，尚未接入采集。').length).toBe(2)
+  expect(screen.getByRole('link',{name:/整理开发文档/}).closest('.project-node')?.textContent).toContain('Claude-named-folder')
+  fireEvent.click(screen.getByRole('button',{name:'折叠项目 Claude-named-folder'}))
+  expect(screen.queryByRole('link',{name:/整理开发文档/})).toBeNull()
+  fireEvent.click(screen.getByRole('button',{name:'展开项目 Claude-named-folder'}))
+  expect(screen.getByRole('link',{name:/整理开发文档/}).getAttribute('aria-current')).toBe('true')
+  fireEvent.change(screen.getByRole('textbox',{name:'搜索项目或路径'}),{target:{value:'/work/Claude'}})
   expect(screen.queryByText('Operations')).toBeNull()
-  expect(screen.getByRole('link', { name: /Claude-named-folder/ }).getAttribute('aria-current')).toBe('true')
-  expect(document.querySelector('.session-browser')).toBeNull()
-  fireEvent.click(screen.getByText('按来源筛选'))
-  fireEvent.change(screen.getByRole('combobox', { name: '项目来源' }), { target: { value: 'other' } })
-  expect(screen.getByText('没有匹配的已登记项目')).toBeTruthy()
+  expect(screen.getByRole('link',{name:/Claude-named-folder/}).getAttribute('aria-current')).toBe('true')
+  expect(screen.queryByRole('combobox',{name:'项目来源'})).toBeNull()
+  fireEvent.change(screen.getByRole('textbox',{name:'搜索项目或路径'}),{target:{value:'not-a-project'}})
+  expect(screen.getByText('没有匹配的项目或 Agent')).toBeTruthy()
 })
 
 it('opens one recent session, keeps it selected on new arrivals, and isolates a project switch', async () => {
@@ -54,6 +69,7 @@ it('opens one recent session, keeps it selected on new arrivals, and isolates a 
     ses_D: [event(6,'user.prompt','OTHER PROJECT D','ses_D','prj_B')],
   }
   fake = installFakeCore({}, request => {
+    if (request.path === '/_local/agents') return {body:{agents:[{id:'claude',name:'Claude',cli:true,desktop:false,detected:true,capture_supported:false}]}}
     if (request.path === '/v1/projects') { const rows=projects.slice(Number(request.query.get('offset') ?? 0));return { body:{projects:rows,count:rows.length} } }
     if (request.path === '/v1/sessions') { const rows=sessions.slice(Number(request.query.get('offset') ?? 0));return { body:{sessions:rows,count:rows.length} } }
     if (request.path === '/v1/tasks') return { body:{tasks:[],count:0} }
@@ -72,11 +88,12 @@ it('opens one recent session, keeps it selected on new arrivals, and isolates a 
   sessions = [...sessions, session('ses_C','prj_A',4)]
   await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
   expect(container.querySelector('.chat-messages')?.textContent).toContain('SELECTED SESSION B')
-  expect(screen.getByRole('option', { name: /NEW SESSION C/ })).toBeTruthy()
+  expect(screen.getByRole('link', { name: /NEW SESSION C/ })).toBeTruthy()
   rerender(<SessionProvider><ConversationView projectId="prj_B" taskId={null} sessionId={null} /></SessionProvider>)
   await flush()
   expect(container.querySelector('.chat-messages')?.textContent).toContain('OTHER PROJECT D')
   expect(container.querySelector('.chat-messages')?.textContent).not.toContain('SELECTED SESSION B')
+  expect(fake.callsTo('GET','/_local/agents')).toHaveLength(1)
   expect(fake.callsTo('GET','/v1/events').every(request => request.query.has('session_id') || request.query.get('event_type') === 'project.created')).toBe(true)
 })
 

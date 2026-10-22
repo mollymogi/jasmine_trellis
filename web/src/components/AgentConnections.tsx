@@ -1,29 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Plug } from 'lucide-react'
-import { useSession } from '../app/session'
+import { useAgentDiscovery, type AgentDiscovery, type DetectedAgent } from '../app/useAgentDiscovery'
 import { Button } from './ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from './ui/dialog'
 
-type Agent = { id: string; name: string; cli: boolean; desktop: boolean; detected: boolean; capture_supported: boolean }
-export function AgentConnections() {
-  const { token } = useSession()
+export function AgentConnections({ discovery }: { discovery?: AgentDiscovery }) {
   const [open, setOpen] = useState(false)
-  const [revision, refresh] = useState(0)
-  const [agents, setAgents] = useState<Agent[]>([])
-  const [status, setStatus] = useState('')
-  const [loading, setLoading] = useState(false)
-  useEffect(() => {
-    if (!open) return
-    const abort = new AbortController()
-    setLoading(true); setStatus('')
-    void fetch('/_local/agents', { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: abort.signal, cache: 'no-store' })
-      .then(async response => { if (!response.ok) throw new Error('检测暂不可用，请确认 Core 连接与读取权限。'); return response.json() })
-      .then(data => { if (!abort.signal.aborted) setAgents(data.agents) })
-      .catch(() => { if (!abort.signal.aborted) { setAgents([]); setStatus('检测暂不可用，请确认 Core 连接与读取权限。') } })
-      .finally(() => { if (!abort.signal.aborted) setLoading(false) })
-    return () => abort.abort()
-  }, [open, revision, token])
-  function rows(items: Agent[]) {
+  const local = useAgentDiscovery(!discovery && open)
+  const { agents, loading, status, refresh } = discovery ?? local
+  function rows(items: DetectedAgent[]) {
     return items.map(agent => <li key={agent.id}>
       <div><strong>{agent.name}</strong><small>{agent.detected ? [agent.cli ? 'CLI' : '', agent.desktop ? '桌面应用' : ''].filter(Boolean).join(' · ') + ' 已找到' : '常见位置未检测到'}</small></div>
       <span>{agent.capture_supported ? '已有采集适配器' : '待开发采集适配器'}</span>
@@ -35,7 +20,7 @@ export function AgentConnections() {
       <DialogHeader><DialogTitle>本机 Agent 接入</DialogTitle>
         <DialogDescription>检测看板所在设备的常见安装位置。找到客户端后，仍需配置采集才能看到对话。</DialogDescription></DialogHeader>
       <div className="agent-discovery-status"><p role="status">{loading ? '正在检测…' : status || `检测到 ${agents.filter(agent => agent.detected).length} 个客户端`}</p>
-        <Button variant="outline" size="sm" disabled={loading} onClick={() => refresh(value => value + 1)}>重新检测</Button></div>
+        <Button variant="outline" size="sm" disabled={loading} onClick={() => refresh()}>重新检测</Button></div>
       <ul className="agent-inventory">{rows(agents.filter(agent => agent.detected))}</ul>
       {agents.some(agent => !agent.detected) ? <details><summary>其他客户端 · 常见位置未检测到</summary>
         <ul className="agent-inventory">{rows(agents.filter(agent => !agent.detected))}</ul>
