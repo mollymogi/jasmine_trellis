@@ -55,8 +55,8 @@ def _native(native,home):
         relative=path.relative_to(projects)
         if len(relative.parts)!=2 or path.parent.resolve().parent!=projects.resolve():return None
         # Claude creates the transcript directory asynchronously. A first prompt
-        # can arrive before it exists; current native input-history still proves
-        # its origin. Do not create or chmod any client-owned session directory.
+        # can arrive before it exists; per-turn native metadata is checked
+        # after persistence to prove its origin. Do not create or chmod any client-owned session directory.
         try:info=path.parent.stat()
         except FileNotFoundError:info=projects.stat()
         if info.st_uid!=os.getuid() or info.st_mode&0o022:return None
