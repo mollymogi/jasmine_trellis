@@ -1,6 +1,6 @@
 # ADR 0027: Native Grok conversations and local capture controls
 
-Status: implementation and component checks complete; native production acceptance recorded separately.
+Status: implemented and verified against Grok Build 1.0.67 in the formal local dashboard; see [native acceptance](../validation/grok-native-conversation-20261022.md).
 
 Grok Build 1.0.67 emits native SessionStart, UserPromptSubmit, Stop and SessionEnd
 hooks. A single owned `~/.grok/hooks/jasmine-conversation.json` integrates these

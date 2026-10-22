@@ -1,0 +1,93 @@
+{
+  "status": "PASS",
+  "source": "grok-native-conversation-v1",
+  "version": "1.0.67",
+  "native_session_count": 2,
+  "prompt_count": 3,
+  "assistant_count": 3,
+  "resume_same_session": true,
+  "sessions": [
+    {
+      "native_session_id": "01a162fd-33a2-7ac2-b435-27daa3cbbf6e",
+      "project_id": "prj_01M5HFTD6GQHPHYZ1KSXT3SWS3",
+      "session_id": "ses_01M5HFTD6SGB8N20XJX6VTZB7V",
+      "human_turns": 2,
+      "assistant_replies": 2,
+      "native_texts_match": true,
+      "receipt_hashes_match": true,
+      "events": [
+        {
+          "event_id": "evt_837EHF9AKSVJMDRW8JHRABB2NY",
+          "event_type": "session.started",
+          "text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "event_id": "evt_ZYHD4REHTVAPE93K657GJCCRXW",
+          "event_type": "user.prompt",
+          "text_sha256": "670d9743542cae3ea7ebe36af56bd53648b0a1126162e78d81a32934a711302e"
+        },
+        {
+          "event_id": "evt_SRKT92C49PZAPQR2S3B43Q1BDW",
+          "event_type": "assistant.message",
+          "text_sha256": "d59d311156c41f8339cbfa0d0212d66c6db55900d038e69366f1be7f8a4bc8b8"
+        },
+        {
+          "event_id": "evt_MAMPM1KBGDPTGSHJR0QEB542QC",
+          "event_type": "session.ended",
+          "text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "event_id": "evt_1YPKR0SH5R8KN9C26MGTGS51EG",
+          "event_type": "session.started",
+          "text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "event_id": "evt_DQJXGBRDE3KS4EQ8CMMDWGRAAW",
+          "event_type": "user.prompt",
+          "text_sha256": "670d9743542cae3ea7ebe36af56bd53648b0a1126162e78d81a32934a711302e"
+        },
+        {
+          "event_id": "evt_WDHTS9C0QPGJDAYPNNXK380R2W",
+          "event_type": "assistant.message",
+          "text_sha256": "36eb74cd7fcd689423a990934a8f06c3f4b0a72e464af5bd784f6e7564e7d1bc"
+        },
+        {
+          "event_id": "evt_RY4848P3RFNFQP12KAWE2FG9DQ",
+          "event_type": "session.ended",
+          "text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    },
+    {
+      "native_session_id": "01a162fe-3dcc-77e3-a936-64f126999edf",
+      "project_id": "prj_01M5HFWFNX82B7ADZGM1HMXKJX",
+      "session_id": "ses_01M5HFWFP6581AATWDB8XKAV0H",
+      "human_turns": 1,
+      "assistant_replies": 1,
+      "native_texts_match": true,
+      "receipt_hashes_match": true,
+      "events": [
+        {
+          "event_id": "evt_C7SXMCSGRG0Q1XPJF0RWCH1WNM",
+          "event_type": "session.started",
+          "text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "event_id": "evt_A6BYJD8CMZ0T069Y8K7CB3F6DT",
+          "event_type": "user.prompt",
+          "text_sha256": "670d9743542cae3ea7ebe36af56bd53648b0a1126162e78d81a32934a711302e"
+        },
+        {
+          "event_id": "evt_0Y7WHNM5J776WZGVNTYMH17FF7",
+          "event_type": "assistant.message",
+          "text_sha256": "71ebe5ec811bb3049b28e645269bbd838e7a3ecde4cca62a1145b7a6ea68b4e4"
+        },
+        {
+          "event_id": "evt_B2X7Y5ZB9X21GTMQ93PASS6M52",
+          "event_type": "session.ended",
+          "text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    }
+  ]
+}
