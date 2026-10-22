@@ -1,7 +1,7 @@
-/** Read-only discovery of known CLI/application locations on the dashboard host.
- * Never executes clients, crawls projects or installs capture configuration.
- */
+/** Discovery is read-only. A separate POST may enable/disable the fixed Grok
+ * adapter only under a private operator profile and a pinned management key. */
 import http from 'node:http'
+import { loadCaptureProfile, captureStates, canManageCapture, controlCapture } from './agent-capture-control.mjs'
 import { statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
@@ -9,7 +9,7 @@ import { delimiter, join } from 'node:path'
 const CATALOG = [
   { id: 'codex', name: 'Codex', command: 'codex', apps: ['Codex.app'], adapter: true },
   { id: 'claude', name: 'Claude', command: 'claude', apps: ['Claude.app'] },
-  { id: 'grok', name: 'Grok', command: 'grok', dirs: ['.grok/bin'] },
+  { id: 'grok', name: 'Grok', command: 'grok', dirs: ['.grok/bin'], adapter: true },
   { id: 'opencode', name: 'OpenCode', command: 'opencode', dirs: ['.opencode/bin'], apps: ['OpenCode.app'] },
   { id: 'gemini', name: 'Gemini CLI', command: 'gemini' },
   { id: 'aider', name: 'Aider', command: 'aider' },
@@ -31,7 +31,7 @@ function send(res, status, body) {
   res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' })
   res.end(JSON.stringify(body))
 }
-export async function serveLocalAgents(req, res, origin, discover = discoverAgents) {
+export async function serveLocalAgents(req, res, origin, discover = discoverAgents, profile = loadCaptureProfile()) {
   let host
   try { host = new URL(`http://${req.headers.host}`).hostname } catch { /* rejected below */ }
   if (!['127.0.0.1', 'localhost', '[::1]'].includes(host)
@@ -39,7 +39,10 @@ export async function serveLocalAgents(req, res, origin, discover = discoverAgen
     || (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) {
     send(res, 403, { error: 'local_origin_required' }); return
   }
-  if (req.method !== 'GET') { send(res, 405, { error: 'read_only' }); return }
+  const path=new URL(req.url,'http://local.invalid').pathname
+  const write=path==='/_local/agents/grok/capture'
+  if(req.method!==(write?'POST':'GET')) {send(res,405,{error:'method_not_allowed'});return}
+  if(write&&req.headers.origin!==`http://${req.headers.host}`){send(res,403,{error:'same_origin_required'});return}
   const token = req.headers.authorization
   if (!token?.startsWith('Bearer ')) { send(res, 401, { error: 'authentication_required' }); return }
   // Core validates the caller's objects:read grant; no local credential or key is added.
@@ -51,5 +54,14 @@ export async function serveLocalAgents(req, res, origin, discover = discoverAgen
     check.on('error', () => resolve(502))
   })
   if (status !== 200) { send(res, status === 401 || status === 403 ? status : 502, { error: 'core_authorization_failed' }); return }
-  send(res, 200, { agents: discover(), checked_at: new Date().toISOString(), scope: 'dashboard_host_known_locations' })
+  if(write){
+    if(!canManageCapture(profile,token)){send(res,403,{error:'capture_management_not_granted'});return}
+    try {
+      let body='';for await(const chunk of req){body+=chunk;if(Buffer.byteLength(body)>1024){send(res,413,{error:'request_too_large'});return}}
+      const value=JSON.parse(body);if(!value||Object.keys(value).length!==1||!['enable','disable'].includes(value.action)){send(res,400,{error:'invalid_capture_action'});return}
+      const result=await controlCapture(profile,value.action);send(res,200,{...result,capture:captureStates(profile,token).grok});return
+    }catch{send(res,502,{error:'capture_install_failed'});return}
+  }
+  const states=captureStates(profile,token)
+  send(res, 200, { agents: discover().map(agent=>({...agent,...(states[agent.id]?{capture:states[agent.id]}:{})})), checked_at: new Date().toISOString(), scope: 'dashboard_host_known_locations' })
 }

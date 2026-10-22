@@ -3,6 +3,7 @@ import { ChevronRight, Folder, MessageSquare, Search } from 'lucide-react'
 import type { Project, RawEvent, Session } from '../api/types'
 import type { DetectedAgent } from '../app/useAgentDiscovery'
 import type { SessionPreview } from '../app/useSessionPreviews'
+import { captureLabel } from './AgentCaptureAction'
 import { AgentLogo } from './AgentLogo'
 import { groupSessionsByTime } from '../lib/conversationTime'
 import { agentIdentity } from '../lib/agentIdentity'
@@ -90,7 +91,7 @@ export function ConversationNavigator({ projects, registrations, sessions, activ
               return <li key={group.key}><details className="project-group agent-tree-node" open={open}>
                 <summary onClick={event => { event.preventDefault(); setAgentOpen(previous => ({ ...previous, [group.key]: !open })) }}>
                   <ChevronRight size={14} className="tree-chevron" aria-hidden="true" /><AgentLogo agent={group.key} size={17} />
-                  <strong>{group.label}</strong><span>{group.recorded.length > 0 ? `${group.recorded.length} 项目` : '已安装 · 待接入'}</span>
+                  <strong>{group.label}</strong><span>{group.recorded.length > 0 ? `${group.recorded.length} 项目` : group.installed?.capture?.configured ? '已启用 · 等待消息' : '已安装 · 待接入'}</span>
                 </summary>
                 {group.rows.length > 0 ? <ul className="tree-children">{[...group.rows].reverse().map(project => {
                   const children = sessions.filter(session => session.project_id === project.project_id)
@@ -113,7 +114,7 @@ export function ConversationNavigator({ projects, registrations, sessions, activ
                       </a>
                     </li>)}{children.length === 0 ? <li className="tree-note">尚无会话记录</li> : null}</ul> : null}
                   </li>
-                })}</ul> : <p className="tree-note">{group.installed && !group.installed.capture_supported ? '已检测到客户端，尚未接入采集。' : '尚无项目或会话记录。'}</p>}
+                })}</ul> : <p className="tree-note">{group.installed?.capture?.configured ? '已启用采集。新开会话发送消息后，会自动出现在这里。' : group.installed && !group.installed.capture_supported ? '已检测到客户端，尚未接入采集。' : group.installed ? `${captureLabel(group.installed)}，请在右上角 Agent 接入中启用。` : '尚无项目或会话记录。'}</p>}
               </details></li>
             })}
           </ul> : <div className="conversation-timeline" aria-label="按会话开始时间浏览">

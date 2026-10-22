@@ -801,3 +801,6 @@ main {
 
 .conversation-timeline, .timeline-group { min-width: 0; }
 .session-choice > span:not(.agent-logo) { min-width: 0; flex: 1; }
+.agent-capture-action { display: flex; flex-direction: column; align-items: end; gap: 6px; max-width: 235px; text-align: right; font-size: 10px; color: var(--muted-foreground); }
+.agent-capture-buttons { display: flex; flex-wrap: wrap; gap: 5px; }
+.agent-capture-action small { overflow-wrap: anywhere; }

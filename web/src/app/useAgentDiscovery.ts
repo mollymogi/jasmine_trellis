@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useSession } from './session'
 
-export type DetectedAgent = { id: string; name: string; cli: boolean; desktop: boolean; detected: boolean; capture_supported: boolean }
+export type CaptureStatus = { configured: boolean; can_manage: boolean; available: boolean; configuration_changed: boolean; last_message_at?: string | null; last_event_id?: string | null; last_error?: string | null }
+export type DetectedAgent = { id: string; name: string; cli: boolean; desktop: boolean; detected: boolean; capture_supported: boolean; capture?: CaptureStatus }
 export function useAgentDiscovery(enabled = true) {
   const { token } = useSession()
   const [revision, setRevision] = useState(0)
@@ -19,6 +20,7 @@ export function useAgentDiscovery(enabled = true) {
       .finally(() => { if (!abort.signal.aborted) setLoading(false) })
     return () => abort.abort()
   }, [enabled, revision, token])
-  return { agents, status, loading, refresh: () => setRevision(value => value + 1) }
+  const refresh=useCallback(() => setRevision(value => value + 1),[])
+  return { agents, status, loading, refresh }
 }
 export type AgentDiscovery = ReturnType<typeof useAgentDiscovery>

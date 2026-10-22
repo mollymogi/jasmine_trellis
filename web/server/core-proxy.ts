@@ -266,7 +266,7 @@ export function coreProxyPlugin(origin: URL): Plugin {
       refuse(res, req, 400, 'proxy_bad_target', `refused request target: ${target.reason ?? 'malformed'}`)
       return
     }
-    if (target.pathname === '/_local/agents') { void serveLocalAgents(req, res, origin); return }
+    if ((target.pathname === '/_local/agents' || target.pathname === '/_local/agents/grok/capture')) { void serveLocalAgents(req, res, origin); return }
     if (target.kind === 'static') {
       next()
       return
