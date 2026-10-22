@@ -37,7 +37,9 @@ export function ConversationNavigator({ projects, registrations, sessions, activ
     const selected = list?.querySelector('[aria-current="true"]')
     if (!list || !selected || scrolledProject.current === activeProject) return
     const box = list.getBoundingClientRect(), row = selected.getBoundingClientRect()
-    if (row.top < box.top) list.scrollTop += row.top - box.top
+    const heading = selected.closest('.project-group')?.querySelector('summary')
+    const visibleTop = box.top + (heading?.getBoundingClientRect().height ?? 0)
+    if (row.top < visibleTop) list.scrollTop += row.top - visibleTop
     else if (row.bottom > box.bottom) list.scrollTop += row.bottom - box.bottom
     scrolledProject.current = activeProject
   })
