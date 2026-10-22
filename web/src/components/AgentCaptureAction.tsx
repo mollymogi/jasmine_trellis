@@ -25,10 +25,10 @@ export function AgentCaptureAction({agent,onChanged,refreshing}:{agent:DetectedA
  return <div className="agent-capture-action">
   <span>{captureLabel(agent)}</span>
   {agent.capture_supported&&agent.detected?<div className="agent-capture-buttons">
-   <Button size="sm" variant={agent.capture?.configured?'outline':'default'} disabled={busy||refreshing||!agent.capture?.can_manage||(!agent.cli&&!agent.capture?.configured)||(!!agent.capture?.client_hooks_disabled&&!agent.capture?.configured)} onClick={()=>void change(agent.capture?.configured?'disable':'enable')}>
-    {busy?'正在处理…':agent.capture?.configured?'停用 Hook':'一键配置 Hook'}
+   <Button size="sm" variant={agent.capture?.configured?'outline':'default'} disabled={busy||refreshing||!agent.capture?.can_manage||!agent.cli||!!agent.capture?.client_hooks_disabled} onClick={()=>void change('enable')}>
+    {busy?'正在处理…':agent.capture?.configured?'重新配置 Hook':'一键配置 Hook'}
    </Button>
-   {agent.capture?.can_manage&&agent.capture.configured&&(agent.capture.configuration_changed||agent.capture.last_error)?<Button size="sm" variant="outline" disabled={busy||refreshing} onClick={()=>void change('enable')}>重新安装</Button>:null}
+   {agent.capture?.configured?<Button size="sm" variant="ghost" disabled={busy||refreshing||!agent.capture.can_manage} onClick={()=>void change('disable')}>停用 Hook</Button>:null}
   </div>:null}
   {agent.capture_supported&&agent.capture?.available===false?<small>本机接入管理尚未配置</small>:null}
   {agent.capture?.available&&!agent.capture.can_manage?<small>当前凭证仅可查看接入状态</small>:null}

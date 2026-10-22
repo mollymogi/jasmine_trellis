@@ -81,7 +81,7 @@ export function captureStates(profile,authorization) {
    try{
     const doc=readHookDocument(file),command=expectedCommand(adapter,agent)
     const owned=event=>doc.hooks?.[event]?.flatMap(group=>group.hooks??[]).filter(hook=>agent==='grok'||hook.statusMessage===LABELS[agent])??[]
-    configured=(agent!=='grok'||doc.description===LABELS.grok)&&EVENTS.every(event=>{const handlers=owned(event);return handlers.length===1&&handlers[0].type==='command'&&handlers[0].command===command})
+    configured=(agent!=='grok'||doc.description===LABELS.grok)&&EVENTS.every(event=>{const handlers=owned(event);return handlers.length===1&&handlers[0].type==='command'&&handlers[0].command===command&&(agent!=='claude'||event!=='UserPromptSubmit'||handlers[0].async===true)})
     drift=!configured&&(agent==='grok'||EVENTS.some(event=>owned(event).length>0))
     blocked=agent==='claude'&&doc.disableAllHooks===true
    }catch{drift=existsSync(file)&&agent==='grok'}
@@ -96,7 +96,11 @@ export async function controlCapture(profile,action,agent='grok') {
  const adapter=adapterFor(profile,agent)
  if(!adapter||!['enable','disable'].includes(action)||!CAPTURE_AGENTS.includes(agent))throw Error('capture_control_unavailable')
  const key=agent+':'+adapter.home
- if(inflight.has(key))return inflight.get(key)
+ const running=inflight.get(key)
+ if(running){
+  if(running.action===action)return running.promise
+  await running.promise.catch(()=>{});return controlCapture(profile,action,agent)
+ }
  const operation=(async()=>{
   let status='failed'
   const audit=openSync(profile.control_receipts,constants.O_WRONLY|constants.O_CREAT|constants.O_APPEND|constants.O_NOFOLLOW,0o600)
@@ -111,6 +115,6 @@ export async function controlCapture(profile,action,agent='grok') {
    try {const stat=fstatSync(fd);if(!stat.isFile()||stat.uid!==process.getuid()||stat.mode&0o077)throw Error('unsafe_control_receipts');writeSync(fd,JSON.stringify({agent,action,status,checked_at:new Date().toISOString()})+'\n')}finally{closeSync(fd)}
   }
  })()
- inflight.set(key,operation)
+ inflight.set(key,{action,promise:operation})
  try{return await operation}finally{inflight.delete(key)}
 }

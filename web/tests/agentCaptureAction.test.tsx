@@ -12,7 +12,7 @@ it('enables a fixed Grok action and keeps installed configuration distinct from 
  expect(fetcher.mock.calls[0]?.[0]).toBe('/_local/agents/grok/capture');expect(fetcher.mock.calls[0]?.[1].body).toBe('{"action":"enable"}')
  expect(screen.getByText('已安装配置，请新开 Grok 会话发送普通消息。')).toBeTruthy()
  rerender(<SessionProvider><AgentCaptureAction agent={{...agent,capture:{...agent.capture!,configured:true}}} onChanged={changed} refreshing={false}/></SessionProvider>)
- expect(screen.getByText('已启用 · 等待首条消息')).toBeTruthy();expect(screen.getByRole('button',{name:'停用 Hook'})).toBeTruthy()
+ expect(screen.getByText('已启用 · 等待首条消息')).toBeTruthy();expect(screen.getByRole('button',{name:'停用 Hook'})).toBeTruthy();expect(screen.getByRole('button',{name:'重新配置 Hook'})).toBeTruthy()
  rerender(<SessionProvider><AgentCaptureAction agent={{...agent,capture:{...agent.capture!,configured:true,last_event_id:'evt_real'}}} onChanged={changed} refreshing={false}/></SessionProvider>)
  expect(screen.getByText('已启用 · 已收到消息')).toBeTruthy()
 })

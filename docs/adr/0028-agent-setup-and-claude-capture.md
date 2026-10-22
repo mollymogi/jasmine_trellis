@@ -20,27 +20,31 @@ client-owned trust records. Fresh interactive folders still use Claude's normal
 trust dialog. Client restrictions, including account restrictions, are not bypassed.
 
 Claude's UserPromptSubmit can also describe a scheduler wake or a teammate's
-message. A Hook name or prompt UUID alone is insufficient human provenance. For a
-fresh user prompt, compare session ID, canonical cwd and exact text with a bounded
-1 MiB tail of the client's native typed-input history, requiring a recent entry
-and assigning it to only one native prompt UUID. It is evidence for this current
-Hook, not a source of historical backfill. Ignore unmatched prompts and their
-Stop replies. A private, locked per-session record retains the consumed identity,
-text hash and a pending start. The main transcript path must lie directly inside
-Claude's projects directory and match the native session UUID. Reject subagent
-fields/paths, symlinks, foreign ownership and writable-by-others identity files.
-The native transcript folder can be absent at startup; the adapter does not
-create or change client session directories. No transcript body is scraped.
+message. A Hook name or UUID alone is insufficient human provenance. Read only a
+bounded 1 MiB tail of this session's native transcript and find the **exact prompt
+UUID**. Require user-type metadata with `origin.kind=human`, `promptSource=typed`,
+`turnOrigin=human`, `userType=external`, `entrypoint=cli`, matching session/cwd,
+and no sidechain. Text still comes from the current Hook, never from the transcript.
+Unknown origins/older formats are ignored. No native input history is consumed,
+and no previous transcript messages are imported.
 
-First verified typed input flushes a pending SessionStart, registers the canonical
-workspace through existing Core APIs and records user.prompt with the dedicated
-prompt credential. Stop reads only the native last_assistant_message and requires
-a previously verified user turn. Prompt-history timestamps are labeled as such;
-they are not presented as a native assistant-response timestamp. Session resumption
-uses the same Core session. Failures never block or add context to Claude. Native
-history suppression or very large pasted inputs without a matching literal entry
-remain unverified; they are not silently attributed to a human. API error replies
-are not invented as successful assistant messages.
+Native transcript persistence can lag Hook dispatch. UserPromptSubmit runs
+asynchronously and retries the bounded metadata read for up to 1.5 seconds. This
+cannot stall model processing. A private, locked per-session record retains the
+verified turn identity/text hash and a pending start. The transcript path must lie
+directly inside Claude's projects directory and match the native session UUID.
+Reject subagent fields/paths, symlinks, foreign ownership and non-private native
+transcripts. The session directory may be absent at startup; the adapter does not
+create or change client-owned session directories.
+
+First verified typed input flushes a pending SessionStart, registers the workspace
+through existing Core APIs and records user.prompt with its dedicated credential.
+Stop reads only the native last_assistant_message. If an exceptionally fast Stop
+beats the async prompt commit, it is held privately until that prompt commits;
+unmatched auto-wake replies never become assistant records. Native prompt metadata
+timestamps are labeled as prompt timestamps, never as assistant-response times.
+Resume retains the Core session. Failures never block or add context to Claude.
+API errors are not invented as successful assistant messages.
 
 A version-2 operator profile pins separate fixed installers, destinations and
 limited credentials per client. Local routes are restricted to

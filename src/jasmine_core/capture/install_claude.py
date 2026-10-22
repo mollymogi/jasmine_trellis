@@ -39,7 +39,7 @@ def install(home,binding,receipts,*,python,launcher,confirmed=False,disable=Fals
                     except ValueError:return False
                 remaining=[h for h in group['hooks'] if not owned(h)]
                 if remaining:kept.append({**group,'hooks':remaining})
-            if not disable:kept.append({'hooks':[{'type':'command','command':command,'timeout':10,'statusMessage':LABEL}]})
+            if not disable:kept.append({'hooks':[{'type':'command','command':command,'timeout':10,'statusMessage':LABEL,**({'async':True} if event=='UserPromptSubmit' else {})}]})
             if kept:hooks[event]=kept
             else:hooks.pop(event,None)
         if not hooks:doc.pop('hooks',None)

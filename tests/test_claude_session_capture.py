@@ -1,5 +1,6 @@
 """Claude current-input provenance and shared-settings preservation over real Core HTTP."""
-import json,time,uuid,unittest
+import json,uuid,unittest
+from datetime import datetime,timezone
 from test_codex_session_capture import ConversationCapture
 from jasmine_core.capture.claude_session import capture_device,SOURCE
 from jasmine_core.capture.install_claude import install,LABEL
@@ -17,7 +18,11 @@ class ClaudeCapture(ConversationCapture):
     def packet(self,event,**kwargs):
         return {'hook_event_name':event,'session_id':self.sid,'prompt_id':self.turn,'cwd':str(self.native_root),'transcript_path':str(self.transcript),**kwargs}
     def typed(self,text,**kwargs):
-        self.history.write_text(json.dumps({'sessionId':self.sid,'display':text,'project':str(self.native_root),'timestamp':time.time()*1000,**kwargs})+'\n')
+        self.folder.mkdir(parents=True,exist_ok=True)
+        row={'type':'user','sessionId':self.sid,'promptId':self.turn,'cwd':str(self.native_root),'timestamp':datetime.now(timezone.utc).isoformat(),
+             'uuid':str(uuid.uuid4()),'isSidechain':False,'origin':{'kind':'human'},'promptSource':'typed','turnOrigin':'human','userType':'external','entrypoint':'cli','message':{'role':'user','content':text},**kwargs}
+        with self.transcript.open('a') as stream:stream.write(json.dumps(row)+'\n')
+        self.transcript.chmod(0o600)
     def test_native_typed_prompt_exact_reply_resume_and_replay(self):
         self.assertEqual(capture_device(self.packet('SessionStart',source='startup'),self.device,self.home)['status'],'pending')
         text='  你好\n原文';self.typed(text)
@@ -42,23 +47,30 @@ class ClaudeCapture(ConversationCapture):
         _,events=self.call('GET','/v1/events?session_id='+first['session_id'],token=self.admin_token)
         self.assertEqual([e['event_type'] for e in events['events']],['session.started','user.prompt'])
 
-    def test_autowake_cannot_reuse_typed_history_or_publish_reply(self):
+    def test_autowake_cannot_reuse_typed_turn_or_publish_reply(self):
         self.typed('你好');p=self.packet('UserPromptSubmit',prompt='你好')
         self.assertEqual(capture_device(p,self.device,self.home)['status'],'accepted')
         self.turn=str(uuid.uuid4())
         self.assertEqual(capture_device(self.packet('UserPromptSubmit',prompt='你好'),self.device,self.home)['status'],'ignored')
         self.assertEqual(capture_device(self.packet('Stop',last_assistant_message='auto'),self.device,self.home)['status'],'ignored')
-    def test_children_unverified_paths_old_history_and_changed_text_are_ignored(self):
-        self.typed('你好',timestamp=1)
+    def test_children_unverified_paths_nonhuman_metadata_and_changed_text_are_ignored(self):
+        self.typed('你好',origin={'kind':'teammate'},turnOrigin='agent',promptSource='agent')
         self.assertEqual(capture_device(self.packet('UserPromptSubmit',prompt='你好'),self.device,self.home)['status'],'ignored')
         self.typed('你好')
         for extra in [{'agent_id':'child'},{'agent_type':'Explore'},{'transcript_path':'/tmp/'+self.sid+'.jsonl'},{'prompt_id':'auto-task'}]:
             self.assertEqual(capture_device(self.packet('UserPromptSubmit',prompt='你好',**extra),self.device,self.home)['status'],'ignored')
         self.assertEqual(capture_device(self.packet('UserPromptSubmit',prompt='你好'),self.device,self.home)['status'],'accepted')
         self.assertEqual(capture_device(self.packet('UserPromptSubmit',prompt='altered'),self.device,self.home)['status'],'ignored')
-    def test_native_history_symlink_is_refused(self):
-        self.typed('你好');real=self.history.with_name('real.jsonl');self.history.rename(real);self.history.symlink_to(real)
+    def test_native_transcript_symlink_is_refused(self):
+        self.typed('你好');real=self.transcript.with_name('real.jsonl');self.transcript.rename(real);self.transcript.symlink_to(real)
         self.assertEqual(capture_device(self.packet('UserPromptSubmit',prompt='你好'),self.device,self.home)['status'],'ignored')
+    def test_fast_stop_waits_for_matching_user_prompt_commit(self):
+        self.typed('你好')
+        self.assertEqual(capture_device(self.packet('Stop',last_assistant_message='你好！'),self.device,self.home)['status'],'pending')
+        first=capture_device(self.packet('UserPromptSubmit',prompt='你好'),self.device,self.home)
+        _,events=self.call('GET','/v1/events?session_id='+first['session_id'],token=self.admin_token)
+        self.assertEqual([e['payload']['text'] for e in events['events']],['你好','你好！'])
+
     def test_installer_preserves_settings_and_foreign_handlers_enable_disable(self):
         target=self.home/'settings.json';foreign={'type':'command','command':'echo foreign'}
         initial={'model':'keep','hooks':{'Stop':[{'hooks':[foreign]}]}};target.write_text(json.dumps(initial))
