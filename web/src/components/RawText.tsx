@@ -21,12 +21,14 @@ export function RawText({
   maxCollapsed = 480,
   emptyText = '(空原文)',
   machine = false,
+  appearance = 'code',
 }: {
   value: string
   label: string
   maxCollapsed?: number
   emptyText?: string
   machine?: boolean
+  appearance?: 'code' | 'chat'
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false)
   const masked = useMaskedText(value)
@@ -46,15 +48,7 @@ export function RawText({
 
   const long = masked.shown.length > maxCollapsed
 
-  return (
-    // `rawtext` and `rawtext__label` carry no style; the p6 browser traces read blocks by them.
-    <CodeBlock
-      className="rawtext"
-      label={<span className="rawtext__label">{label}</span>}
-      masked={masked.hasSecrets && !masked.revealed}
-      tags={machine ? [{ label: '机器事件(非用户发言)', variant: 'soft' }] : undefined}
-      bodyClassName="rawtext__body"
-      actions={
+  const actions = (
         <>
           {masked.hasSecrets ? (
             <Badge variant="warning" data-testid="masked-note">
@@ -71,13 +65,26 @@ export function RawText({
               {masked.revealed ? '恢复脱敏' : '显示原文'}
             </Button>
           ) : null}
-          <Button type="button" variant="outline" size="xs" onClick={() => void copy()}>
-            {copied === 'done' ? '已复制脱敏摘要' : copied === 'blocked' ? '复制被拒绝' : '复制脱敏摘要'}
+          <Button type="button" variant={appearance === 'chat' ? 'ghost' : 'outline'} size="xs" onClick={() => void copy()}
+            aria-label={copied === 'done' ? '已复制脱敏摘要' : copied === 'blocked' ? '复制被拒绝' : '复制脱敏摘要'}>
+            {copied === 'done' ? appearance === 'chat' ? '已复制' : '已复制脱敏摘要' : copied === 'blocked' ? '复制被拒绝' : appearance === 'chat' ? '复制' : '复制脱敏摘要'}
           </Button>
         </>
-      }
-    >
-      {value.length === 0 ? emptyText : clipped}
+  )
+  const body = value.length === 0 ? emptyText : clipped
+  if (appearance === 'chat') {
+    return <div className="rawtext chat-text" data-masked={masked.hasSecrets && !masked.revealed || undefined}>
+      <span className="rawtext__label sr-only">{label}</span>
+      <div className="rawtext__body">{body}</div>
+      <div className="chat-text__actions">{actions}</div>
+    </div>
+  }
+  return (
+    <CodeBlock className="rawtext" label={<span className="rawtext__label">{label}</span>}
+      masked={masked.hasSecrets && !masked.revealed}
+      tags={machine ? [{ label: '机器事件(非用户发言)', variant: 'soft' }] : undefined}
+      bodyClassName="rawtext__body" actions={actions}>
+      {body}
     </CodeBlock>
   )
 }

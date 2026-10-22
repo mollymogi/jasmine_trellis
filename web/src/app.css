@@ -636,40 +636,79 @@ main {
   padding: 4px 6px;
 }
 
-/* Conversation: keep chat readable, with technical records behind disclosure. */
-.chat-messages {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  margin: 0;
-  padding: 0;
+/* Conversation is a bounded chat reader; history scroll never moves the page. */
+.conversation-toolbar { padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+.conversation-toolbar label { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; flex: 1; }
+.conversation-toolbar label > span { white-space: nowrap; flex-shrink: 0; }
+.conversation-toolbar select { min-width: 0; width: 100%; max-width: 100%; }
+.conversation-toolbar .muted { font-size: 11px; }
+.conversation-filters > summary, .conversation-explanation > summary { cursor: pointer; color: var(--muted-foreground); font-size: 12px; }
+.conversation-filters[open] > summary, .conversation-explanation[open] > summary { margin-bottom: 10px; }
+.conversation-panel { min-width: 0; align-self: start; overflow: hidden; display: flex; flex-direction: column; height: max(420px, calc(100dvh - var(--chat-top, 240px) - 24px)); }
+.conversation-panel > .panel__head, .chat-footer, .chat-system-events { flex-shrink: 0; }
+.chat-heading { display: flex; align-items: baseline; gap: 10px; }
+.chat-heading > span { color: var(--muted-foreground); font-size: 12px; }
+.chat-window { position: relative; min-width: 0; min-height: 0; flex: 1; }
+.chat-scroll {
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  overflow-anchor: none;
+  scrollbar-gutter: stable;
+  padding: 22px 24px 28px;
+  outline-offset: -3px;
 }
+.chat-scroll:focus-visible { outline: 2px solid var(--ring); }
+.chat-messages { list-style: none; display: flex; flex-direction: column; gap: 22px; margin: 0; padding: 0; }
 .chat-message {
   min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px;
-  background: var(--card);
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  grid-template-areas: "date date" "avatar content";
+  column-gap: 12px;
+  row-gap: 8px;
 }
-.chat-message--user { border-left: 4px solid var(--primary); }
-.chat-message__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
+.chat-date { grid-area: date; text-align: center; color: var(--muted-foreground); font-size: 11px; padding: 4px 0 10px; }
+.chat-message--user { grid-template-columns: minmax(0, 1fr) 32px; grid-template-areas: "date date" "content avatar"; }
+.chat-avatar {
+  grid-area: avatar;
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px;
+  border-radius: 50%; flex-shrink: 0;
+  color: var(--muted-foreground); background: var(--muted);
 }
-.chat-message__head time { color: var(--muted-foreground); font-size: 12px; }
-.chat-message .rawtext__body {
-  max-height: none;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 1.8;
+.chat-avatar--codex { background: var(--foreground); color: var(--background); border-radius: 10px; }
+.chat-avatar--claude { background: var(--primary); color: var(--primary-foreground); }
+.chat-avatar--grok { color: var(--foreground); background: var(--card); border: 1px solid var(--border); }
+.chat-avatar--user { color: var(--primary); background: var(--accent); }
+.chat-message__content { grid-area: content; min-width: 0; }
+.chat-message--user .chat-message__content { max-width: 90%; justify-self: end; }
+.chat-message__head { display: flex; align-items: baseline; gap: 10px; margin: 2px 0 8px; font-size: 12px; }
+.chat-message--user .chat-message__head { justify-content: flex-end; }
+.chat-message__head time { color: var(--muted-foreground); font-size: 11px; }
+.chat-text .rawtext__body { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 14px; line-height: 1.85; }
+.chat-message--user .chat-text .rawtext__body { background: var(--muted); border-radius: 16px 4px 16px 16px; padding: 12px 16px; }
+.chat-text__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.chat-text__actions button { color: var(--muted-foreground); }
+.chat-message--user .chat-text__actions { justify-content: flex-end; }
+.chat-message__source { margin-top: 2px; font-size: 11px; }
+.chat-message__source summary { cursor: pointer; color: var(--muted-foreground); }
+.chat-message--user .chat-message__source > summary { text-align: right; }
+.chat-message__source > .events { margin-top: 8px; max-height: 360px; overflow: auto; }
+.chat-jump { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); box-shadow: 0 3px 14px color-mix(in srgb, var(--foreground) 12%, transparent); white-space: nowrap; }
+.chat-footer { padding: 12px 18px; border-top: 1px solid var(--border); background: var(--muted); color: var(--muted-foreground); font-size: 11px; }
+.chat-footer p { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 3px; }
+.chat-footer time { margin-left: auto; }
+.chat-sync-dot { height: 5px; width: 5px; border-radius: 50%; background: currentColor; }
+.chat-system-events { margin: 0; padding: 12px 18px; border-top: 1px solid var(--border); font-size: 12px; }
+.chat-system-events summary { cursor: pointer; color: var(--muted-foreground); }
+.chat-system-events > .events { margin-top: 10px; max-height: 320px; overflow: auto; }
+@media (max-width: 640px) {
+  .conversation-toolbar .muted { flex-basis: 100%; }
+  .chat-scroll { padding: 14px 12px 22px; }
+  .chat-message { column-gap: 8px; }
+  .chat-message--user .chat-message__content { max-width: 100%; }
+  .chat-footer time { margin-left: 0; }
 }
-.chat-message__source, .system-events { margin-top: 12px; }
-.chat-message__source summary, .system-events summary { cursor: pointer; color: var(--muted-foreground); }
-.chat-message__source > .events, .system-events > .events { margin-top: 10px; }

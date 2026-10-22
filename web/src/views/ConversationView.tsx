@@ -13,16 +13,16 @@
  * what Core recorded rather than inferring it from event text.
  */
 
-import { useId, useMemo, useRef, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 
 import { DEFAULT_OBJECT_LIMIT } from '../api/endpoints'
 import type { Project, Session } from '../api/types'
 import { sourceHref } from '../app/router'
 import { useSession } from '../app/session'
 import { offsetLoader, usePagedResource } from '../app/usePagedResource'
-import { EventRow } from '../components/EventRow'
-import { ConversationMessage, isConversationMessage } from '../components/ConversationMessage'
+import { isConversationMessage } from '../components/ConversationMessage'
 import { useConversationEvents } from '../app/useConversationEvents'
+import { ConversationThread } from '../components/ConversationThread'
 import { useLiveObjects } from '../app/useLiveObjects'
 import { Pager } from '../components/Pager'
 import { StatusBadge } from '../components/StatusBadge'
@@ -81,7 +81,6 @@ export function ConversationView({
   const [sourceSystem, setSourceSystem] = useState('')
   const eventTypeId = useId()
   const sourceId = useId()
-  const latestMessage = useRef<HTMLDivElement>(null)
 
   const projects = useLiveObjects<Project>(async (offset, limit, signal) => {
     const page = await endpoints.listProjects({ limit, offset }, signal)
@@ -125,14 +124,10 @@ export function ConversationView({
   }, [projectId, taskId, sessionId])
 
   return (
-    <div className="stack">
-      <nav className="breadcrumb" aria-label="位置">
-        <span>Conversation</span>
-      </nav>
-
-      <Panel title="项目">
+    <div className="stack conversation-page">
+      <section className="conversation-toolbar" aria-label="项目">
         <div className="filters">
-          <label>查看项目
+          <label><span>查看项目</span>
             <select aria-label="查看项目" value={projectId ?? ''} onChange={event => {
               window.location.hash = sourceHref.conversation(event.target.value || null)
             }}>
@@ -145,8 +140,10 @@ export function ConversationView({
           <span className="muted">项目、会话和消息每 3 秒自动更新</span>
         </div>
         {projects.error ? <ErrorPanel error={projects.error} what="项目" onRetry={projects.reload} /> : null}
-      </Panel>
+      </section>
 
+      <details className="conversation-filters">
+        <summary>筛选与来源详情</summary>
       <Panel title="读取范围">
         <div className="filters">
           <label htmlFor={eventTypeId}>
@@ -190,48 +187,16 @@ export function ConversationView({
           ) : null}
         </div>
       </Panel>
+      </details>
 
       <div className="split">
-        <Panel
-          title={`对话（${messages.length} 条消息）`}
-          actions={
-            <>
-              <button type="button" onClick={() => latestMessage.current?.scrollIntoView({ block: 'center' })} disabled={messages.length === 0}>
-                跳到最新消息
-              </button>
-              <button type="button" onClick={events.reload} disabled={events.loading}>重新读取</button>
-            </>
-          }
-        >
-          {events.loading && events.items.length === 0 ? <Loading what="Event" /> : null}
-          {events.error ? (
-            <ErrorPanel error={events.error} what="Event" onRetry={events.reload} />
-          ) : null}
-          {!events.loading && events.error === null && events.items.length === 0 ? (
-            <Empty
-              what="Event"
-              hint="本地采集没有这些事件;本页绝不凭 UI 状态或本地对话补造。"
-            />
-          ) : null}
-          {events.items.length > 0 && messages.length === 0 ? <p className="muted">此范围暂无用户或助手消息。</p> : null}
-          <ol className="chat-messages" aria-label="用户和助手对话">
-            {messages.map(event => <ConversationMessage key={event.event_id} event={event} taskId={taskId} />)}
-          </ol>
-          <div ref={latestMessage} />
-          <p className="state state--meta" role="status">
-            {events.error ? '自动刷新失败，保留上次内容；将自动重试。' : events.loading ? '正在同步对话…' : '每 3 秒自动刷新'}
-            {events.loadedAt ? <> · 上次同步 <time dateTime={events.loadedAt}>{formatTimestamp(events.loadedAt)}</time></> : null}
-          </p>
-          <p className="muted">助手回复完成后显示；生成中的文字和过程更新尚未采集。</p>
-          <details className="system-events">
-            <summary>系统事件（{systemEvents.length} 条，默认折叠）</summary>
-            <ol className="events">
-              {systemEvents.map(event => <EventRow key={event.event_id} event={event} taskId={taskId} />)}
-            </ol>
-          </details>
-        </Panel>
+        <ConversationThread key={JSON.stringify([projectId, taskId, sessionId, eventType, sourceSystem])}
+          messages={messages} systemEvents={systemEvents} taskId={taskId}
+          loading={events.loading} error={events.error} loadedAt={events.loadedAt} onReload={events.reload} />
 
         <div className="stack">
+          <details className="conversation-explanation">
+            <summary>解释与审批说明</summary>
           <Panel title="Interpretation / Resolver(读取视图已交付)">
             <p className="state state--meta">
               左列展示已采集的用户和助手消息，系统事件与来源详情可展开查看；解释、候选、Resolver 计划与待审批 Review 现在有独立的只读视图。
@@ -259,6 +224,7 @@ export function ConversationView({
               本页只读 Raw Event,不提供写按钮。
             </p>
           </Panel>
+          </details>
 
           <Panel title="Sessions">
             {sessions.items.length === 0 && !sessions.loading ? <Empty what="Session" /> : null}
