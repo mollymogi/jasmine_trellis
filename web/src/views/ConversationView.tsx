@@ -16,13 +16,14 @@
 import { useId, useMemo, useRef, useState } from 'react'
 
 import { DEFAULT_OBJECT_LIMIT } from '../api/endpoints'
-import type { Session } from '../api/types'
+import type { Project, Session } from '../api/types'
 import { sourceHref } from '../app/router'
 import { useSession } from '../app/session'
 import { offsetLoader, usePagedResource } from '../app/usePagedResource'
 import { EventRow } from '../components/EventRow'
 import { ConversationMessage, isConversationMessage } from '../components/ConversationMessage'
 import { useConversationEvents } from '../app/useConversationEvents'
+import { useLiveObjects } from '../app/useLiveObjects'
 import { Pager } from '../components/Pager'
 import { StatusBadge } from '../components/StatusBadge'
 import { Empty, ErrorPanel, Loading, Panel } from '../components/States'
@@ -82,16 +83,14 @@ export function ConversationView({
   const sourceId = useId()
   const latestMessage = useRef<HTMLDivElement>(null)
 
-  const sessions = usePagedResource(
-    offsetLoader<Session>({
-      limit: DEFAULT_OBJECT_LIMIT,
-      fetch: async (offset, limit, signal) => {
-        const page = await endpoints.listSessions(projectId, { limit, offset }, signal)
-        return { items: page.sessions, count: page.count }
-      },
-    }),
-    [projectId],
-  )
+  const projects = useLiveObjects<Project>(async (offset, limit, signal) => {
+    const page = await endpoints.listProjects({ limit, offset }, signal)
+    return { items: page.projects, count: page.count }
+  }, null)
+  const sessions = useLiveObjects<Session>(async (offset, limit, signal) => {
+    const page = await endpoints.listSessions(projectId, { limit, offset }, signal)
+    return { items: page.sessions, count: page.count }
+  }, projectId)
 
   const tasks = usePagedResource(
     offsetLoader<{ task_id: string; title: string }>({
@@ -130,6 +129,23 @@ export function ConversationView({
       <nav className="breadcrumb" aria-label="位置">
         <span>Conversation</span>
       </nav>
+
+      <Panel title="项目">
+        <div className="filters">
+          <label>查看项目
+            <select aria-label="查看项目" value={projectId ?? ''} onChange={event => {
+              window.location.hash = sourceHref.conversation(event.target.value || null)
+            }}>
+              <option value="">全部项目</option>
+              {[...projects.items].reverse().map(project => <option key={project.project_id} value={project.project_id}>
+                {project.name}{project.description ? ` · ${project.description}` : ''}
+              </option>)}
+            </select>
+          </label>
+          <span className="muted">项目、会话和消息每 3 秒自动更新</span>
+        </div>
+        {projects.error ? <ErrorPanel error={projects.error} what="项目" onRetry={projects.reload} /> : null}
+      </Panel>
 
       <Panel title="读取范围">
         <div className="filters">
@@ -247,7 +263,7 @@ export function ConversationView({
           <Panel title="Sessions">
             {sessions.items.length === 0 && !sessions.loading ? <Empty what="Session" /> : null}
             <ul className="plain">
-              {sessions.items.map((session) => (
+              {[...sessions.items].reverse().map((session) => (
                 <li key={session.session_id}>
                   <a
                     href={sourceHref.conversation(session.project_id, session.task_id, session.session_id)}
@@ -257,10 +273,12 @@ export function ConversationView({
                   </a>{' '}
                   <StatusBadge kind="session" status={session.status} />{' '}
                   <span className="muted">{formatTimestamp(session.started_at)}</span>
+                  {' · '}{projects.items.find(project => project.project_id === session.project_id)?.name ?? session.project_id}
                 </li>
               ))}
             </ul>
-            <Pager paged={sessions} noun="Session" limit={DEFAULT_OBJECT_LIMIT} />
+            {sessions.loading ? <Loading what="Session" /> : null}
+            {sessions.error ? <ErrorPanel error={sessions.error} what="Session" onRetry={sessions.reload} /> : null}
           </Panel>
 
           <Panel title="Tasks">
