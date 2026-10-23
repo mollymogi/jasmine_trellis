@@ -871,6 +871,10 @@ async function main() {
     // 8b. P6-02 read slice: interpretations, pending reviews, resolutions.
     if (args.interpretation) {
       await cdp.send('Page.navigate', { url: `${args.ui}/#/interpretations` })
+      // Humans see the compact list; contract probes explicitly opt into raw records.
+      await waitFor(cdp, `document.querySelector('details.processing-raw-records summary') !== null`,
+        { label: 'technical interpretation records toggle' })
+      await clickByText(cdp, 'details.processing-raw-records summary', '技术记录')
       // Wait for a rendered row, not the panel title: the title exists while the
       // first page is still loading, and reading then would race the fetch.
       await waitFor(cdp, `document.querySelector('a[href^="#/interpretation/"]') !== null`,
@@ -969,8 +973,8 @@ async function main() {
             .find((n) => (n.getAttribute('aria-label') ?? '').includes('Resolution 预览'))
           const panelText = (panel?.textContent ?? '').split(String.fromCharCode(10)).join(' ')
           return {
-            disposition: panelText.includes('PENDING_REVIEW'),
-            action: panelText.includes('CREATE_RULE'),
+            disposition: Boolean(panel?.querySelector('[data-status=PENDING_REVIEW]')),
+            action: Boolean(panel?.querySelector('[data-status=CREATE_RULE]')),
             pendingBadge: panelText.includes('需要人工审批'),
             conflictShown: panelText.includes('预览被拒绝'),
             isPlanNotApplied: panelText.includes('不是已应用的决议'),
@@ -1004,7 +1008,7 @@ async function main() {
           const statuses = ['EXTRACTED', 'FAILED', 'INTERRUPTED']
           return {
             text,
-            hasStatus: statuses.some((value) => text.indexOf(value) >= 0),
+            hasStatus: statuses.some((value) => row?.querySelector('[data-status="'+value+'"]')),
             hasHeadApplied: text.indexOf('head applied yes') >= 0 || text.indexOf('head applied no') >= 0,
             hasRevisions: text.indexOf('expected head r') >= 0 && text.indexOf('observed r') >= 0,
             undefinedLeak: text.indexOf('undefined') >= 0,
@@ -1089,7 +1093,7 @@ async function main() {
             const reject = panel('Reject')
             return {
               hasId: text.includes(${JSON.stringify(args.rejectReview)}),
-              pending: text.includes('PENDING'),
+              pending: Boolean(document.querySelector('[data-status=PENDING]')),
               approveAvailable: Boolean(panel('Approve')),
               rejectReasonRequired: (reject?.querySelector('[data-testid="write-reason"]') !== null),
               rejectDisabledBeforeReason: reject?.querySelector('[data-testid="write-submit"]')?.disabled ?? null,
@@ -1132,7 +1136,7 @@ async function main() {
           const text = document.body.textContent ?? ''
           return {
             hasId: text.includes(${JSON.stringify(args.resolution)}),
-            hasDisposition: text.includes('PENDING_REVIEW') || text.includes('APPLIED'),
+            hasDisposition: Boolean(document.querySelector('[data-status=PENDING_REVIEW], [data-status=APPLIED]')),
             hasReasons: text.includes('reasons'),
             linksInterpretation: Boolean(document.querySelector('a[href^="#/interpretation/"]')),
           }
@@ -1272,7 +1276,9 @@ async function main() {
             const dt = row.querySelector('dt')
             const dd = row.querySelector('dd')
             if (dt && dd && (dt.textContent ?? '').trim() === ${JSON.stringify(label)}) {
-              return (dd.textContent ?? '').trim()
+              // Machine tokens are stable even when human labels are translated.
+              const tokens = [...dd.querySelectorAll('[data-status]')].map(node => node.getAttribute('data-status')).join(' ')
+              return (tokens + ' ' + (dd.textContent ?? '')).trim()
             }
           }
         }
@@ -1561,7 +1567,9 @@ async function main() {
             const dt = row.querySelector('dt')
             const dd = row.querySelector('dd')
             if (dt && dd && (dt.textContent ?? '').trim() === ${JSON.stringify(label)}) {
-              return (dd.textContent ?? '').trim()
+              // Machine tokens are stable even when human labels are translated.
+              const tokens = [...dd.querySelectorAll('[data-status]')].map(node => node.getAttribute('data-status')).join(' ')
+              return (tokens + ' ' + (dd.textContent ?? '')).trim()
             }
           }
         }
