@@ -53,7 +53,7 @@ describe('AppSidebar on a phone-width viewport', () => {
   })
 
   it.each([
-    ['a business navigation link', 'Overview'],
+    ['a business navigation link', '总览'],
     ['a pending-confirmation link', `恢复未知确认 ${PENDING.id}`],
     ['the feature explanation entry', '功能说明'],
   ])('closes the sheet after choosing %s', async (_group, name) => {

@@ -8,22 +8,23 @@ const candidate={kind:'RULE',content:'项目文档使用中文',scope:{kind:'PRO
 const row={event_id:'evt_source',status:'PENDING_REVIEW',source_text:'原始对话保留',source_actor_kind:'human',event_type:'user.prompt',host_id:'hst_local',project_id:'prj_test',session_id:'ses_test',source_system:'codex-native-conversation-v1',interpretation_id:'int_test',resolution_id:'res_test',review_id:'rvw_test',error_code:null,effect:'NONE',candidates:[candidate],memory_items:[],memory_jobs:[]}
 const page=(items:unknown[])=>({items,count:items.length,counts:{},worker_configured:true,last_tick_at:new Date().toISOString(),started_at:'2026-10-23T00:00:00Z'})
 function serve(items:unknown[]){const f=vi.fn().mockImplementation(()=>Promise.resolve({ok:true,json:async()=>page(items)}));vi.stubGlobal('fetch',f);return f}
+async function openDetails(index=0){fireEvent.click((await screen.findAllByRole('button',{name:'查看详情'}))[index]!)}
 it('keeps a candidate pending until the server reports actual retained memory',async()=>{
- serve([row]);render(<ConversationProcessing/>);await screen.findByText('待审核');expect(screen.queryByText('已入库')).toBeNull();expect(screen.getByRole('button',{name:'审核项目约定'})).toBeTruthy()
- fireEvent.click(screen.getByText('来源与处理细节'));expect(screen.getByRole('link',{name:'查看原始 Event'}).getAttribute('href')).toContain('evt_source')
+ serve([row]);render(<ConversationProcessing/>);await screen.findByText('待审核');expect(screen.queryByText('已入库')).toBeNull();await openDetails();expect(screen.getByRole('button',{name:'审核项目约定'})).toBeTruthy()
+ fireEvent.click(screen.getByText('技术详情'));expect(screen.getByRole('link',{name:'查看原始消息'}).getAttribute('href')).toContain('evt_source')
 })
 it('queues only the explicitly selected session and reuses stored messages',async()=>{
- const f=serve([]);render(<ConversationProcessing projectId="prj_test" sessionId="ses_test"/>);await screen.findByText('尚无分析记录。新消息会自动进入；可在 Conversation 选中会话，分析已收录的历史消息。')
+ const f=serve([]);render(<ConversationProcessing projectId="prj_test" sessionId="ses_test"/>);await screen.findByText('还没有提炼记录。新对话会自动分析，也可以从对话页选择已有会话。')
  fireEvent.click(screen.getByRole('button',{name:'分析本次会话'}));await waitFor(()=>expect(f.mock.calls.some(call=>call[1]?.method==='POST')).toBe(true))
  const post=f.mock.calls.find(call=>call[1]?.method==='POST');expect(post?.[0]).toBe('/v1/conversation-processing/enqueue');expect(JSON.parse(post?.[1].body)).toEqual({session_id:'ses_test'})
 })
 it('retries a failed event without sending its text or selecting a provider',async()=>{
- const f=serve([{...row,status:'FAILED',review_id:null,error_code:'provider_timeout'}]);render(<ConversationProcessing/>);await screen.findByText('分析失败');fireEvent.click(screen.getByRole('button',{name:'重新分析'}))
+ const f=serve([{...row,status:'FAILED',review_id:null,error_code:'provider_timeout'}]);render(<ConversationProcessing/>);await screen.findByText('分析失败');await openDetails();fireEvent.click(screen.getByRole('button',{name:'重新分析'}))
  await waitFor(()=>expect(f.mock.calls.some(call=>call[0]==='/v1/conversation-processing/evt_source/retry'&&call[1]?.body==='{}')).toBe(true))
 })
 it('requires a fresh preview and explicit confirmation before approving project truth',async()=>{
  serve([row]);api.getReview.mockResolvedValue({review:{review_id:'rvw_test',revision:3,status:'PENDING',preview:{expected_revisions:[{object_id:'prj_test',object_type:'project',revision:2}],expected_context_digest:'a'.repeat(64),plan:{items:[{candidate_index:0,candidate}]}}}});api.approveReview.mockResolvedValue({})
- render(<ConversationProcessing/>);await screen.findByText('待审核');fireEvent.click(screen.getByRole('button',{name:'审核项目约定'}));const button=await screen.findByRole('button',{name:'批准此项目约定'});await waitFor(()=>expect((button as HTMLButtonElement).disabled).toBe(false));expect(api.approveReview).not.toHaveBeenCalled();fireEvent.click(button)
+ render(<ConversationProcessing/>);await screen.findByText('待审核');await openDetails();fireEvent.click(screen.getByRole('button',{name:'审核项目约定'}));const button=await screen.findByRole('button',{name:'批准此项目约定'});await waitFor(()=>expect((button as HTMLButtonElement).disabled).toBe(false));expect(api.approveReview).not.toHaveBeenCalled();fireEvent.click(button)
  await waitFor(()=>expect(api.approveReview).toHaveBeenCalledOnce());const body=api.approveReview.mock.calls[0]![1];expect(body.host_id).toBe('hst_local');expect(body.expected_revision).toBe(3);expect(body.expected_context_digest).toBe('a'.repeat(64));expect(body.actions[0]).toEqual({candidate_index:0,action:'CREATE_RULE',payload:{kind:'RULE',severity:'NORMAL',enforcement:'CONTEXT',content:'项目文档使用中文',matcher:{}}})
 })
 it('does not offer shortcut approval for generated or non-explicit candidates',async()=>{
@@ -38,7 +39,7 @@ it('reports a stale worker separately from configured automatic processing',asyn
 })
 
 it('requires explicit review and shows the high-impact warning for a project convention',async()=>{
- serve([{...row,candidates:[{...candidate,impact:'HIGH'}]}]);api.getReview.mockResolvedValue({review:{review_id:'rvw_test',revision:1,status:'PENDING',preview:null}});render(<ConversationProcessing/>);await screen.findByText('待审核');fireEvent.click(screen.getByRole('button',{name:'审核项目约定'}));await screen.findByText('此候选被标记为高影响，请仔细核对。这里仅批准为本项目的上下文约定。');expect(api.approveReview).not.toHaveBeenCalled()
+ serve([{...row,candidates:[{...candidate,impact:'HIGH'}]}]);api.getReview.mockResolvedValue({review:{review_id:'rvw_test',revision:1,status:'PENDING',preview:null}});render(<ConversationProcessing/>);await screen.findByText('待审核');await openDetails();fireEvent.click(screen.getByRole('button',{name:'审核项目约定'}));await screen.findByText('此候选被标记为高影响，请仔细核对。这里仅批准为本项目的上下文约定。');expect(api.approveReview).not.toHaveBeenCalled()
 })
 
 it('preserves an exact Event scope for trace links and explicit message analysis',async()=>{

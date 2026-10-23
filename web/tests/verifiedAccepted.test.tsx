@@ -394,8 +394,8 @@ describe('the criteria↔Evidence matrix is a read aid, never a verdict', () => 
     expect(state.textContent).toContain('不表示操作人员漏做确认')
     // The only place the INFO row appears is the wrong-kind set, carrying its own badge.
     const wrongKind = within(matrix).getByTestId('matrix-wrong-kind-confirm')
-    expect(within(wrongKind).getByText('INFO')).toBeTruthy()
-    expect(within(wrongKind).getByTitle('INFO 不是 PASS')).toBeTruthy()
+    expect(within(wrongKind).getByText('仅供参考')).toBeTruthy()
+    expect(within(wrongKind).getByTitle('仅供参考，不能作为通过凭证')).toBeTruthy()
     expect(within(matrix).queryByTestId('matrix-candidates-confirm')).toBeNull()
   })
 

@@ -423,13 +423,13 @@ describe('the run list renders what the API said, including what is unusable', (
     expect(table.textContent).toContain(RUN_A)
     expect(table.textContent).toContain(RUN_CORRUPT)
     // The recorded verdict and the effective mode/attribution are shown as recorded.
-    expect(table.textContent).toContain('BLOCKED')
+    expect(table.querySelector('[data-status=BLOCKED]')).toBeTruthy()
     expect(table.textContent).toContain('no bundle manifest on disk')
-    expect(table.textContent).toContain('unattributed')
+    expect(table.querySelector('[data-status=unattributed]')).toBeTruthy()
     expect(table.textContent).toContain('synthetic')
 
     const unusable = within(table).getByTestId('run-row-unusable')
-    expect(unusable.textContent).toContain('corrupt')
+    expect(unusable.querySelector('[data-status=corrupt]')).toBeTruthy()
     const reasonRow = within(table).getByTestId('run-row-unusable-reason')
     expect(reasonRow.textContent).toContain('the run record is not a JSON object')
     expect(reasonRow.textContent).toContain('不可用')
@@ -471,7 +471,7 @@ describe('the run list renders what the API said, including what is unusable', (
     const panel = await screen.findByRole('region', { name: /Validation Runs/ })
     const table = await within(panel).findByTestId('validation-runs')
     const unusable = within(table).getByTestId('run-row-unusable')
-    expect(unusable.textContent).toContain('duplicate')
+    expect(unusable.querySelector('[data-status=duplicate]')).toBeTruthy()
     expect(within(table).getByTestId('run-row-unusable-reason').textContent).toContain(
       '2 run-shaped files share this stem',
     )
@@ -547,12 +547,12 @@ describe('the run list renders what the API said, including what is unusable', (
     // The run's own row is the first occurrence; the case card carries the same label for the
     // case's verdict, which is a different value.
     const [runVerdictRow] = within(panel).getAllByText('verdict(按记录)')
-    expect(runVerdictRow?.closest('div')?.textContent).toContain('PASS')
+    expect(runVerdictRow?.closest('div')?.querySelector('[data-status=PASS]')).toBeTruthy()
     expect(within(panel).getByTestId('verdict-consistent').textContent).toContain('false')
     expect(panel.textContent).toContain('本页仍按记录展示,不替你改判')
     // The case's own BLOCKED verdict is still shown: it is the case's value, not a verdict the
     // view computed for the run.
-    expect(within(panel).getAllByText(/BLOCKED/).length).toBeGreaterThan(0)
+    expect(panel.querySelector('[data-status=BLOCKED]')).toBeTruthy()
   })
 
   it('echoes an unrecognised missing_reason verbatim instead of a hard-coded string', async () => {
@@ -872,11 +872,11 @@ describe('the manifest view reports its status, files, integrity and the unsigne
 
     const table = within(panel).getByTestId('manifest-files')
     expect(within(table).getAllByTestId('manifest-file')).toHaveLength(5)
-    expect(table.textContent).toContain('match')
-    expect(table.textContent).toContain('missing')
-    expect(table.textContent).toContain('symlink_refused')
-    expect(table.textContent).toContain('mismatch')
-    expect(table.textContent).toContain('unreadable')
+    expect(table.querySelector('[data-status=match]')).toBeTruthy()
+    expect(table.querySelector('[data-status=missing]')).toBeTruthy()
+    expect(table.querySelector('[data-status=symlink_refused]')).toBeTruthy()
+    expect(table.querySelector('[data-status=mismatch]')).toBeTruthy()
+    expect(table.querySelector('[data-status=unreadable]')).toBeTruthy()
     expect(table.textContent).toContain('false')
     // The digest is shown whole and the artifact is reachable.
     expect(table.textContent).toContain(HASH_DECLARED)

@@ -133,6 +133,7 @@ async function enter(
   await screen.findByText('Core 健康与 Schema')
   window.location.hash = hash
   window.dispatchEvent(new HashChangeEvent('hashchange'))
+  if (/^#\/interpretations(?:\?|$)/.test(hash)) await user.click(await screen.findByText('技术记录'))
 }
 
 describe('Interpretations list', () => {
@@ -233,7 +234,7 @@ describe('Interpretation detail and resolution preview', () => {
     expect(await screen.findByText('Interpretation(逐字记录)')).toBeTruthy()
     expect((await screen.findByText(/Candidates\(1\)/)).textContent).toContain('Candidates(1)')
     const plan = await screen.findByRole('region', { name: /Resolution 预览/ })
-    expect(plan.textContent).toContain('CREATE_RULE')
+    expect(plan.querySelector('[data-status=CREATE_RULE]')).toBeTruthy()
     expect(plan.textContent).toContain('需要人工审批')
     // The read-side side effect is stated, not hidden.
     expect(plan.textContent).toContain('不是已应用的决议')
@@ -397,7 +398,7 @@ describe('operation completions and lineage render the real Core columns', () =>
     })
     const completion = await screen.findByTestId('operation-completion')
     const text = completion.textContent ?? ''
-    expect(text).toContain('EXTRACTED')
+    expect(completion.querySelector('[data-status=EXTRACTED]')).toBeTruthy()
     expect(text).toContain('head applied yes')
     expect(text).toContain('expected head r3')
     expect(text).toContain('observed r3')
@@ -465,7 +466,7 @@ describe('Resolution detail', () => {
       },
     })
     const panel = await screen.findByRole('region', { name: /^Resolution/ })
-    expect(panel.textContent).toContain('APPLIED')
+    expect(panel.querySelector('[data-status=APPLIED]')).toBeTruthy()
     expect(panel.textContent).toContain('explicit_task_binding')
     // The JSON toggle renders its label beside a glyph, so match on a substring.
     expect(within(panel).getByText(/result\.actions/)).toBeTruthy()
