@@ -268,12 +268,13 @@ describe('Pending reviews', () => {
         },
       },
     })
-    const panel = await screen.findByRole('region', { name: /待审批 Review\(已载入 1 条\)/ })
-    expect(panel.textContent).toContain('rvw_1')
-    expect(panel.textContent).toContain('PENDING')
-    expect(panel.textContent).toContain('预览冲突')
-    expect(panel.textContent).toContain('interpretation_not_current')
-    expect(panel.textContent).toContain('不会把「没有更多待审批」写成「全部已处理」')
+    const panel = await screen.findByRole('region', { name: '待审核建议' })
+    await within(panel).findByText('预览冲突')
+    expect(panel.textContent).not.toContain('rvw_1')
+    expect(panel.textContent).not.toContain('interpretation_not_current')
+    expect(panel.textContent).toContain('内容已变化，请重新核对')
+    expect(panel.textContent).toContain('已载入数不是总数')
+    expect(panel.textContent).not.toContain('全部已处理')
   })
 
   it('shows an empty queue as empty with the right caveat', async () => {
@@ -282,7 +283,8 @@ describe('Pending reviews', () => {
       'GET /v1/projects': { body: { projects: [], count: 0 } },
       'GET /v1/reviews/pending': { body: { items: [], next_after_id: null } },
     })
-    expect((await screen.findByText(/空:待审批 Review/)).textContent).toContain('不等于没有 Review 历史')
+    await screen.findByText('当前范围没有待审核建议')
+    expect(screen.getByText(/这里只显示尚未处理的建议/).textContent).toContain('已批准和已拒绝的记录不在此列表')
   })
 })
 

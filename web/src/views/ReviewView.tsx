@@ -22,58 +22,30 @@ import { JsonBlock } from '../components/JsonBlock'
 import { WritePanel, parseJsonField } from '../components/WritePanel'
 import { useWriteAction } from '../app/useWriteAction'
 import { StatusBadge } from '../components/StatusBadge'
-import { Empty, ErrorPanel, Loading, Panel, StaleBanner, Unavailable } from '../components/States'
+import { Empty, ErrorPanel, Loading, Panel, StaleBanner } from '../components/States'
 import { KeyValue, SourceLink } from '../components/Trace'
 import { formatTimestamp } from '../lib/text'
 import { Badge } from '@/components/ui/badge'
 import { TriangleAlert } from 'lucide-react'
+import { HumanReview } from '../components/HumanReview'
+import { Button } from '../components/ui/button'
 
 export function ReviewView({ reviewId }: { reviewId: string }): JSX.Element {
   const { endpoints } = useSession()
   const review = useResource((signal) => endpoints.getReview(reviewId, signal), [reviewId])
   const item = review.data?.review ?? null
 
-  return (
-    <div className="stack">
-      <nav className="breadcrumb" aria-label="位置">
-        <a href={sourceHref.reviews(null)}>Pending Reviews</a>
-        <span aria-hidden="true">/</span>
-        <code>{reviewId}</code>
-      </nav>
-
-      <Panel
-        title="Review"
-        actions={
-          <button type="button" onClick={review.reload} disabled={review.status === 'loading'}>
-            重新读取
-          </button>
-        }
-      >
-        {review.status === 'loading' && item === null ? <Loading what="Review" /> : null}
-        {review.error ? <ErrorPanel error={review.error} what="Review" onRetry={review.reload} /> : null}
-        {item ? <ReviewBody item={item} /> : null}
-        {review.loadedAt ? (
-          <StaleBanner loadedAt={review.loadedAt} scope={`Review ${reviewId}`} />
-        ) : null}
-        <p className="state state--meta">
-          详情读取包含 Core 的 <code>maintenance.recover</code>(可能完成待处理 rerun),
-          所以 GET 不是零副作用证明;本页只发 GET。
-        </p>
-      </Panel>
-
-      {item ? <ReviewWrites item={item} onReadback={review.reload} /> : null}
-
-      <Panel title="未交付">
-        <Unavailable
-          feature="网页原生 human 来源 / Evidence confirmation"
-          owner="Core 接口负责人(需新 ADR)"
-          pending="ADR 0007 要求的真实同任务 human prompt;网页按钮无法产生"
-          tone="forbidden"
-          note="审批动作本身已接 Core,但确认 Evidence 的来源链不由浏览器伪造。"
-        />
-      </Panel>
-    </div>
-  )
+  const [advanced, setAdvanced] = useState(false)
+  return <section className="review-detail-page" aria-label="审核建议">
+    <nav className="breadcrumb" aria-label="位置"><a href={sourceHref.reviews(null)}>待审核</a><span aria-hidden="true">/</span><span>审核建议</span></nav>
+    <div className="processing-heading"><div><h2>审核建议</h2><p>先核对原话，再决定是否采用。</p></div><Button size="sm" variant="outline" onClick={review.reload} disabled={review.status === 'loading'}>刷新</Button></div>
+    {review.status === 'loading' && !item ? <Loading what="审核建议" /> : null}
+    {review.error ? <ErrorPanel error={review.error} what="审核建议" onRetry={review.reload} /> : null}
+    {item ? <><HumanReview key={item.review_id} item={item} onReadback={review.reload} />
+      <Button size="sm" variant="ghost" onClick={() => setAdvanced(v => !v)}>{advanced ? '收起高级处理方案' : '高级处理方案与技术记录'}</Button>
+      {advanced ? <div className="reviews-advanced"><p className="muted">以下为协议级操作。必须逐项确认实际动作与载荷；不要把默认“不执行动作”当成采用建议。</p><ReviewBody item={item} /><ReviewWrites item={item} onReadback={review.reload} /></div> : null}
+    </> : null}
+  </section>
 }
 
 function ReviewBody({ item }: { item: Review }): JSX.Element {
