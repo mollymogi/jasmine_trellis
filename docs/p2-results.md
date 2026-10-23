@@ -34,3 +34,14 @@ The main profile is **admission-only and execution-free**. Generic platform hook
 User instruction overrides earlier CI/PR conditions: complete the whole stage locally with independent review, validation and real Gate, then publish once. No per-milestone push or CI gate is required. P2-01/P2-02 previously merged history is retained. P2-03 is a completed local milestone awaiting root's whole-P2 publication.
 
 Contracts: [ADR0008](adr/0008-p2-interpretation-candidate-chain.md), [ADR0009](adr/0009-p2-resolver-review-maintenance.md), [ADR0010](adr/0010-p2-codex-admission.md), [Core API](api/core-api-v1.md). The original [P2 taskbook](Jasmine-Core-V1-P2-阶段任务书.md) remains the requirement and milestone record, not an authorization to reconnect retired V0 or alter global trust.
+
+
+## Daily integration extension — 2026-10-23
+
+The original Interpreter/Resolver now has a durable daily native-message trigger,
+explicit historical processing and a source-bound dashboard workflow. A fresh
+ordinary Codex CLI project convention passed real extraction, pending review,
+explicit browser approval and existing P4/Hindsight retention with nonempty engine
+readback. See [daily Conversation to Memory validation](validation/conversation-memory-20261023.md)
+and [ADR 0029](adr/0029-daily-conversation-to-memory.md). This async extension does
+not expand the original synchronous native admission/enforcement acceptance claim.
