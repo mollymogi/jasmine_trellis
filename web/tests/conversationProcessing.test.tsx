@@ -26,8 +26,8 @@ it('requires a fresh preview and explicit confirmation before approving project 
  render(<ConversationProcessing/>);await screen.findByText('待审核');fireEvent.click(screen.getByRole('button',{name:'审核项目约定'}));const button=await screen.findByRole('button',{name:'批准此项目约定'});await waitFor(()=>expect((button as HTMLButtonElement).disabled).toBe(false));expect(api.approveReview).not.toHaveBeenCalled();fireEvent.click(button)
  await waitFor(()=>expect(api.approveReview).toHaveBeenCalledOnce());const body=api.approveReview.mock.calls[0]![1];expect(body.host_id).toBe('hst_local');expect(body.expected_revision).toBe(3);expect(body.expected_context_digest).toBe('a'.repeat(64));expect(body.actions[0]).toEqual({candidate_index:0,action:'CREATE_RULE',payload:{kind:'RULE',severity:'NORMAL',enforcement:'CONTEXT',content:'项目文档使用中文',matcher:{}}})
 })
-it('does not offer shortcut approval for generated claims or high-impact candidates',async()=>{
- serve([{...row,source_actor_kind:'system',event_type:'assistant.message',source_system:'grok-native-conversation-v1'},{...row,event_id:'evt_high',candidates:[{...candidate,impact:'HIGH'}]}]);render(<ConversationProcessing/>);await screen.findAllByText('待审核');expect(screen.queryByRole('button',{name:'审核项目约定'})).toBeNull()
+it('does not offer shortcut approval for generated or non-explicit candidates',async()=>{
+ serve([{...row,source_actor_kind:'system',event_type:'assistant.message',source_system:'grok-native-conversation-v1'},{...row,event_id:'evt_high',candidates:[{...candidate,certainty:'IMPLICIT'}]}]);render(<ConversationProcessing/>);await screen.findAllByText('待审核');expect(screen.queryByRole('button',{name:'审核项目约定'})).toBeNull()
 })
 it('distinguishes no structure, task-only application, pending retain, failure and retained memory',async()=>{
  serve([{...row,event_id:'evt_no',status:'NO_ACTION',candidates:[],review_id:null},{...row,event_id:'evt_task',status:'APPLIED',effect:'TASK_ONLY',review_id:null},{...row,event_id:'evt_pending',status:'APPLIED',effect:'MEMORY_ELIGIBLE',review_id:null},{...row,event_id:'evt_failed',status:'APPLIED',memory_jobs:[{job_id:'mjb_failed',status:'FAILED',last_error_code:'engine_error'}]},{...row,event_id:'evt_done',status:'APPLIED',memory_items:[{memory_id:'mem_done',memory_type:'STABLE_PROJECT_FACT',engine_state:'RETAINED',status:'ACTIVE'}]}]);render(<ConversationProcessing/>);for(const label of ['无需记忆','已处理','等待入库','写入失败','已入库'])await screen.findByText(label)
@@ -35,4 +35,8 @@ it('distinguishes no structure, task-only application, pending retain, failure a
 
 it('reports a stale worker separately from configured automatic processing',async()=>{
  const f=serve([]);f.mockImplementation(()=>Promise.resolve({ok:true,json:async()=>({...page([]),last_tick_at:'2000-01-01T00:00:00Z'})}));render(<ConversationProcessing/>);await screen.findByText('自动分析暂未响应，已收录的消息和处理记录仍保留。')
+})
+
+it('requires explicit review and shows the high-impact warning for a project convention',async()=>{
+ serve([{...row,candidates:[{...candidate,impact:'HIGH'}]}]);api.getReview.mockResolvedValue({review:{review_id:'rvw_test',revision:1,status:'PENDING',preview:null}});render(<ConversationProcessing/>);await screen.findByText('待审核');fireEvent.click(screen.getByRole('button',{name:'审核项目约定'}));await screen.findByText('此候选被标记为高影响，请仔细核对。这里仅批准为本项目的上下文约定。');expect(api.approveReview).not.toHaveBeenCalled()
 })

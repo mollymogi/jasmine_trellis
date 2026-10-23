@@ -16,8 +16,10 @@ It returns existing P2 structures, not a new unrestricted Memory schema. Ordinar
 chat can produce NO_STRUCTURE. Existing Resolver policy determines automatic task
 application versus Review. Project/global conventions require the actual human
 review command before creating Authority. Confidence never grants authority.
-The browser shortcut only offers explicit, non-high-impact, human project
-RULE/DECISION candidates; other cases use the existing Review detail page.
+The browser shortcut only offers explicit human project RULE/DECISION candidates as NORMAL/CONTEXT rules.
+High-impact candidates show an additional visible warning before that explicit
+review confirmation; path/tool/global/implicit or agent-generated cases use the
+existing Review detail page.
 
 Actual approved Rule change events feed existing P4 SourceRegistry and the Memory
 worker. Existing five Memory types and eligibility contracts remain unchanged.
