@@ -1,0 +1,74 @@
+{
+  "status": "PASS_INTERPRETER_MODEL_SELECTION",
+  "runtime_commit": "242160a2b61e6e54b5410a724bd3a2162f9a8c49",
+  "python_tests": 1876,
+  "python_skipped": 11,
+  "web_tests": 649,
+  "build": "PASS",
+  "catalog_candidates": [
+    "gpt-6.1-sol",
+    "gpt-6-astra",
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna"
+  ],
+  "real_cloud_smoke_models": [
+    "gpt-6-luna",
+    "gpt-6.1-sol"
+  ],
+  "source_event_id": "evt_2PA135XADX3KQQNJ7AYZJ0MEDE",
+  "source_text_sha256": "670d9743542cae3ea7ebe36af56bd53648b0a1126162e78d81a32934a711302e",
+  "output_validated": true,
+  "formal_browser": {
+    "status": "PASS_MODEL_SELECTOR",
+    "origin": "http://127.0.0.1:15180",
+    "initial": "gpt-6.1-sol",
+    "options": [
+      {
+        "value": "gpt-6.1-sol",
+        "label": "GPT-6.1-Sol"
+      },
+      {
+        "value": "gpt-6-astra",
+        "label": "GPT-6-Astra"
+      },
+      {
+        "value": "gpt-6-sol",
+        "label": "GPT-6-Sol"
+      },
+      {
+        "value": "gpt-6-luna",
+        "label": "GPT-6-Luna"
+      },
+      {
+        "value": "gpt-5.6-sol",
+        "label": "GPT-5.6-Sol"
+      },
+      {
+        "value": "gpt-5.6-terra",
+        "label": "GPT-5.6-Terra"
+      },
+      {
+        "value": "gpt-5.6-luna",
+        "label": "GPT-5.6-Luna"
+      }
+    ],
+    "selectionPersistedAcrossDialog": true,
+    "saved": "gpt-6-luna",
+    "restored": "gpt-6.1-sol",
+    "pageErrors": [],
+    "writes": [
+      "/_local/interpreter"
+    ],
+    "noBusinessWrites": true,
+    "lightDarkMobile": true
+  },
+  "final_default": "gpt-6.1-sol",
+  "prior_interpretations_preserved": 41,
+  "schema_migration": false,
+  "hooks_credentials_proxy_unchanged": true,
+  "hindsight_kept_running": true,
+  "all_model_entitlements_verified": false
+}
