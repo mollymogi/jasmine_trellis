@@ -4,6 +4,14 @@ from test_api import HOST
 from jasmine_core import ids
 
 class RuleCatalog(AuthorityHttp):
+ def test_offset_sqlite_integer_boundary(self):
+  code,page=self.call('GET','/v1/rules?offset=9223372036854775807',token=self.manage_key)
+  self.assertEqual(code,200);self.assertEqual(page['rules'],[])
+  self.assertFalse(page['has_more']);self.assertIsNone(page['next_offset'])
+  for offset in (9223372036854775808,10**100):
+   with self.subTest(offset=offset):
+    code,result=self.call('GET',f'/v1/rules?offset={offset}',token=self.manage_key)
+    self.assertEqual(code,400);self.assertEqual(result['error']['code'],'invalid_request')
  def test_all_states_paging_permissions_and_read_only(self):
   created=[]
   for n in range(3):
