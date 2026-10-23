@@ -1,7 +1,8 @@
 # Local Claude desktop Code capture — 2026-10-23
 
-Implementation and deployment: PASS. Fresh native desktop input → reply → formal
-Conversation acceptance: pending a new user submission after deployment.
+PASS for local desktop Code: a fresh user-operated native session, its ordinary
+message and completed reply were captured and shown on the formal Conversation
+page after deployment. This does not claim Chat, Cowork or cloud capture.
 
 The reported missing conversations were local Claude desktop Code sessions. Actual
 native 2.1.308 records and private Hook receipts established the defect: main-session
@@ -37,9 +38,16 @@ Validation:
 
 Runtime source commit: `08ffea2149f99076861beb9707d2fb51d8cab3eb`.
 Private receipts and browser screenshot are stored with the deployment backup.
-A native end-to-end PASS must name matching fresh Hook receipts, Core event/text
-hash readback and the corresponding formal Conversation session. An old CLI hello,
-a metadata-only check or a test fixture does not satisfy that boundary.
+Fresh native acceptance (the user confirmed sending the message):
+
+- Native desktop session: `88c34a77-34ed-4b9d-bdb2-e506e7915702`.
+- Core project: `prj_01M5KP8BKA8T5FPWC84JD9M44N`; session: `ses_01M5KP8BKK0KKPY12X0SNNC94M`.
+- Matching accepted UserPromptSubmit and Stop receipts retain desktop/sdk provenance.
+- Both Core message hashes equal their receipts and the actual native transcript text.
+- Real Chrome displayed these exact two events on the formal Conversation route;
+  rendered message hashes match Core, and the assistant has the Claude avatar.
+- Browser verification was read-only and had no page errors. Historical messages
+  were not imported; the earlier ignored sessions remain outside this new capture.
 
 Reference: [official Claude Code Hooks](https://code.claude.com/docs/en/hooks),
 which describes Hook events for both terminal and desktop Code sessions.
