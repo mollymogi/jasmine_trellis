@@ -1,0 +1,32 @@
+{
+  "status": "PASS_NATIVE_DESKTOP_TO_FORMAL_CONVERSATION",
+  "runtime_commit": "08ffea2149f99076861beb9707d2fb51d8cab3eb",
+  "native_session_id": "88c34a77-34ed-4b9d-bdb2-e506e7915702",
+  "project_id": "prj_01M5KP8BKA8T5FPWC84JD9M44N",
+  "session_id": "ses_01M5KP8BKK0KKPY12X0SNNC94M",
+  "events": [
+    {
+      "event_id": "evt_2PA135XADX3KQQNJ7AYZJ0MEDE",
+      "event_type": "user.prompt",
+      "text_sha256": "670d9743542cae3ea7ebe36af56bd53648b0a1126162e78d81a32934a711302e",
+      "native_entrypoint": "claude-desktop",
+      "matches_native": true
+    },
+    {
+      "event_id": "evt_DAAT7ZRF9J09YFS4TVYRNMSP4Z",
+      "event_type": "assistant.message",
+      "text_sha256": "c0050499f6e3ca6bef06149e3bd932a5c2d2bc3751ed25d62e877a36d72625ac",
+      "native_entrypoint": "claude-desktop",
+      "matches_native": true
+    }
+  ],
+  "messages_visible": 2,
+  "native_core_dom_hashes_match": true,
+  "user_confirmed_sent": true,
+  "claude_avatar": true,
+  "adapter_tests": 23,
+  "web_tests": 642,
+  "build": "PASS",
+  "core_hindsight_not_restarted": true,
+  "historical_messages_imported": false
+}

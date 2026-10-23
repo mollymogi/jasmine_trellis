@@ -88,7 +88,7 @@ export function App(): JSX.Element {
           <SidebarTrigger />
           <span className="text-sm text-muted-foreground">{currentLabel(route)}</span>
         </header>
-        <details className="readonly-banner">
+        {!['conversation','interpretations','interpretation'].includes(route.name) ? <details className="readonly-banner">
           <summary className="cursor-pointer">单机版 0.2.0 · 部分功能尚未开放</summary>
           <p role="note">
             已提供：项目与 Task/Step 管理、Rule 与 Review 审批、Evidence 读取和人工确认、Checkpoint/Context/Resume 读取、Validation 记录下钻。
@@ -96,7 +96,7 @@ export function App(): JSX.Element {
             Memory 提供队列、条目管理、当前规则对照与召回记录，实际健康状态请查看 Memory。Codex 会话采集需明确绑定并信任 Hook；Context 接收凭证只代表对应历史轮次。未开放：通用桌面自动注入、多设备在线状态、完整 Scenario Runner；P4 收益实验保持停止，完整 P6/V1 验收尚未完成。
             <a href={hrefFor({ name: 'pending', key: 'memory' })}>未完成功能说明</a>。
           </p>
-        </details>
+        </details> : null}
         <main id="main">{renderRoute(route)}</main>
       </SidebarInset>
     </SidebarProvider>

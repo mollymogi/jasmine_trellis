@@ -390,8 +390,8 @@ describe('untrusted text rendering', () => {
               actor_id: 'act_1',
               actor_kind: 'system',
               host_id: 'hst_1',
-              session_id: null,
-              project_id: null,
+              session_id: 'ses_1',
+              project_id: 'prj_1',
               task_id: null,
               payload: { text: 'exit 0' },
               body_sha256: 'b'.repeat(64),
@@ -400,7 +400,9 @@ describe('untrusted text rendering', () => {
           count: 1,
         },
       },
-      'GET /v1/sessions': { body: { sessions: [], count: 0 } },
+      'GET /v1/sessions': { body: { sessions: [{ session_id: 'ses_1', project_id: 'prj_1', task_id: null,
+        host_id: 'hst_1', actor_id: 'act_1', status: 'open', revision: 1, source_event_id: 'evt_ses',
+        started_at: '2026-09-30T05:00:00Z', ended_at: null, created_at: '2026-09-30T05:00:00Z', updated_at: '2026-09-30T05:00:00Z' }], count: 1 } },
       'GET /v1/tasks': { body: { tasks: [], count: 0 } },
       'GET /v1/projects': { body: { projects: [], count: 0 } },
     })
@@ -410,10 +412,12 @@ describe('untrusted text rendering', () => {
       </SessionProvider>,
     )
     await signIn(user)
-    navigate('#/conversation')
+    navigate('#/conversation?project_id=prj_1&session_id=ses_1')
 
     await waitFor(() => expect(screen.getByText('tool.result')).toBeTruthy())
+    await user.click(screen.getByText(/系统事件与来源/))
+    expect(document.querySelectorAll('.chat-message')).toHaveLength(0)
     expect(screen.getAllByText('机器事件(非用户发言)').length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/尚未开放/).length).toBeGreaterThan(0)
+    expect(document.querySelector('.readonly-banner')).toBeNull()
   })
 })

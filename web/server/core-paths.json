@@ -98,5 +98,12 @@
   "context_delivery_note": "ADR 0025 adds one independently grouped GET under P6_ENABLE_P3_READS. The historical four-route P3 group remains unchanged. No write or receipt upload is forwarded.",
   "context_delivery_paths": [
     "^/v1/context/ctx_[0-9ABCDEFGHJKMNPQRSTVWXYZ]{26}/delivery$"
+  ],
+  "conversation_processing_read_paths": [
+    "^/v1/conversation-processing$"
+  ],
+  "conversation_processing_write_paths": [
+    "^/v1/conversation-processing/enqueue$",
+    "^/v1/conversation-processing/evt_[0-9ABCDEFGHJKMNPQRSTVWXYZ]{26}/retry$"
   ]
 }

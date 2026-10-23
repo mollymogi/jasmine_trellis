@@ -702,3 +702,6 @@ and `ORIGIN_RETIRED` explain why the old decision is historical. Missing links,
 versions, permissions or an older Core are explicitly unavailable/unverifiable,
 never “no conflict”. No Memory engine, inference, jobs or Truth writes occur.
 Existing frozen P4 contract snapshots retain their historical bindings.
+
+
+Schema 14 additive daily processing extension: [Conversation processing](conversation-processing-v1.md). Existing P2/P4 endpoint contracts remain unchanged.

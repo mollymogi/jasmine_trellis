@@ -50,6 +50,8 @@ class Core:
                                       evidence_validator=evidence.CurrentEvidenceValidator(conn))
         self.interpretations = interpretations.InterpretationStore(conn, schema_version=self.schema_version)
         self.resolver = resolver.ResolverStore(self.interpretations)
+        from ..conversation_processing import ConversationProcessing
+        self.conversation_processing = ConversationProcessing(conn,schema_version=self.schema_version)
         self.reviews = reviews.ReviewStore(self.resolver)
         self.continuity = ContinuityStore(conn,schema_version=self.schema_version)
         from ..context.memory_provider import MemoryProvider
@@ -89,6 +91,9 @@ def _collection_routes() -> list[Route]:
 
 def _base_routes() -> list[Route]:
     return [
+        Route("GET",re.compile(r"^/v1/conversation-processing$"),list_conversation_processing,"interpretations:read",required_scopes=("events:read","resolutions:read","memory:read")),
+        Route("POST",re.compile(r"^/v1/conversation-processing/enqueue$"),enqueue_conversation_processing,"interpretations:manage"),
+        Route("POST",re.compile(r"^/v1/conversation-processing/([^/]+)/retry$"),retry_conversation_processing,"interpretations:manage"),
         Route("POST",re.compile(r"^/v1/adapter/lifecycle/report$"),adapter_report,"adapter:report"),
         Route("POST",re.compile(r"^/v1/adapter/lifecycle/attest$"),adapter_attest,"adapter:attest"),
         Route("POST",re.compile(r"^/v1/adapter/operations/reserve$"),adapter_reserve,"adapter:report"),
@@ -870,6 +875,26 @@ a typo. Both extensions are shared-file changes and are listed as such in
 ADR 0014 §12."""
 from ..memory import engine_api as memory_engine_api
 from ..hosthook import api as hosthook_api  # noqa: E402  (ADR 0017)
+
+def list_conversation_processing(request,core,principal,match):
+    allowed={'project_id','session_id','event_id','status','limit','offset'}
+    if set(request.query)-allowed or any(len(v)!=1 for v in request.query.values()):raise errors.InvalidRequest('invalid processing filters')
+    params={k:v[0] for k,v in request.query.items()}
+    for k in ('limit','offset'):
+        if k in params:
+            if not re.fullmatch(r'[0-9]+',params[k]):raise errors.InvalidRequest('invalid pagination')
+            params[k]=int(params[k])
+    return Response(200,core.conversation_processing.list(**params))
+
+def enqueue_conversation_processing(request,core,principal,match):
+    if core.actor_kind(principal.actor_id) not in ('human','system'):raise errors.ForbiddenActorKind('a human or trusted system must request history processing')
+    return Response(202,core.conversation_processing.enqueue(request.json_body(),actor_id=principal.actor_id))
+
+def retry_conversation_processing(request,core,principal,match):
+    if core.actor_kind(principal.actor_id) not in ('human','system'):raise errors.ForbiddenActorKind('a human or trusted system must request retries')
+    if request.json_body()!={}:raise errors.InvalidRequest('retry takes an empty object')
+    return Response(202,core.conversation_processing.retry(match.group(1),actor_id=principal.actor_id))
+
 
 ROUTES = (tuple(_base_routes()) + tuple(_collection_routes())
           + memory_api.routes(Route) + validation_api.routes(Route)

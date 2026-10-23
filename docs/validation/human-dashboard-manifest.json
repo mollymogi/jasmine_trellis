@@ -1,0 +1,32 @@
+{
+  "status": "PASS_HUMAN_PRESENTATION",
+  "deployed_commit": "0ee2cd38eba10b0df53991cb5aec7d0935214a68",
+  "frontend_server_tests": 642,
+  "build": "PASS",
+  "trace_syntax": "PASS_NODE_CHECK_ONLY",
+  "production_browser": {
+    "status": "PASS",
+    "records": 15,
+    "headers": [
+      "序号",
+      "时间",
+      "Agent",
+      "来源",
+      "内容摘要",
+      "状态",
+      "操作"
+    ],
+    "defaultIdsVisible": false,
+    "technicalRecordsLazy": true,
+    "technicalSourceLinkPreserved": true,
+    "queueTimesMatch": true,
+    "lightDarkMobile": true,
+    "noHorizontalOverflow": true,
+    "htmlCacheControl": "no-store",
+    "pageErrors": [],
+    "coreWrites": []
+  },
+  "core_hindsight_pids_unchanged": true,
+  "backend_runtime_schema_capture_unchanged": true,
+  "hook_and_browser_credential_bytes_unchanged": true
+}

@@ -1,3 +1,4 @@
+import { ConversationProcessing } from '../components/ConversationProcessing'
 /**
  * Interpretation list (P6-02 milestone A, read slice).
  *
@@ -23,6 +24,7 @@ import { Pager } from '../components/Pager'
 import { StatusBadge } from '../components/StatusBadge'
 import { Empty, ErrorPanel, Loading, Panel, StaleBanner } from '../components/States'
 import { SourceLink } from '../components/Trace'
+import { statusLabel } from '../lib/statusLabels'
 import { clip, formatTimestamp } from '../lib/text'
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
@@ -30,7 +32,18 @@ const LIMIT = DEFAULT_OBJECT_LIMIT
 /** `interpretations.STATUSES` in the frozen Core. */
 const STATUSES = ['PROCESSING', 'EXTRACTED', 'FAILED', 'INTERRUPTED'] as const
 
-export function InterpretationsView({
+export function InterpretationsView(props: {projectId: string|null; taskId: string|null; eventId: string|null; status: string|null}): JSX.Element {
+  const [technicalOpen,setTechnicalOpen]=useState(false)
+  return <div className="stack human-interpretations">
+    <ConversationProcessing projectId={props.projectId} eventId={props.eventId}/>
+    <details className="processing-raw-records" onToggle={event=>setTechnicalOpen(event.currentTarget.open)}>
+      <summary>技术记录</summary>
+      {technicalOpen?<InterpretationTechnicalRecords {...props}/>:null}
+    </details>
+  </div>
+}
+
+function InterpretationTechnicalRecords({
   projectId,
   taskId,
   eventId,
@@ -107,7 +120,7 @@ export function InterpretationsView({
             }}>
               <option value="">(全部)</option>
               {STATUSES.map((candidate) => (
-                <option key={candidate} value={candidate}>{candidate}</option>
+                <option key={candidate} value={candidate}>{statusLabel('interpretation',candidate)}</option>
               ))}
             </select>
           </label>

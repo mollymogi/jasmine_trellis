@@ -1,3 +1,4 @@
+import { Sparkles } from 'lucide-react'
 import { useRef, useState, type ReactNode } from 'react'
 import { ArrowRight, BookOpen, CheckCircle2, CircleHelp, FileText, History, RefreshCw, ShieldCheck, TriangleAlert, Unplug } from 'lucide-react'
 import type { MemoryHealth } from '../api/types'
@@ -80,6 +81,7 @@ export function MemoryHealthDashboard({ health, onRefresh, details, engineContro
           <Button asChild className="w-fit"><a href="#/memory/items"><BookOpen />查看记忆条目<ArrowRight /></a></Button>
           <p className="text-sm text-muted-foreground">打开一条记忆，可查看当前要求、历史来源和变化依据。</p>
           <div className="flex flex-wrap gap-3 border-t pt-4">
+            <Button asChild variant="outline"><a href="#/interpretations"><Sparkles />查看对话提炼进度</a></Button>
             <Button asChild variant="outline"><a href="#/memory/jobs"><RefreshCw />查看处理队列</a></Button>
             <Button asChild variant="outline"><a href="#/memory/traces"><History />查看召回记录</a></Button>
             <Button asChild variant="ghost"><a href="#/rules"><ShieldCheck />查看当前规则</a></Button>

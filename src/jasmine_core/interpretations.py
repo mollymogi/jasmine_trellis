@@ -47,7 +47,7 @@ class InterpretationStore:
         text = event['payload']['text']
         if len(text.encode('utf-8'))>32768 or not text:
             raise errors.InvalidInterpretationSource('source text must be nonempty and at most 32 KiB')
-        source_type = ('USER_EXPLICIT' if actor['kind']=='human' and event['event_type']=='user.prompt'
+        source_type = ('AGENT_PROPOSED' if event['event_type']=='assistant.message' else 'USER_EXPLICIT' if actor['kind']=='human' and event['event_type']=='user.prompt'
                        else 'SYSTEM_CONFIG' if actor['kind']=='system' else 'AGENT_PROPOSED')
         source = {name:event[name] for name in ('event_id','project_id','task_id','session_id','host_id','actor_id','actor_kind','event_type')}
         source.update(text=text,source_type=source_type,body_sha256=event['body_sha256'])

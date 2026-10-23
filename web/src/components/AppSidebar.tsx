@@ -53,13 +53,13 @@ import {
 
 // Each item carries an icon, so the collapsed icon rail still says what a button opens.
 export const NAV: { label: string; href: string; icon: LucideIcon }[] = [
-  { label: 'Overview', href: hrefFor({ name: 'overview' }), icon: LayoutDashboard },
-  { label: 'Conversation', href: hrefFor({ name: 'conversation', projectId: null, taskId: null, sessionId: null }), icon: MessagesSquare },
-  { label: 'Memory', href: hrefFor({ name: 'memoryHealth' }), icon: Brain },
-  { label: 'Rules', href: hrefFor({ name: 'rules', projectId: null, taskId: null, ruleId: null }), icon: ListChecks },
-  { label: 'Interpretations', href: hrefFor({ name: 'interpretations', projectId: null, taskId: null, eventId: null, status: null }), icon: FileSearch },
-  { label: '待审批 Review', href: hrefFor({ name: 'reviews', projectId: null, taskId: null }), icon: ClipboardCheck },
-  { label: 'Validation', href: '#/validation/runs', icon: ShieldCheck },
+  { label: '总览', href: hrefFor({ name: 'overview' }), icon: LayoutDashboard },
+  { label: '对话', href: hrefFor({ name: 'conversation', projectId: null, taskId: null, sessionId: null }), icon: MessagesSquare },
+  { label: '记忆', href: hrefFor({ name: 'memoryHealth' }), icon: Brain },
+  { label: '规则', href: hrefFor({ name: 'rules', projectId: null, taskId: null, ruleId: null }), icon: ListChecks },
+  { label: '对话提炼', href: hrefFor({ name: 'interpretations', projectId: null, taskId: null, eventId: null, status: null }), icon: FileSearch },
+  { label: '待审核', href: hrefFor({ name: 'reviews', projectId: null, taskId: null }), icon: ClipboardCheck },
+  { label: '验收记录', href: '#/validation/runs', icon: ShieldCheck },
 ]
 
 /** Decorative or brand text: removed from view when the sidebar is collapsed to its icon rail. */

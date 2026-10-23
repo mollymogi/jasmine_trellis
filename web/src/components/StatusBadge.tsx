@@ -1,7 +1,8 @@
 /**
  * Status badges.
  *
- * Every status carries an icon and its literal Core token as text, so the value
+ * Every status carries an icon and a Chinese label; exact Core tokens remain in
+ * data-status for automation. The value
  * is readable without colour perception, in a screenshot and in a terminal
  * browser. Unknown vocabulary is *not* mapped onto a known tone: it renders as
  * `? <VALUE>` with the "unknown" style (P6 negative case "未知 enum 原样醒目展示").
@@ -31,6 +32,7 @@ import {
   TriangleAlert,
 } from 'lucide-react'
 import { cls } from '../lib/classNames'
+import { statusLabel } from '../lib/statusLabels'
 import type { VariantProps } from 'class-variance-authority'
 
 export type BadgeKind =
@@ -76,7 +78,7 @@ const TASK: Record<string, ToneSpec> = {
 const EVIDENCE: Record<string, ToneSpec> = {
   PASS: { icon: CircleCheck, tone: 'good' },
   FAIL: { icon: CircleX, tone: 'bad' },
-  INFO: { icon: Info, tone: 'warn', label: 'INFO 不是 PASS' },
+  INFO: { icon: Info, tone: 'warn', label: '仅供参考，不能作为通过凭证' },
 }
 
 const REFERENCE: Record<string, ToneSpec> = {
@@ -193,11 +195,11 @@ export function StatusBadge({
       variant={TONE_VARIANT[tone]}
       className={cls('badge', `badge--${tone}`)}
       data-status={status}
-      title={hint ?? `${kind} status ${status}`}
+      title={hint ?? (spec ? statusLabel(kind,status) : '未识别的状态')}
     >
       {/* `badge__glyph` carries no style; the p6 browser trace finds the glyph by it. */}
       <Icon aria-hidden="true" className="badge__glyph" />
-      <span className="badge__text">{status}</span>
+      <span className="badge__text">{spec ? statusLabel(kind, status) : status}</span>
     </Badge>
   )
 }

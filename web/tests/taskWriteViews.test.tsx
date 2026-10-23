@@ -474,7 +474,7 @@ describe('replay and recovery', () => {
     expect(reads).toBe(2)
     const readback = await screen.findByTestId('write-readback')
     expect(readback.textContent).toContain('r13')
-    expect(readback.textContent).toContain('BLOCKED')
+    expect(readback.querySelector('[data-status=BLOCKED]')).toBeTruthy()
     expect(readback.textContent).toContain('读回时间')
   })
 
