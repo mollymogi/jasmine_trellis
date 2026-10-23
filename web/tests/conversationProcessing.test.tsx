@@ -44,3 +44,11 @@ it('requires explicit review and shows the high-impact warning for a project con
 it('preserves an exact Event scope for trace links and explicit message analysis',async()=>{
  const f=serve([]);render(<ConversationProcessing eventId="evt_source"/>);await screen.findByRole('button',{name:'分析此消息'});expect(f.mock.calls[0]?.[0]).toContain('event_id=evt_source');fireEvent.click(screen.getByRole('button',{name:'分析此消息'}));await waitFor(()=>expect(f.mock.calls.some(call=>call[1]?.body===JSON.stringify({event_id:'evt_source'}))).toBe(true))
 })
+
+it('never labels an obsolete historical memory as waiting to be stored',async()=>{
+ serve([{...row,status:'APPLIED',effect:'MEMORY_ELIGIBLE',memory_items:[{memory_id:'mem_old',memory_type:'STABLE_PROJECT_FACT',engine_state:'RETAINED',status:'OBSOLETE'}]}]);render(<ConversationProcessing/>);await screen.findByText('历史记忆');expect(screen.queryByText('等待入库')).toBeNull();expect(screen.queryByText('已入库')).toBeNull()
+})
+
+it('clears previous project cards while the next scope loads',async()=>{
+ const f=serve([row]);const view=render(<ConversationProcessing projectId="prj_first"/>);await screen.findByText('待审核');f.mockImplementation(()=>new Promise(()=>{}));view.rerender(<ConversationProcessing projectId="prj_second"/>);await screen.findByText('正在读取处理进度…');expect(screen.queryByText('待审核')).toBeNull();expect(screen.queryByRole('button',{name:'审核项目约定'})).toBeNull()
+})

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowRight, CheckCircle2, Clock3, RefreshCw, Sparkles, TriangleAlert } from 'lucide-react'
 import { useSession } from '../app/session'
 import { sourceHref } from '../app/router'
@@ -15,6 +15,7 @@ type Item={event_id:string;status:string;source_text:string;source_actor_kind:st
 type Page={items:Item[];count:number;counts:Record<string,number>;worker_configured:boolean;started_at:string|null;last_tick_at:string|null}
 function summary(item:Item){
  if(item.memory_items.some(m=>m.engine_state==='RETAINED'&&m.status==='ACTIVE'))return {label:'已入库',description:'记忆已写入，可查看来源和当前规则。',tone:'success' as const}
+ if(item.memory_items.length>0&&item.memory_items.every(m=>m.status!=='ACTIVE'))return {label:'历史记忆',description:'这条记忆已失效或删除，不再用于当前召回。',tone:'outline' as const}
  if(item.memory_jobs.some(j=>j.status==='FAILED'))return {label:'写入失败',description:'解释和决议已保留，记忆写入需要处理。',tone:'warning' as const}
  if(item.status==='PENDING_REVIEW')return {label:'待审核',description:'候选尚未生效。审核后才会继续处理。',tone:'warning' as const}
  if(item.status==='FAILED')return {label:'分析失败',description:'原对话已保留，可查看原因后重试。',tone:'warning' as const}
@@ -26,12 +27,13 @@ function summary(item:Item){
 export function ConversationProcessing({projectId=null,sessionId=null,eventId=null,compact=false}:{projectId?:string|null;sessionId?:string|null;eventId?:string|null;compact?:boolean}){
  const {token,endpoints}=useSession();const [page,setPage]=useState<Page|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[notice,setNotice]=useState(''),[offset,setOffset]=useState(0)
  const [selected,setSelected]=useState<Item|null>(null),[review,setReview]=useState<Review|null>(null)
+ const loadKey=JSON.stringify([projectId,sessionId,eventId,offset,compact]);const currentLoadKey=useRef(loadKey);currentLoadKey.current=loadKey
  const headers=useCallback(()=>({...(token?{Authorization:`Bearer ${token}`}:{})}),[token])
  const load=useCallback(async(signal?:AbortSignal)=>{
   const query=new URLSearchParams({limit:compact?'5':'20',offset:String(offset)});if(projectId)query.set('project_id',projectId);if(sessionId)query.set('session_id',sessionId);if(eventId)query.set('event_id',eventId)
-  try{const r=await fetch('/v1/conversation-processing?'+query,{headers:headers(),signal,cache:'no-store'});if(!r.ok)throw Error(r.status===403?'当前凭证不能查看完整处理链路。':r.status===404?'当前 Core 尚未启用对话处理链路。':'处理进度暂时不可用。');const value=await r.json();if(!Array.isArray(value.items))throw Error('处理服务返回了无效结果。');if(!signal?.aborted){setPage(value);setError('')}}catch(e){if(!signal?.aborted)setError(e instanceof Error?e.message:'读取失败。')}
- },[projectId,sessionId,eventId,offset,compact,headers])
- useEffect(()=>{setOffset(0)},[projectId,sessionId,eventId])
+  try{const r=await fetch('/v1/conversation-processing?'+query,{headers:headers(),signal,cache:'no-store'});if(!r.ok)throw Error(r.status===403?'当前凭证不能查看完整处理链路。':r.status===404?'当前 Core 尚未启用对话处理链路。':'处理进度暂时不可用。');const value=await r.json();if(!Array.isArray(value.items))throw Error('处理服务返回了无效结果。');if(!signal?.aborted&&currentLoadKey.current===loadKey){setPage(value);setError('')}}catch(e){if(!signal?.aborted&&currentLoadKey.current===loadKey)setError(e instanceof Error?e.message:'读取失败。')}
+ },[projectId,sessionId,eventId,offset,compact,headers,loadKey])
+ useEffect(()=>{setOffset(0);setPage(null);setNotice('');setError('');setSelected(null);setReview(null)},[projectId,sessionId,eventId])
  useEffect(()=>{const abort=new AbortController();void load(abort.signal);const timer=setInterval(()=>void load(abort.signal),3000);return()=>{abort.abort();clearInterval(timer)}},[load])
  async function action(path:string,body:object){setBusy(true);setError('');try{const r=await fetch(path,{method:'POST',headers:{...headers(),'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)throw Error(r.status===403?'当前凭证没有处理权限。':'操作未完成，请刷新状态后重试。');const value=await r.json();setNotice(typeof value.queued==='number'?`已加入 ${value.queued} 条消息；已有处理不会重复。`:'已请求重试。');await load()}catch(e){setError(e instanceof Error?e.message:'操作失败。')}finally{setBusy(false)}}
  async function openReview(item:Item){setSelected(item);setReview(null);setError('');try{const result=await endpoints.getReview(item.review_id!);setReview(result.review)}catch{setError('无法加载当前审核计划，请刷新后重试。')}}
