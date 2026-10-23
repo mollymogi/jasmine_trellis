@@ -34,7 +34,7 @@ export function MemoryCatalog(): JSX.Element {
   const items = pages.items.flatMap(p => p.items)
   const declaredReference = pages.items.length > 0 && pages.items.every(p => p.non_authoritative === true)
   const projectName = (item: MemoryItemListRow) => maskCredentials(item.scope_kind === 'global' ? '所有项目' : projects.items.find(p => p.project_id === item.project_id)?.name ?? '项目名称待确认').text
-  const visible = items.filter(item => `${memoryPreview(item)} ${projectName(item)}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.created_at.localeCompare(a.created_at))
+  const visible = items.filter(item => `${maskCredentials(item.sanitized_text ?? '').text} ${projectName(item)}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.created_at.localeCompare(a.created_at))
   const pending = pages.error && isMemoryPending(pages.error)
   const ready = pages.pages > 0
   const refresh = () => { pages.reload(); projects.reload() }

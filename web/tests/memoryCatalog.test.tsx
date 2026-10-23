@@ -73,6 +73,18 @@ it('passes project, type and lifecycle filters to Core while content search uses
   await screen.findByText('已载入的记忆中没有匹配内容')
 })
 
+it('searches the full masked memory text beyond the row preview', async () => {
+  const keyword = 'TAILKEYWORD'
+  const user = await enter({ 'GET /v1/memory/items': { body: { items: [item({ sanitized_text: '前'.repeat(180) + keyword })], count: 1, non_authoritative: true } } })
+  const table = await screen.findByRole('table', { name: '记忆内容列表' })
+  expect(table.textContent).not.toContain(keyword)
+  await screen.findByText('当前查询范围已读取完毕')
+  await user.type(screen.getByRole('textbox', { name: '搜索已载入记忆' }), keyword.toLowerCase())
+  expect(screen.getByRole('table', { name: '记忆内容列表' }).querySelectorAll('tbody tr')).toHaveLength(1)
+  expect(screen.getByText(/匹配 1 条/)).toBeTruthy()
+  expect(screen.queryByText('已载入的记忆中没有匹配内容')).toBeNull()
+})
+
 it('pages by the actual last memory ID, retains a failed page and drops the authority claim if any page omits it', async () => {
   let failed = true
   const first = Array.from({ length: 50 }, (_, i) => item({ memory_id: `mem_first_${i}` }))
