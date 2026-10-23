@@ -50,7 +50,7 @@ class ExecutorTests(unittest.TestCase):
     assert result['failure']=='executor_timeout' and result['cleanup']=='complete'
     assert time.monotonic()-start<2
     result=run_fixed_worker(manifest,'large',{},Budget(15),3)
-    assert result['failure']=='output_too_large' and result['cleanup']=='complete'
+    assert result['failure']=='output_too_large' and result['cleanup']=='complete', result
     with self.assertRaisesRegex(ExecutorFailure,'invalid_manifest'):
         run_fixed_worker(manifest,'arbitrary',{},Budget(),1)
 

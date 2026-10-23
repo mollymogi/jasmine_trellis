@@ -428,7 +428,9 @@ class AuthorityStore:
         if body.get("tool_category") is not None and body["tool_category"] not in TOOL_CATEGORIES:
             raise errors.InvalidRequest(f"tool_category must be one of {', '.join(TOOL_CATEGORIES)}",
                                         field="tool_category")
-        unresolved_context = not (body.get("tool") or body.get("tool_category")) or not body.get("action")
+        # A missing tool/action/path is only insufficient when an active rule
+        # matches on it; such a rule lands in `uncertain` below (ADR 0031).
+        unresolved_context = False
         # Without project/task identity, a scoped DENY/CONFIRM/VERIFY rule
         # could be omitted. Do not describe that partial lookup as ALLOW.
         if task_id is None:
@@ -482,8 +484,10 @@ class AuthorityStore:
                 break
         # A definite DENY is final. Otherwise missing context may hide a DENY
         # or CONFIRM, and a broad VERIFY match must not take precedence over
-        # that unresolved restriction.
-        if decision != "deny" and (uncertain or unresolved_context):
+        # that unresolved restriction. An uncertain CONTEXT rule cannot change
+        # the decision, as in the scope check above.
+        blocking_uncertain = any(r["enforcement"] != "CONTEXT" for r in uncertain)
+        if decision != "deny" and (blocking_uncertain or unresolved_context):
             decision = "confirm"
             reason = "insufficient context to evaluate all applicable rules"
         return {"decision": decision, "reason": reason, "capability": "ADVISORY",

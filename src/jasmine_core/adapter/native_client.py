@@ -184,24 +184,30 @@ class NativeClient:
     def close(self,budget):
         if self.closed: return self.cleanup
         denied=False
+        diagnostics=[]
+        def record(stage,exc):
+            # Local owned-child operations only; no argv, environment or credentials.
+            diagnostics.append({'stage':stage,'type':type(exc).__name__,
+                                'errno':getattr(exc,'errno',None)})
         try: self.proc.stdin.close()
-        except OSError: denied=True
+        except OSError as exc: denied=True; record('stdin_close',exc)
         try: os.killpg(self.proc.pid,signal.SIGTERM)
         except ProcessLookupError: pass
-        except OSError: denied=True
+        except OSError as exc: denied=True; record('group_term',exc)
         end=min(budget.end,time.monotonic()+1)
         try: self.proc.wait(timeout=max(.001,end-time.monotonic()))
-        except (subprocess.TimeoutExpired,OSError): pass
+        except (subprocess.TimeoutExpired,OSError) as exc: record('term_wait',exc)
         # Group cleanup is needed even when its leader already exited.
         try: os.killpg(self.proc.pid,signal.SIGKILL)
         except ProcessLookupError: pass
-        except OSError: denied=True
+        except OSError as exc: denied=True; record('group_kill',exc)
         try: self.proc.wait(timeout=max(.001,min(.5,budget.end-time.monotonic())))
-        except (subprocess.TimeoutExpired,OSError): denied=True
+        except (subprocess.TimeoutExpired,OSError) as exc: denied=True; record('kill_wait',exc)
         self.selector.close()
-        for pipe in (self.proc.stdout,self.proc.stderr):
+        for label,pipe in (('stdout_close',self.proc.stdout),('stderr_close',self.proc.stderr)):
             try: pipe.close()
-            except OSError: denied=True
+            except OSError as exc: denied=True; record(label,exc)
         self.closed=True
-        self.cleanup={'cleanup':'incomplete_or_denied' if denied else 'complete','pid':self.proc.pid,'process_group_id':self.proc.pid,'descendants_verified_gone':False,'exit_code':self.proc.returncode}
+        self.cleanup={'cleanup':'incomplete_or_denied' if denied else 'complete','pid':self.proc.pid,'process_group_id':self.proc.pid,'descendants_verified_gone':False,'exit_code':self.proc.returncode,
+                      'cleanup_diagnostics':diagnostics}
         return self.cleanup

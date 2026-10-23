@@ -76,7 +76,9 @@ See [ADR 0021](../docs/adr/0021-observed-tool-decisions.md).
   `web`, `mcp`, `other`. `native_tool` keeps the agent's own name.
 * `action` / `path` / `paths` on `tool.before` are resolved by the adapter: Core cannot
   see the filesystem the tool runs on. A command that cannot be resolved is sent without
-  them and Core's Guard answers `ask` (insufficient context), never an implicit allow.
+  them. If an active DENY/CONFIRM/VERIFY rule matches on a missing dimension, Core's Guard
+  answers `ask` (insufficient context), never an implicit allow; a rule that does not use
+  the missing dimension is decided on what is present (ADR 0031).
 
 Payloads per event are in the request schema.
 
