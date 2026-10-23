@@ -52,5 +52,15 @@
   },
   "fresh_manual_human_acceptance": false,
   "full_v1_acceptance": false,
-  "recorded_at": "2026-10-23T04:28:07.383305+00:00"
+  "recorded_at": "2026-10-23T04:28:07.383305+00:00",
+  "full_python_suite": {
+    "result": "PASS",
+    "total": 1871,
+    "passed": 1860,
+    "skipped": 11,
+    "seconds": 85.152
+  },
+  "upgrade_compatibility_recheck": {
+    "passed": 53
+  }
 }

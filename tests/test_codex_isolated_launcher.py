@@ -18,7 +18,9 @@ class InventoryFraming(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             script = base / 'codex'
-            script.write_text('#!' + sys.executable + '\nimport os,sys,json,time\n' + body)
+            # A venv path may contain spaces, which a kernel shebang cannot quote.
+            # This stdlib-only child can use the resolved interpreter binary.
+            script.write_text('#!' + str(Path(sys.executable).resolve()) + '\nimport os,sys,json,time\n' + body)
             script.chmod(0o700)
             started = time.monotonic()
             try:

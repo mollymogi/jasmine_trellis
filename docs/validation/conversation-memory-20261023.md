@@ -76,6 +76,14 @@ frontend/server checks, and production typecheck/build passed. The CLI executabl
 fingerprint and real data-only native-stream preflight are recorded in ADR 0029.
 The large-bundle build advisory remains informational.
 
+The final full Python suite also passed: 1,871 total, 1,860 passed and 11 skipped.
+Its first run exposed three literal migration lists that still ended at schema 13
+and five launcher fixtures whose shebang used an unquotable virtualenv path with
+spaces. The lists now include migration 14; the stdlib-only subprocess fixture
+uses the resolved interpreter binary. The affected 53-test compatibility group
+and the full suite passed after these test fixes. Production implementation bytes
+were unchanged by this final compatibility correction.
+
 ## Operating limits
 
 Only new locally captured native user prompts are automatic. Assistant replies are
