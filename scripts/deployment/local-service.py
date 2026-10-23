@@ -16,6 +16,8 @@ if args.component in ('core','memory','processing'):
  flow=c.get('conversation_processing',{})
  if flow.get('enabled') is True:
   env.update(JASMINE_CORE_RESOLVER_ACTOR_ID=flow['actor_id'],JASMINE_CORE_RESOLVER_HOST_ID=flow['host_id'],JASMINE_CORE_INTERPRETER_CODEX=flow['executable'],JASMINE_CORE_INTERPRETER_CATALOG=flow['catalog'],JASMINE_CORE_DAILY_INTERPRETER='1')
+  if flow.get('model_config'):env['JASMINE_CORE_INTERPRETER_MODEL_CONFIG']=flow['model_config']
+  if c.get('interpreter_control_config'):env['JASMINE_CORE_INTERPRETER_PROVIDERS']=c['interpreter_control_config']
  if args.component=='processing':
   if flow.get('enabled') is not True:raise SystemExit('Conversation processing is disabled')
   argv=[c['python'],'-I','-B',str(r/'scripts/deployment/conversation-processing-worker.py'),'--db',c['database']]
@@ -28,6 +30,7 @@ else:
  env.update(P6_CORE_ORIGIN=c['core_origin'],P6_ENABLE_WEB_CONFIRMATIONS=str(c['web_confirmation_flag']),P6_ENABLE_P3_READS='1',P6_ENABLE_P7_READS='1',P6_ENABLE_P4_READS='1' if enabled else '0',P6_ENABLE_P4_WRITES='1' if enabled else '0',P6_ENABLE_MEMORY_ENGINE_CONTROL='1' if enabled else '0')
  if c.get('conversation_processing',{}).get('enabled') is True:env['P6_ENABLE_CONVERSATION_PROCESSING']='1'
  if c.get('agent_capture_control_config'):env['JASMINE_AGENT_CAPTURE_CONTROL_CONFIG']=c['agent_capture_control_config']
+ if c.get('interpreter_control_config'):env['JASMINE_INTERPRETER_CONTROL_CONFIG']=c['interpreter_control_config']
  # Only public operational metadata reaches the dashboard; never configuration or keys.
  backups=[]
  for report in sorted((b/'backups').glob('*/BACKUP.json'),reverse=True):

@@ -1,0 +1,53 @@
+{
+  "status": "PASS_SCOPED_CLIENT_SELECTION",
+  "deployed_commit": "4b169684cd5a3dfafca94139786d540f327d0c8c",
+  "validated_source_tree": "708e1d56553c8d653042b27f4dfbd9359b0cecae",
+  "enabled": [
+    "codex",
+    "grok"
+  ],
+  "deferred_by_user": [
+    "claude",
+    "opencode"
+  ],
+  "model_candidates": {
+    "codex": 7,
+    "grok": 4
+  },
+  "native_grok": {
+    "model": "grok-4.6",
+    "cloud_inference": "PASS",
+    "empty_native_tool_inventory": true,
+    "schema_source_validation": "PASS",
+    "existing_human_source_read_only": "PASS",
+    "persistent_memory_write_claimed": false
+  },
+  "checks": {
+    "full_python_regression": "PASS exit 0",
+    "full_frontend_regression": "PASS exit 0",
+    "production_build": "PASS; existing bundle advisory",
+    "final_targeted_python": 19,
+    "final_targeted_web_server": 15
+  },
+  "formal_browser": {
+    "health_check": "PASS",
+    "select_save_reopen": "PASS",
+    "restored": "codex/gpt-6.1-sol",
+    "light_dark_mobile": "PASS",
+    "business_writes": false
+  },
+  "deployment": {
+    "prior_interpretation_configs_preserved": 62,
+    "hindsight_pid": 1590,
+    "hooks_credentials_memory_profile_unchanged": true,
+    "network_configuration_changed": false,
+    "schema_migration": false
+  },
+  "private_evidence_sha256": {
+    "grok-contract-proof.json": "bf63f7b184c5c29afceed5499eee77d045e687f080c61531c67d3f1571dae83a",
+    "grok-native-source-proof.json": "3da9154ef962eb30f84d8ff5a2593830a6d3012dd73ce997427958c3a08a1592",
+    "staging-browser-proof.json": "6b124a3d3fbe19127c30f343dc56839c22f29fa90e06d9aef6628c8d7874ac07",
+    "formal-browser-proof.json": "7b6ff1a566fbc0e429ef997c51ffea4863666ff56074de01675fece50c4a43c3",
+    "final-deployment.json": "c19a134e9e2361413b022a7cebe4e93c0ae0193c2ecc98953d6f34ed9c247a60"
+  }
+}
