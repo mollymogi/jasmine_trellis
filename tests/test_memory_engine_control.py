@@ -25,7 +25,7 @@ class Handler(BaseHTTPRequestHandler):
  def log_message(self,*a):pass
 print('stub: constructing HTTPServer', file=sys.stderr, flush=True)
 server=HTTPServer(('127.0.0.1',int(sys.argv[1])),Handler)
-faulthandler.cancel_dump_traceback_later()
+# One bounded stack dump also covers a serving child whose probes never arrive.
 print('stub: serving', file=sys.stderr, flush=True)
 server.serve_forever()
 '''
@@ -37,7 +37,29 @@ class EngineControlApi(ApiTestCase):
   self.env=patch.dict(os.environ,{CONFIG_ENV:str(self.profile),'JASMINE_MEMORY_DEPLOYMENT_MODE':'single_user'});self.env.start();self.addCleanup(self.env.stop)
   # Observe only this fixture's existing readiness calls; never print bodies,
   # headers, environment, profile contents or arbitrary exception messages.
+  self.startup_failure_evidence=''
   self.probe_diagnostics=[];original_version=HindsightTransport.version
+  original_request=HindsightTransport._request
+  def observed_request(transport,method,path,**kwargs):
+   if transport.config.origin_host!=f'http://127.0.0.1:{self.port_engine}' or method!='GET' or path!='/version':
+    return original_request(transport,method,path,**kwargs)
+   try:return original_request(transport,method,path,**kwargs)
+   except Exception as exc:
+    # version() converts TransportError into a status. Capture its cause here,
+    # without exception messages, URLs, headers, response bodies or environment.
+    chain=[];cause=exc
+    for _ in range(4):
+     if cause is None:break
+     entry={'type':type(cause).__name__}
+     for key in ('errno','code'):
+      value=getattr(cause,key,None)
+      if isinstance(value,int):entry[key]=value
+     chain.append(entry)
+     reason=getattr(cause,'reason',None)
+     cause=cause.__cause__ or (reason if isinstance(reason,BaseException) else None)
+    if len(self.probe_diagnostics)<16:self.probe_diagnostics.append({'request_exception_chain':chain})
+    raise
+  request_observer=patch.object(HindsightTransport,'_request',observed_request);request_observer.start();self.addCleanup(request_observer.stop)
   def observed_version(transport):
    if transport.config.origin_host!=f'http://127.0.0.1:{self.port_engine}':return original_version(transport)
    try:
@@ -63,14 +85,18 @@ class EngineControlApi(ApiTestCase):
    time.sleep(.05)
   self.startup_diagnostics();self.fail('operation did not finish')
  def startup_diagnostics(self):
-  print('engine fixture readiness:',json.dumps(self.probe_diagnostics),flush=True)
+  self.startup_failure_evidence='engine fixture readiness: '+json.dumps(self.probe_diagnostics)
+  print(self.startup_failure_evidence,flush=True)
   # Only the generated stub writes this log. Limit output to 16 KiB and do
   # not expose logs from alternative commands/profiles used by other tests.
   if self._testMethodName not in ('test_application_close_stops_the_owned_child','test_concurrent_clicks_share_one_process_and_health_stays_unverified','test_crashed_owned_process_is_reported_unreachable'):return
   try:
    with (self.root/'engine-start.log').open('rb') as log:content=log.read(16384)
-   print('engine fixture startup log:',content.decode('utf-8',errors='replace'),flush=True)
-  except OSError as exc:print('engine fixture log unavailable:',type(exc).__name__,flush=True)
+   self.startup_failure_evidence+='\nengine fixture startup log: '+content.decode('utf-8',errors='replace')
+   print(self.startup_failure_evidence,flush=True)
+  except OSError as exc:
+   self.startup_failure_evidence+='\nengine fixture log unavailable: '+type(exc).__name__
+   print(self.startup_failure_evidence,flush=True)
  def test_unauthenticated_and_readonly_start_are_refused(self):
   self.assertEqual(self.call('POST','/v1/memory/engine/start',{})[0],401)
   self.assertFalse(self.status()['can_start'])
@@ -95,7 +121,7 @@ class EngineControlApi(ApiTestCase):
   with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
    values=list(pool.map(lambda _:self.call('POST','/v1/memory/engine/start',{},token=self.operator),range(4)))
   self.assertTrue(all(s==202 for s,_ in values));self.assertEqual(len({v['operation_id'] for _,v in values}),1)
-  value=self.wait_done();self.assertEqual(value['state'],'RUNNING',value);self.assertEqual(value['api_version'],'0.10.2');self.assertEqual(len(self.started.read_text().splitlines()),1)
+  value=self.wait_done();self.assertEqual(value['state'],'RUNNING',{'status':value,'startup':self.startup_failure_evidence});self.assertEqual(value['api_version'],'0.10.2');self.assertEqual(len(self.started.read_text().splitlines()),1)
   self.assertNotIn('command',value);self.assertNotIn('do-not-return-this',json.dumps(value))
   status,health=self.call('GET','/v1/memory/health',token=self.reader);self.assertEqual(status,200,health);self.assertEqual(health['status'],'idle');self.assertTrue(health['configured']);self.assertTrue(health['reachable']);self.assertIsNone(health['last_success_at'])
   self.assertEqual(before,{t:list(conn.execute('SELECT * FROM '+t)) for t in before})
@@ -117,7 +143,7 @@ class EngineControlApi(ApiTestCase):
   with patch.dict(os.environ,{CONFIG_ENV:''}):
    self.assertFalse(self.status()['enabled']);self.assertEqual(self.call('POST','/v1/memory/engine/start',{},token=self.operator)[0],400)
  def test_crashed_owned_process_is_reported_unreachable(self):
-  self.call('POST','/v1/memory/engine/start',{},token=self.operator);self.assertEqual(self.wait_done()['state'],'RUNNING')
+  self.call('POST','/v1/memory/engine/start',{},token=self.operator);self.assertEqual(self.wait_done()['state'],'RUNNING',self.startup_failure_evidence)
   os.kill(int(self.started.read_text().strip()),15)
   end=time.monotonic()+5
   while time.monotonic()<end:
@@ -132,5 +158,5 @@ class EngineControlApi(ApiTestCase):
   self.call('POST','/v1/memory/engine/start',{},token=self.operator)
   self.assertEqual(self.wait_done()['state'],'RUNNING')
  def test_application_close_stops_the_owned_child(self):
-  self.call('POST','/v1/memory/engine/start',{},token=self.operator);self.assertEqual(self.wait_done()['state'],'RUNNING');pid=int(self.started.read_text().strip());self.app.close()
+  self.call('POST','/v1/memory/engine/start',{},token=self.operator);self.assertEqual(self.wait_done()['state'],'RUNNING',self.startup_failure_evidence);pid=int(self.started.read_text().strip());self.app.close()
   with self.assertRaises(ProcessLookupError):os.kill(pid,0)

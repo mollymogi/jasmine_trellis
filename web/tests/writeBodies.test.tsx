@@ -106,6 +106,7 @@ async function enter(
   await screen.findByText('Core 健康与 Schema')
   window.location.hash = hash
   window.dispatchEvent(new HashChangeEvent('hashchange'))
+  if(hash.startsWith('#/review/'))await user.click(await screen.findByRole('button',{name:'高级处理方案与技术记录'}))
   if(hash.startsWith('#/rules'))await user.click(await screen.findByRole('button',{name:'高级管理'}))
 }
 
