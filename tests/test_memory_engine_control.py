@@ -9,7 +9,13 @@ from jasmine_core.memory.engine_control import CONFIG_ENV
 from jasmine_core.memory.hindsight import HindsightTransport
 
 STUB='''import sys,json,time,os
-from http.server import BaseHTTPRequestHandler,HTTPServer
+from http.server import BaseHTTPRequestHandler,HTTPServer as _HTTPServer
+from socketserver import TCPServer
+class HTTPServer(_HTTPServer):
+ def server_bind(self):
+  # The fixture binds a literal loopback address; it must not depend on DNS.
+  TCPServer.server_bind(self)
+  self.server_name,self.server_port=self.server_address[:2]
 from pathlib import Path
 Path(sys.argv[2]).open('a').write(str(os.getpid())+'\\n')
 class Handler(BaseHTTPRequestHandler):
@@ -142,6 +148,11 @@ class EngineControlApi(ApiTestCase):
    time.sleep(.05)
   self.assertEqual(value['state'],'FAILED')
   _,health=self.call('GET','/v1/memory/health',token=self.reader);self.assertEqual(health['status'],'unreachable');self.assertFalse(health['reachable'])
+ def test_stub_startup_does_not_resolve_host_names(self):
+  original=self.script.read_text()
+  self.script.write_text("import socket\ndef reject_dns(*args):raise AssertionError('fixture performed reverse DNS')\nsocket.getfqdn=reject_dns\n"+original)
+  self.call('POST','/v1/memory/engine/start',{},token=self.operator)
+  self.assertEqual(self.wait_done()['state'],'RUNNING')
  def test_application_close_stops_the_owned_child(self):
   self.call('POST','/v1/memory/engine/start',{},token=self.operator);self.assertEqual(self.wait_done()['state'],'RUNNING');pid=int(self.started.read_text().strip());self.app.close()
   with self.assertRaises(ProcessLookupError):os.kill(pid,0)
