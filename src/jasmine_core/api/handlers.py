@@ -133,6 +133,7 @@ def _base_routes() -> list[Route]:
         Route("POST", re.compile(r"^/v1/events$"), create_event, "events:write"),
         Route("GET", re.compile(r"^/v1/events$"), list_events, "events:read"),
         Route("GET", re.compile(r"^/v1/events/([^/]+)$"), get_event, "events:read"),
+        Route("GET", re.compile(r"^/v1/rules$"), list_rules, "authority:read"),
         Route("GET", re.compile(r"^/v1/rules/active$"), list_active_rules, "authority:read"),
         Route("GET", re.compile(r"^/v1/rules/([^/]+)$"), get_rule, "authority:read"),
         Route("GET", re.compile(r"^/v1/rules/([^/]+)/history$"), get_rule_history, "authority:read"),
@@ -318,6 +319,23 @@ def get_event(request: Request, core: Core, principal: auth.Principal,
     if event is None:
         raise errors.NotFound("event", event_id)
     return Response(200, {"event": event})
+
+
+def list_rules(request: Request, core: Core, principal: auth.Principal,
+               match: re.Match[str]) -> Response:
+    allowed = {"project_id", "task_id", "status", "scope_kind", "limit", "offset"}
+    if set(request.query) - allowed or any(len(v) != 1 for v in request.query.values()):
+        raise errors.InvalidRequest("unknown or duplicate rule query parameters")
+    params = {key: values[0] for key, values in request.query.items()}
+    for key in ("limit", "offset"):
+        if key in params:
+            if not re.fullmatch(r"[0-9]+", params[key]):
+                raise errors.InvalidRequest(key + " must be a nonnegative integer")
+            try:
+                params[key] = int(params[key])
+            except ValueError:
+                raise errors.InvalidRequest(key + " is too large")
+    return Response(200, core.authority.list_rules(**params))
 
 
 def list_active_rules(request: Request, core: Core, principal: auth.Principal,

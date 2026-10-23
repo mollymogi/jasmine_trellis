@@ -20,6 +20,7 @@
     "^/v1/events$",
     "^/v1/events/[a-z]{3}_[0-9ABCDEFGHJKMNPQRSTVWXYZ]{26}$",
     "^/v1/host-hooks/deliveries$",
+    "^/v1/rules$",
     "^/v1/rules/active$",
     "^/v1/rules/[a-z]{3}_[0-9ABCDEFGHJKMNPQRSTVWXYZ]{26}$",
     "^/v1/rules/[a-z]{3}_[0-9ABCDEFGHJKMNPQRSTVWXYZ]{26}/history$",

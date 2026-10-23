@@ -218,6 +218,45 @@ class AuthorityStore:
                 "status_event_id": status_event_id,
                 "status_actor_kind": status_event["actor_kind"] if status_event else None}
 
+    def list_rules(self, *, project_id: str | None = None, task_id: str | None = None,
+                   status: str | None = None, scope_kind: str | None = None,
+                   limit: int = 50, offset: int = 0) -> dict[str, Any]:
+        """Browse stored rules, distinct from Guard's inherited effective-rule lookup."""
+        # SQLite binds OFFSET as a signed 64-bit integer.
+        if (type(limit) is not int or not 1 <= limit <= 200
+                or type(offset) is not int or not 0 <= offset <= 9223372036854775807):
+            raise errors.InvalidRequest("limit must be 1..200 and offset must be 0..9223372036854775807")
+        if status is not None and status not in STATUS:
+            raise errors.InvalidRequest("unknown rule status", field="status")
+        if scope_kind is not None and scope_kind not in ("global", "project", "task"):
+            raise errors.InvalidRequest("unknown rule scope", field="scope_kind")
+        if scope_kind == "global" and (project_id is not None or task_id is not None):
+            raise errors.InvalidRequest("global scope cannot name a project or task")
+        if task_id is not None:
+            _id({"task_id": task_id}, "task_id", "tsk")
+            task = self.conn.execute("SELECT project_id FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+            if task is None:
+                raise errors.NotFound("task", task_id)
+            if project_id is not None and project_id != task["project_id"]:
+                raise errors.InvalidRequest("task does not belong to project")
+            project_id = task["project_id"]
+        if project_id is not None:
+            _id({"project_id": project_id}, "project_id", "prj")
+            if self.conn.execute("SELECT 1 FROM projects WHERE project_id=?", (project_id,)).fetchone() is None:
+                raise errors.NotFound("project", project_id)
+        clauses, params = [], []
+        for column, value in (("project_id", project_id), ("task_id", task_id),
+                              ("status", status), ("scope_kind", scope_kind)):
+            if value is not None:
+                clauses.append(column + "=?")
+                params.append(value)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        rows = self.conn.execute("SELECT rule_id FROM rules" + where +
+                                 " ORDER BY rule_id DESC LIMIT ? OFFSET ?", (*params, limit + 1, offset)).fetchall()
+        items = [self.get(row["rule_id"]) for row in rows[:limit]]
+        return {"rules": items, "count": len(items), "has_more": len(rows) > limit,
+                "next_offset": offset + len(items) if len(rows) > limit else None}
+
     def list_active(self, *, project_id: str | None = None,
                     task_id: str | None = None) -> list[dict[str, Any]]:
         if task_id is not None:

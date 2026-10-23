@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   p0:
+    timeout-minutes: 15
     # P0 depends on nothing but the standard library, so a clean runner can
     # reproduce the acceptance runs without installing anything (ADR 0001 §2.1).
     runs-on: ${{ matrix.os }}
@@ -240,3 +241,25 @@ jobs:
           assert recorded == shipped, f"checksum mismatch: {recorded} != {shipped}"
           print(json.dumps(shipped, indent=2))
           PY
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Frontend tests
+        run: npm test -- --maxWorkers=2 --minWorkers=1
+      - name: TypeScript validation
+        run: npm run typecheck
+      - name: Production build
+        run: npm run build

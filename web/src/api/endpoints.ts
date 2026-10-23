@@ -183,6 +183,8 @@ export function makeEndpoints(client: CoreClient) {
         query: { project_id: scope.project_id, task_id: scope.task_id },
         signal,
       }),
+    listRules: (query: {project_id?:string|null;task_id?:string|null;status?:string|null;scope_kind?:string|null;limit?:number;offset?:number}, signal?:AbortSignal) =>
+      client.get<RulePage & {has_more:boolean;next_offset:number|null}>('/rules', {query,signal}),
     getRule: (ruleId: string, signal?: AbortSignal) =>
       client.get<{ rule: Rule }>(`/rules/${id(ruleId)}`, { signal }),
     getRuleHistory: (ruleId: string, signal?: AbortSignal) =>

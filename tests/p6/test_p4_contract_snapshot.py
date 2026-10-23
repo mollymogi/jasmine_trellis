@@ -214,9 +214,9 @@ class BaselineDoesNotHaveP4Routes(unittest.TestCase):
 
     def test_the_live_allowlist_is_unchanged_by_this_slice(self) -> None:
         allowlist = json.loads(ALLOWLIST_PATH.read_text(encoding="utf-8"))
-        # 26 = 25 at P6-03b1 + GET /v1/host-hooks/deliveries (ADR 0020, P1 enforcement view).
-        self.assertEqual(len(allowlist["paths"]), 26,
-                         "only the ADR 0020 host-hook decisions read may be added on top of P6-03b1")
+        # 27 = 25 at P6-03b1 + host-hook deliveries + the additive rule catalog.
+        self.assertEqual(len(allowlist["paths"]), 27,
+                         "host-hook decisions and the rule catalog are the additive baseline reads")
         self.assertEqual(len(allowlist["p3_pending_paths"]), 4, "P6-03a's list is untouched")
 
     def test_every_live_path_is_a_real_baseline_route(self) -> None:

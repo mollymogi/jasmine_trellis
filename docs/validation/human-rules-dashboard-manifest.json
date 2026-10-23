@@ -1,0 +1,71 @@
+{
+  "status": "PASS_SCOPED_RULE_UI",
+  "deployed_commit": "7f2a566902b2b099714c71ec77a9fcd62e4526fe",
+  "schema": 14,
+  "schema_migration": false,
+  "initial_rule_statuses": {
+    "ACTIVE": 4
+  },
+  "initial_scopes": {
+    "project": 2,
+    "task": 2
+  },
+  "initial_enforcement": {
+    "CONTEXT": 4
+  },
+  "formal_business_writes": 0,
+  "formal_rule_tables_unchanged": true,
+  "formal_browser": {
+    "status": "PASS",
+    "qualification": "formal_read_only_human_ui",
+    "initialRules": 4,
+    "layout": "light/dark/390px",
+    "guideAndDetails": true,
+    "operations": [],
+    "posts": [],
+    "pageErrors": []
+  },
+  "copy_browser": {
+    "status": "PASS",
+    "qualification": "database_copy_component_ui_writes",
+    "initialRules": 4,
+    "layout": "light/dark/390px",
+    "guideAndDetails": true,
+    "operations": [
+      "propose",
+      "approve",
+      "supersede",
+      "retire"
+    ],
+    "posts": [
+      "/v1/rules/proposals",
+      "/v1/rules/rul_01M5M43G0C3E5R188CT5FW46SB/approve",
+      "/v1/rules/rul_01M5M43G0C3E5R188CT5FW46SB/supersede",
+      "/v1/rules/rul_01M5M43G0C3E5R188CT5FW46SB/retire"
+    ],
+    "pageErrors": []
+  },
+  "validation": {
+    "python": {
+      "run": 1901,
+      "skipped": 11,
+      "failed": 0
+    },
+    "frontend": {
+      "files": 57,
+      "passed": 657,
+      "failed": 0
+    },
+    "final_guided_tests": 5,
+    "build": "PASS; existing bundle-size advisory"
+  },
+  "guard_enabled": false,
+  "guard_matching_changed": false,
+  "hindsight_pid": 1590,
+  "capture_hooks_credentials_model_controls_unchanged": true,
+  "evidence_sha256": {
+    "deployment.json": "e3f0452234450389da213406598c197e474d600be676ed18c6fc331b92ad8c29",
+    "formal-browser-proof.json": "be6313bd107307437f522f260a4528805e3e73d8b7913f41d962256f7de4e418",
+    "copy-browser-proof.json": "ac7deaf80a48aff6274e8070e6257caca106ace2cb8c91b6039ec158036e9a1d"
+  }
+}
