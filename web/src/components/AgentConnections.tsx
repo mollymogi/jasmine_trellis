@@ -19,7 +19,7 @@ export function AgentConnections({ discovery }: { discovery?: AgentDiscovery }) 
   }, [open, refresh, !!discovery])
   function rows(items: DetectedAgent[]) {
     return items.map(agent => <li key={agent.id}>
-      <div className="agent-inventory-identity"><AgentLogo agent={agent.id} size={22} /><div><strong>{agent.name}</strong><small>{agent.detected ? [agent.cli ? 'CLI' : '', agent.desktop ? '桌面应用' : ''].filter(Boolean).join(' · ') + ' 已找到' : '常见位置未检测到'}</small></div></div>
+      <div className="agent-inventory-identity"><AgentLogo agent={agent.id} size={22} /><div><strong>{agent.name}</strong><small>{agent.detected ? [agent.cli ? 'CLI' : '', agent.desktop ? '桌面应用' : ''].filter(Boolean).join(' · ') + ' 已找到' : '常见位置未检测到'}</small>{agent.id === 'claude' ? <small>采集范围：Claude Code CLI、桌面 Code 的本机会话；不含 Chat、Cowork 和云端会话。</small> : null}</div></div>
       <AgentCaptureAction agent={agent} onChanged={refresh} refreshing={loading} />
     </li>)
   }

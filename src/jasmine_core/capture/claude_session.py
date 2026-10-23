@@ -14,6 +14,9 @@ from ..hosthook.install import _write
 from .codex_session import append_receipt
 from .grok_session import EVENTS,valid_id,bind_workspace,_publish
 SOURCE='claude-native-conversation-v1'
+# Observed native entrypoint/source pairs. Desktop Code uses the SDK transport
+# even for a human submission; a generic SDK invocation is not human evidence.
+HUMAN_INPUT_SOURCES={('cli','typed'),('claude-desktop','sdk')}
 
 def _prompt_origin(n):
     """Read current-turn metadata only, never import earlier message bodies."""
@@ -30,13 +33,16 @@ def _prompt_origin(n):
                 except ValueError:continue
                 if not isinstance(row,dict) or row.get('promptId')!=n['turn'] or row.get('type')!='user':continue
                 if (row.get('sessionId')!=n['sid'] or row.get('isSidechain') is not False
-                    or row.get('origin')!={'kind':'human'} or row.get('promptSource')!='typed'
+                    or row.get('origin')!={'kind':'human'}
                     or row.get('turnOrigin')!='human' or row.get('userType')!='external'
-                    or row.get('entrypoint')!='cli' or not isinstance(row.get('cwd'),str)
+                    or (row.get('entrypoint'),row.get('promptSource')) not in HUMAN_INPUT_SOURCES
+                    or row.get('sourceToolAssistantUUID') or row.get('isMeta')
+                    or not isinstance(row.get('cwd'),str)
                     or Path(row['cwd']).resolve()!=Path(n['cwd'])):continue
                 stamp=row.get('timestamp');uid=row.get('uuid')
                 if not valid_id(uid) or not isinstance(stamp,str) or datetime.fromisoformat(stamp.replace('Z','+00:00')).tzinfo is None:continue
-                return {'check':'native_current_turn_typed_human_metadata','native_prompt_id':n['turn'],'native_message_id':uid,'native_prompt_timestamp':stamp}
+                return {'check':'native_current_turn_typed_human_metadata','native_prompt_id':n['turn'],'native_message_id':uid,'native_prompt_timestamp':stamp,
+                        'native_entrypoint':row['entrypoint'],'native_prompt_source':row['promptSource']}
         finally:os.close(fd)
     except (OSError,ValueError,TypeError):pass
     return None

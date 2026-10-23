@@ -47,6 +47,35 @@ class ClaudeCapture(ConversationCapture):
         _,events=self.call('GET','/v1/events?session_id='+first['session_id'],token=self.admin_token)
         self.assertEqual([e['event_type'] for e in events['events']],['session.started','user.prompt'])
 
+    def test_desktop_code_sdk_human_turn_and_reply_keep_native_provenance(self):
+        capture_device(self.packet('SessionStart'),self.device,self.home)
+        self.typed('桌面消息',entrypoint='claude-desktop',promptSource='sdk')
+        first=capture_device(self.packet('UserPromptSubmit',prompt='桌面消息'),self.device,self.home)
+        self.assertEqual(first['status'],'accepted')
+        self.assertEqual(first['origin']['native_entrypoint'],'claude-desktop')
+        self.assertEqual(first['origin']['native_prompt_source'],'sdk')
+        reply=capture_device(self.packet('Stop',last_assistant_message='桌面回复'),self.device,self.home)
+        self.assertEqual(reply['session_id'],first['session_id'])
+        _,events=self.call('GET','/v1/events?session_id='+first['session_id'],token=self.admin_token)
+        self.assertEqual([e['payload']['text'] for e in events['events']],['','桌面消息','桌面回复'])
+        self.assertEqual(events['events'][1]['actor_kind'],'human')
+
+    def test_desktop_transport_alone_never_grants_human_attribution(self):
+        from jasmine_core.capture.claude_session import _prompt_origin
+        for metadata in [
+            {'entrypoint':'sdk','promptSource':'sdk'},
+            {'entrypoint':'cli','promptSource':'sdk'},
+            {'entrypoint':'claude-desktop','promptSource':'typed'},
+            {'entrypoint':'claude-desktop','promptSource':'sdk','origin':{'kind':'agent'}},
+            {'entrypoint':'claude-desktop','promptSource':'sdk','turnOrigin':'agent'},
+            {'entrypoint':'claude-desktop','promptSource':'sdk','isSidechain':True},
+            {'entrypoint':'claude-desktop','promptSource':'sdk','sourceToolAssistantUUID':str(uuid.uuid4())},
+            {'entrypoint':'claude-desktop','promptSource':'sdk','isMeta':True},
+        ]:
+            with self.subTest(metadata=metadata):
+                self.transcript.write_text('');self.typed('ignored',**metadata)
+                self.assertIsNone(_prompt_origin({'transcript_path':str(self.transcript),'turn':self.turn,'sid':self.sid,'cwd':str(self.native_root)}))
+
     def test_autowake_cannot_reuse_typed_turn_or_publish_reply(self):
         self.typed('你好');p=self.packet('UserPromptSubmit',prompt='你好')
         self.assertEqual(capture_device(p,self.device,self.home)['status'],'accepted')

@@ -22,9 +22,15 @@ trust dialog. Client restrictions, including account restrictions, are not bypas
 Claude's UserPromptSubmit can also describe a scheduler wake or a teammate's
 message. A Hook name or UUID alone is insufficient human provenance. Read only a
 bounded 1 MiB tail of this session's native transcript and find the **exact prompt
-UUID**. Require user-type metadata with `origin.kind=human`, `promptSource=typed`,
-`turnOrigin=human`, `userType=external`, `entrypoint=cli`, matching session/cwd,
-and no sidechain. Text still comes from the current Hook, never from the transcript.
+UUID**. Require user-type metadata with `origin.kind=human`, `turnOrigin=human`,
+`userType=external`, matching session/cwd, no sidechain, meta-message or tool-result
+assistant reference. Accept only the observed entrypoint/source pairs: `cli/typed`
+and `claude-desktop/sdk`. Desktop Code sends human submissions over the SDK transport;
+`sdk` alone is insufficient. The latter pair was verified on actual desktop Code
+2.1.308 transcripts and matching rejected native Hook receipts on 2026-10-23.
+The connection panel explicitly limits Claude coverage to CLI and local desktop
+Code; ordinary Chat, Cowork and cloud sessions are outside this adapter.
+Text still comes from the current Hook, never from the transcript.
 Unknown origins/older formats are ignored. No native input history is consumed,
 and no previous transcript messages are imported.
 
