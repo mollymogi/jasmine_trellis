@@ -1,3 +1,4 @@
+import { ConversationProcessing } from '../components/ConversationProcessing'
 /** Conversation browser: recorded source -> workspace -> one native session.
  * Registry reads never imply a scan of the machine or capture for every Agent.
  */
@@ -143,7 +144,8 @@ export function ConversationView({ projectId, taskId, sessionId }: {
     {projects.error ? <ErrorPanel error={projects.error} what="项目列表" onRetry={projects.reload} /> : null}
     {sessions.error ? <ErrorPanel error={sessions.error} what="会话列表" onRetry={sessions.reload} /> : null}
     {registrations.error ? <p className="state state--meta">项目来源暂未读取，未确认的项目保留在“来源待确认”中。</p> : null}
-    <div className="conversation-browser">
+    <ConversationProcessing projectId={activeProject} sessionId={activeSession} compact/>
+      <div className="conversation-browser">
       <ConversationNavigator projects={projects.items} registrations={registrations.items} sessions={sessions.items}
         activeProject={activeProject} activeSession={validSession ? activeSession : null} previews={previews}
         mode={navigationMode} onModeChange={setNavigationMode} search={navigationSearch}

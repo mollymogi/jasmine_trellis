@@ -120,6 +120,7 @@ export function loadAllowlist(directory = HERE, {
   enableP7Reads = p7ReadsEnabled(),
   enableWebConfirmations = webConfirmationsEnabled(),
   enableMemoryEngineControl = flagEnabled(process.env, "P6_ENABLE_MEMORY_ENGINE_CONTROL"),
+  enableConversationProcessing = flagEnabled(process.env, "P6_ENABLE_CONVERSATION_PROCESSING"),
 } = {}) {
   const raw = JSON.parse(readFileSync(join(directory, 'core-paths.json'), 'utf8'))
   const baseline = raw.paths.map((pattern) => new RegExp(pattern))
@@ -142,6 +143,7 @@ export function loadAllowlist(directory = HERE, {
     methods: new Set(raw.methods.map((method) => method.toUpperCase())),
     paths: [
       ...baseline,
+      ...(enableConversationProcessing ? (raw.conversation_processing_read_paths ?? []).map(pattern=>new RegExp(pattern)) : []),
       ...(enableMemoryEngineControl ? (raw.memory_engine_read_paths ?? []).map(pattern => new RegExp(pattern)) : []),
       ...(enableWebConfirmations ? (raw.web_confirmation_read_paths ?? []).map((pattern) => new RegExp(pattern)) : []),
       ...(enableP3Reads ? pending : []),
@@ -159,6 +161,7 @@ export function loadAllowlist(directory = HERE, {
     write_methods: raw.write_methods ?? [],
     write_paths: [
       ...(raw.write_paths ?? []),
+      ...(enableConversationProcessing ? raw.conversation_processing_write_paths ?? [] : []),
       ...(enableMemoryEngineControl ? (raw.memory_engine_write_paths ?? []).map(pattern => new RegExp(pattern)) : []),
       ...(enableWebConfirmations ? raw.web_confirmation_write_paths ?? [] : []),
       ...(enableP4Writes ? raw.p4_write_paths ?? [] : []),
@@ -269,7 +272,7 @@ export function proxy(req, res, origin, allowlist) {
     }, requestId)
     return
   }
-  if ((req.method ?? '').toUpperCase() === 'POST' && (target.pathname.startsWith('/v1/evidence/confirmations/') || target.pathname === '/v1/memory/engine/start')) {
+  if ((req.method ?? '').toUpperCase() === 'POST' && (target.pathname.startsWith('/v1/evidence/confirmations/') || target.pathname === '/v1/memory/engine/start' || target.pathname.startsWith('/v1/conversation-processing/'))) {
     const browserOrigin = req.headers.origin
     if (browserOrigin !== undefined && browserOrigin !== `http://${req.headers.host}`) {
       sendJson(res, 403, { error: { code: 'proxy_origin_not_allowed', message: 'local writes require a same-origin browser request' } }, requestId)

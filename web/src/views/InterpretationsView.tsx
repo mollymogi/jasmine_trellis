@@ -1,3 +1,4 @@
+import { ConversationProcessing } from '../components/ConversationProcessing'
 /**
  * Interpretation list (P6-02 milestone A, read slice).
  *
@@ -84,6 +85,8 @@ export function InterpretationsView({
 
   return (
     <div className="stack">
+      <ConversationProcessing projectId={projectId}/>
+      <details className="processing-raw-records"><summary>解释原始记录与筛选</summary>
       <nav className="breadcrumb" aria-label="位置">
         <a href={sourceHref.conversation(projectId, taskId)}>Conversation</a>
         <span aria-hidden="true">/</span>
@@ -220,6 +223,7 @@ export function InterpretationsView({
           详见 <code>web/P6-02-COMPLIANCE.md</code>。
         </p>
       </Panel>
+      </details>
     </div>
   )
 }

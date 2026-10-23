@@ -51,6 +51,7 @@ const pendingPaths = allowlist as {
 }
 const ALLOWED_PATHS = [
   ...allowlist.paths,
+  ...(flagEnabled('P6_ENABLE_CONVERSATION_PROCESSING') ? allowlist.conversation_processing_read_paths ?? [] : []),
   ...(memoryEngineControl ? allowlist.memory_engine_read_paths : []),
   ...(webConfirmationsEnabled ? allowlist.web_confirmation_read_paths : []),
   ...(p3ReadsEnabled ? pendingPaths.p3_pending_paths ?? [] : []),
@@ -63,6 +64,7 @@ const WRITE_METHODS = new Set(
 )
 const WRITE_PATHS = [
   ...(allowlist.write_paths ?? []),
+  ...(flagEnabled('P6_ENABLE_CONVERSATION_PROCESSING') ? allowlist.conversation_processing_write_paths ?? [] : []),
   ...(memoryEngineControl ? allowlist.memory_engine_write_paths : []),
   ...(webConfirmationsEnabled ? allowlist.web_confirmation_write_paths : []),
   // Only ever appended to the POST list: `isAllowedCoreRequest` selects a list by method, so
@@ -206,7 +208,7 @@ export function proxyCoreRequest(
     return
   }
 
-  if (method.toUpperCase() === 'POST' && (target.pathname.startsWith('/v1/evidence/confirmations/') || target.pathname === '/v1/memory/engine/start')) {
+  if (method.toUpperCase() === 'POST' && (target.pathname.startsWith('/v1/evidence/confirmations/') || target.pathname === '/v1/memory/engine/start' || target.pathname.startsWith('/v1/conversation-processing/'))) {
     const browserOrigin = req.headers.origin
     if (browserOrigin !== undefined && browserOrigin !== `http://${req.headers.host}`) {
       refuse(res, req, 403, 'proxy_origin_not_allowed', 'local writes require a same-origin browser request')

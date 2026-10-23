@@ -822,3 +822,23 @@ main {
 .agent-connections { max-height: min(85dvh, 780px); overflow-y: auto; }
 .agent-inventory li { align-items: flex-start; }
 @media(max-width: 520px) { .agent-inventory li { flex-direction: column; gap: 10px; } .agent-capture-action { align-items: flex-start; text-align: left; max-width: 100%; } }
+
+.processing-panel { margin: 0 0 16px; min-width: 0; }
+.processing-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:16px; }
+.processing-heading h2 { display:flex; align-items:center; gap:8px; font-size:20px; font-weight:600; margin:0 0 8px; }
+.processing-heading p { font-size:12px; color:var(--muted-foreground); margin:0; line-height:1.7; }
+.processing-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.processing-flow { display:flex; flex-wrap:wrap; align-items:center; gap:10px; color:var(--muted-foreground); font-size:11px; padding:12px 0 20px; }
+.processing-cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.processing-card { min-width:0; }
+.processing-card h3 { font-size:15px; line-height:1.6; overflow-wrap:anywhere; }
+.processing-card-top { display:flex; align-items:center; justify-content:space-between; gap:12px; color:var(--muted-foreground); font-size:11px; }
+.processing-card details { margin-top:14px; font-size:11px; }
+.processing-details { display:grid; gap:12px; padding-top:12px; }
+.processing-error { display:flex; gap:8px; color:var(--destructive); font-size:12px; }
+.processing-notice,.processing-empty { padding:16px; background:var(--accent); border-radius:10px; font-size:12px; line-height:1.7; }
+.processing-panel--compact > details > summary { cursor:pointer; padding:10px 0; color:var(--muted-foreground); font-size:12px; }
+.processing-panel--compact .processing-heading { margin-top:12px; }
+.processing-raw-records > summary { cursor:pointer; margin:18px 0; color:var(--muted-foreground); font-size:12px; }
+.processing-pagination { display:flex; justify-content:center; align-items:center; gap:14px; padding-top:20px; font-size:12px; }
+@media(max-width:700px){.processing-cards{grid-template-columns:minmax(0,1fr)}.processing-heading{flex-direction:column}}

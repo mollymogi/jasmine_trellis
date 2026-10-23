@@ -283,7 +283,7 @@ class MigrationFromP1(MemoryTestCase):
         # without the migrations it renumbers past actually existing.
         self.assertEqual(applied, ["m0008_resolutions", "m0009_continuity",
                                    "m0010_context", "m0011_memory", "m0012_web_confirmations",
-                                   "m0013_host_hooks"])
+                                   "m0013_host_hooks", "m0014_conversation_processing"])
         self.assertEqual(current_version(self.conn), SCHEMA_VERSION)
         self.assertEqual(
             self.conn.execute("SELECT display_name FROM hosts WHERE host_id=?",
