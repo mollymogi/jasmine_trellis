@@ -49,6 +49,36 @@ class Processing(DbTestCase):
   self.assertEqual(self.worker.enqueue({'event_id':event},actor_id=self.human)['queued'],1)
   self.assertEqual(self.worker.tick()['status'],'PENDING_REVIEW');item=self.worker.list(event_id=event)['items'][0]
   self.assertEqual(self.worker.interpretations.get(item['interpretation_id'])['source_type'],'AGENT_PROPOSED');self.assertEqual(self.conn.execute('select count(*) from evidence').fetchone()[0],0)
+ def _recover_committed_resolution(self,crash):
+  self.kind='RULE';event=self.event('项目文档统一使用中文');save=self.worker._save
+  def interrupted_save(event_id,owner,**values):
+   if 'resolution_id' in values:
+    if crash:raise KeyboardInterrupt('worker stopped after resolve commit')
+    raise RuntimeError('queue projection write failed')
+   return save(event_id,owner,**values)
+  with patch.object(self.worker,'_save',side_effect=interrupted_save):
+   if crash:
+    with self.assertRaises(KeyboardInterrupt):self.worker.tick()
+   else:self.assertEqual(self.worker.tick()['status'],'FAILED')
+  queued=self.worker.list(event_id=event)['items'][0];self.assertIsNone(queued['resolution_id'])
+  prior=self.conn.execute('SELECT resolution_id FROM resolution_request_keys WHERE actor_id=? AND idempotency_key=?',(self.system,'daily-resolve:'+queued['interpretation_id'])).fetchone()
+  resolution=self.worker.resolver.get(prior['resolution_id']);review=ReviewStore(self.worker.resolver).get(resolution['result']['review_id']);p=review['preview']
+  ReviewStore(self.worker.resolver).change(review['review_id'],'approve',{'idempotency_key':'recovery-approval','host_id':self.host,'expected_revision':1,'reason':'Confirm project convention','expected_revisions':p['expected_revisions'],'expected_context_digest':p['expected_context_digest'],'actions':[{'candidate_index':0,'action':'CREATE_RULE','payload':{}}]},actor_id=self.human,scopes={'authority:propose','authority:manage'})
+  JobStore(self.conn,MemoryStore(self.conn,schema_version=SCHEMA_VERSION)).enqueue_from_sources(SourceRegistry())
+  if crash:self.conn.execute("UPDATE conversation_processing SET lease_until='2000-01-01T00:00:00.000000Z' WHERE event_id=?",(event,))
+  else:self.worker.retry(event,actor_id=self.human)
+  restarted=ConversationProcessing(self.conn,schema_version=SCHEMA_VERSION,processor_actor_id=self.system,host_id=self.host,provider=self.fake)
+  with patch.object(restarted.resolver,'preview',side_effect=AssertionError('committed resolution must bypass preview')):
+   self.assertEqual(restarted.tick()['status'],'PENDING_REVIEW')
+  restarted.reconcile();row=restarted.list(event_id=event)['items'][0]
+  self.assertEqual(row['status'],'APPLIED');self.assertEqual(row['resolution_id'],prior['resolution_id']);self.assertEqual(row['review_id'],review['review_id'])
+  self.assertEqual(len(row['memory_items']),1);self.assertEqual(len(row['memory_jobs']),1);self.assertEqual(self.fake.calls,1)
+  self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM resolutions').fetchone()[0],1)
+  self.assertEqual(restarted.tick()['status'],'idle')
+ def test_committed_resolution_recovers_after_lease_expiry_and_context_change(self):
+  self._recover_committed_resolution(crash=True)
+ def test_committed_resolution_recovers_after_explicit_retry_and_context_change(self):
+  self._recover_committed_resolution(crash=False)
  def test_failed_provider_retries_as_audited_child(self):
   event=self.event();self.fail=True;self.assertEqual(self.worker.tick()['status'],'FAILED');first=self.worker.list(event_id=event)['items'][0]['interpretation_id']
   self.assertEqual(self.worker.list(event_id=event)['items'][0]['error_code'],'provider_timeout');self.fail=False
