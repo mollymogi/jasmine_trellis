@@ -88,7 +88,7 @@ export function App(): JSX.Element {
           <SidebarTrigger />
           <span className="text-sm text-muted-foreground">{currentLabel(route)}</span>
         </header>
-        {!['conversation','interpretations','interpretation'].includes(route.name) ? <details className="readonly-banner">
+        {!['conversation','interpretations','interpretation','rules'].includes(route.name) ? <details className="readonly-banner">
           <summary className="cursor-pointer">单机版 0.2.0 · 部分功能尚未开放</summary>
           <p role="note">
             已提供：项目与 Task/Step 管理、Rule 与 Review 审批、Evidence 读取和人工确认、Checkpoint/Context/Resume 读取、Validation 记录下钻。

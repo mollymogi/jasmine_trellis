@@ -72,7 +72,7 @@ describe('P4 memory reads are opt-in', () => {
       expect(live).not.toContain(pending)
     }
     // +1: GET /v1/host-hooks/deliveries (ADR 0020, P1 enforcement view)
-    expect(allowlist.paths).toHaveLength(26)
+    expect(allowlist.paths).toHaveLength(27)
   })
 
   it('does not open the P6-03b2 writes even with P4 enabled', () => {

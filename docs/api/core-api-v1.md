@@ -705,3 +705,21 @@ Existing frozen P4 contract snapshots retain their historical bindings.
 
 
 Schema 14 additive daily processing extension: [Conversation processing](conversation-processing-v1.md). Existing P2/P4 endpoint contracts remain unchanged.
+
+## Rule catalog (ADR 0033, additive schema-14 read)
+
+`GET /v1/rules` requires `authority:read`. It browses stored rules across all
+scopes/statuses; it does not replace `/v1/rules/active`'s inherited ACTIVE-rule
+lookup. Filters: `project_id`, `task_id`, `scope_kind=global|project|task`,
+`status=PROPOSED|ACTIVE|RETIRED|SUPERSEDED`, `limit=1..200` (default 50), and
+`offset>=0` (default 0). Unknown/duplicate parameters are invalid. Task/project
+identity and relationships are validated; a global filter cannot name either.
+Project filtering selects rules owned by that project, including task rules.
+`SUPERSEDED` is accepted as the existing status vocabulary; historical versions
+are still accessed through Rule history, not synthesized as current catalog rows.
+
+Response: `{rules: Rule[], count: <page length>, has_more: boolean,
+next_offset: <integer or null>}`. Sort: stable `rule_id` descending. Pagination
+uses lookahead, not a client-inferred total; pages are not a transactional snapshot.
+The endpoint is read-only. It returns the existing Rule representation, and has
+no effect on approval, matching, Guard activation, evidence or Memory writes.

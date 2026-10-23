@@ -77,6 +77,7 @@ describe('isAllowedCoreRequest', () => {
       `/v1/events/${id('evt')}`,
       '/v1/sessions',
       `/v1/sessions/${id('ses')}`,
+      '/v1/rules',
       '/v1/rules/active',
       `/v1/rules/${id('rul')}`,
       `/v1/rules/${id('rul')}/history`,

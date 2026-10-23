@@ -84,8 +84,8 @@ describe('P4 memory writes are opt-in, separately from the reads', () => {
     // The always-on list is now milestone B's four families plus the seven P6-02b Task/Step
     // state routes. The P4 writes must still be absent from it and from the read list.
     expect(allowlist.baseline_write_paths).toHaveLength(11)
-    // 25 reads + 1 host-hook decisions read (ADR 0020) + 7 writes
-    expect(allowlist.paths).toHaveLength(26 + 7)
+    // 25 baseline reads + host-hook decisions + rule catalog + 7 writes
+    expect(allowlist.paths).toHaveLength(27 + 7)
   })
 
   it('is not reachable with GET even when the writes are enabled', () => {

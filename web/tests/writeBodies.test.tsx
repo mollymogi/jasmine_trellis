@@ -106,6 +106,7 @@ async function enter(
   await screen.findByText('Core 健康与 Schema')
   window.location.hash = hash
   window.dispatchEvent(new HashChangeEvent('hashchange'))
+  if(hash.startsWith('#/rules'))await user.click(await screen.findByRole('button',{name:'高级管理'}))
 }
 
 const RULES_HASH = `#/rules?project_id=${PROJECT_ID}&task_id=${TASK_ID}&rule_id=rul_1`
@@ -113,6 +114,8 @@ const RULES_HASH = `#/rules?project_id=${PROJECT_ID}&task_id=${TASK_ID}&rule_id=
 const rulesRoutes = {
   'GET /v1/projects': { body: { projects: [], count: 0 } },
   'GET /v1/hosts': { body: HOSTS },
+  'GET /v1/rules': { body:{rules:[],count:0,has_more:false,next_offset:null} },
+  'GET /v1/tasks': {body:{tasks:[],count:0}},
   'GET /v1/rules/active': { body: { rules: [] } },
   'GET /v1/rules/rul_1': { body: { rule: rule() } },
   'GET /v1/rules/rul_1/history': { body: { history: [] } },
