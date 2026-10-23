@@ -5,16 +5,23 @@ from unittest.mock import patch
 from test_api import ApiTestCase,ACTOR,HOST,free_port
 from jasmine_core import auth,db,errors,ids,registry
 from jasmine_core.memory.engine_control import CONFIG_ENV
+from jasmine_core.memory.hindsight import HindsightTransport
 
-STUB='''import sys,json,time,os
+STUB='''import sys,json,time,os,faulthandler
 from http.server import BaseHTTPRequestHandler,HTTPServer
 from pathlib import Path
+faulthandler.dump_traceback_later(3, repeat=False)
+print('stub: starting', file=sys.stderr, flush=True)
 Path(sys.argv[2]).open('a').write(str(os.getpid())+'\\n')
 class Handler(BaseHTTPRequestHandler):
  def do_GET(self):
   b=json.dumps({'api_version':'0.10.2','features':{}}).encode();self.send_response(200);self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b)
  def log_message(self,*a):pass
-HTTPServer(('127.0.0.1',int(sys.argv[1])),Handler).serve_forever()
+print('stub: constructing HTTPServer', file=sys.stderr, flush=True)
+server=HTTPServer(('127.0.0.1',int(sys.argv[1])),Handler)
+faulthandler.cancel_dump_traceback_later()
+print('stub: serving', file=sys.stderr, flush=True)
+server.serve_forever()
 '''
 class EngineControlApi(ApiTestCase):
  def setUp(self):
@@ -22,6 +29,20 @@ class EngineControlApi(ApiTestCase):
   self.root=Path(self._tmp.name);self.port_engine=free_port();self.script=self.root/'engine.py';self.script.write_text(STUB);self.started=self.root/'started';self.profile=self.root/'profile.json'
   self.write_profile([sys.executable,str(self.script),str(self.port_engine),str(self.started)])
   self.env=patch.dict(os.environ,{CONFIG_ENV:str(self.profile),'JASMINE_MEMORY_DEPLOYMENT_MODE':'single_user'});self.env.start();self.addCleanup(self.env.stop)
+  # Observe only this fixture's existing readiness calls; never print bodies,
+  # headers, environment, profile contents or arbitrary exception messages.
+  self.probe_diagnostics=[];original_version=HindsightTransport.version
+  def observed_version(transport):
+   if transport.config.origin_host!=f'http://127.0.0.1:{self.port_engine}':return original_version(transport)
+   try:
+    result=original_version(transport)
+   except Exception as exc:
+    if len(self.probe_diagnostics)<16:self.probe_diagnostics.append({'exception_type':type(exc).__name__})
+    raise
+   if len(self.probe_diagnostics)<16:
+    self.probe_diagnostics.append({'reachable':result.get('reachable'),'error_code':result.get('error_code')})
+   return result
+  observer=patch.object(HindsightTransport,'version',observed_version);observer.start();self.addCleanup(observer.stop)
  def write_profile(self,command,timeout=5):
   self.profile.write_text(json.dumps({'origin':f'http://127.0.0.1:{self.port_engine}','cwd':str(self.root),'command':command,'environment':{'PRIVATE_SENTINEL':'do-not-return-this'},'timeout_seconds':timeout}))
  def status(self):
@@ -30,9 +51,20 @@ class EngineControlApi(ApiTestCase):
   until=time.monotonic()+8
   while time.monotonic()<until:
    value=self.status()
-   if value['state'] not in ('STOPPED','STARTING'):return value
+   if value['state'] not in ('STOPPED','STARTING'):
+    if value['state']=='FAILED':self.startup_diagnostics()
+    return value
    time.sleep(.05)
-  self.fail('operation did not finish')
+  self.startup_diagnostics();self.fail('operation did not finish')
+ def startup_diagnostics(self):
+  print('engine fixture readiness:',json.dumps(self.probe_diagnostics),flush=True)
+  # Only the generated stub writes this log. Limit output to 16 KiB and do
+  # not expose logs from alternative commands/profiles used by other tests.
+  if self._testMethodName not in ('test_application_close_stops_the_owned_child','test_concurrent_clicks_share_one_process_and_health_stays_unverified','test_crashed_owned_process_is_reported_unreachable'):return
+  try:
+   with (self.root/'engine-start.log').open('rb') as log:content=log.read(16384)
+   print('engine fixture startup log:',content.decode('utf-8',errors='replace'),flush=True)
+  except OSError as exc:print('engine fixture log unavailable:',type(exc).__name__,flush=True)
  def test_unauthenticated_and_readonly_start_are_refused(self):
   self.assertEqual(self.call('POST','/v1/memory/engine/start',{})[0],401)
   self.assertFalse(self.status()['can_start'])
