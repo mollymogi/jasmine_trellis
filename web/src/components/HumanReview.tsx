@@ -3,7 +3,7 @@ import type { Review } from '../api/types'
 import { sourceHref } from '../app/router'
 import { useSession } from '../app/session'
 import { useResource } from '../app/useResource'
-import { useWriteAction } from '../app/useWriteAction'
+import type { WriteAction } from '../app/useWriteAction'
 import { conventionActions, reviewAgent, reviewItems, reviewKind, reviewReason } from '../lib/reviewPresentation'
 import { formatTimestamp, maskCredentials } from '../lib/text'
 import { statusLabel } from '../lib/statusLabels'
@@ -14,7 +14,7 @@ import { JsonBlock } from './JsonBlock'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
 
-export function HumanReview({ item, onReadback }: { item: Review; onReadback: () => void }) {
+export function HumanReview({ item, onReadback, approve, reject }: { item: Review; onReadback: () => void; approve: WriteAction; reject: WriteAction }) {
   const { endpoints } = useSession()
   const source = useResource(signal => endpoints.getEvent(item.resolution.source_event_id, signal), [item.resolution.source_event_id])
   const event = source.data?.event
@@ -26,8 +26,6 @@ export function HumanReview({ item, onReadback }: { item: Review; onReadback: ()
   const agent = reviewAgent(event)
   const [decision, setDecision] = useState<'approve' | 'reject' | null>(null)
   const [reason, setReason] = useState('')
-  const approve = useWriteAction((body, signal) => endpoints.approveReview(item.review_id, body, signal), { targetKey: item.review_id })
-  const reject = useWriteAction((body, signal) => endpoints.rejectReview(item.review_id, body, signal), { targetKey: item.review_id })
   const action = decision === 'approve' ? approve : reject
   const busy = approve.busy || reject.busy
   const unresolved = approve.state === 'unknown' || reject.state === 'unknown'

@@ -13,14 +13,14 @@
  */
 
 import type { Resolution, Review } from '../api/types'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { sourceHref } from '../app/router'
 import { useSession } from '../app/session'
 import { useResource } from '../app/useResource'
 import { JsonBlock } from '../components/JsonBlock'
 import { WritePanel, parseJsonField } from '../components/WritePanel'
-import { useWriteAction } from '../app/useWriteAction'
+import { useWriteAction, type WriteAction } from '../app/useWriteAction'
 import { StatusBadge } from '../components/StatusBadge'
 import { Empty, ErrorPanel, Loading, Panel, StaleBanner } from '../components/States'
 import { KeyValue, SourceLink } from '../components/Trace'
@@ -34,6 +34,26 @@ export function ReviewView({ reviewId }: { reviewId: string }): JSX.Element {
   const { endpoints } = useSession()
   const review = useResource((signal) => endpoints.getReview(reviewId, signal), [reviewId])
   const item = review.data?.review ?? null
+  // Both interfaces belong to one decision. Keep the hooks above the optional
+  // advanced panel, and lock synchronously before either request can start.
+  const approveWrite = useWriteAction((body, signal) => endpoints.approveReview(reviewId, body, signal), { targetKey: reviewId })
+  const rejectWrite = useWriteAction((body, signal) => endpoints.rejectReview(reviewId, body, signal), { targetKey: reviewId })
+  const locked = useRef(false)
+  const blocked = approveWrite.busy || rejectWrite.busy ||
+    [approveWrite.state, rejectWrite.state].some(state => state === 'unknown' || state === 'succeeded')
+  useEffect(() => { locked.current = blocked }, [blocked, approveWrite.state, rejectWrite.state])
+  const guard = (action: WriteAction): WriteAction => ({
+    ...action,
+    busy: blocked,
+    submit: async body => {
+      if (locked.current) return
+      locked.current = true
+      await action.submit(body)
+    },
+    resetDraft: () => { if (!locked.current) action.resetDraft() },
+  })
+  const approve = guard(approveWrite)
+  const reject = guard(rejectWrite)
 
   const [advanced, setAdvanced] = useState(false)
   return <section className="review-detail-page" aria-label="审核建议">
@@ -41,9 +61,9 @@ export function ReviewView({ reviewId }: { reviewId: string }): JSX.Element {
     <div className="processing-heading"><div><h2>审核建议</h2><p>先核对原话，再决定是否采用。</p></div><Button size="sm" variant="outline" onClick={review.reload} disabled={review.status === 'loading'}>刷新</Button></div>
     {review.status === 'loading' && !item ? <Loading what="审核建议" /> : null}
     {review.error ? <ErrorPanel error={review.error} what="审核建议" onRetry={review.reload} /> : null}
-    {item ? <><HumanReview key={item.review_id} item={item} onReadback={review.reload} />
+    {item ? <><HumanReview key={item.review_id} item={item} approve={approve} reject={reject} onReadback={review.reload} />
       <Button size="sm" variant="ghost" onClick={() => setAdvanced(v => !v)}>{advanced ? '收起高级处理方案' : '高级处理方案与技术记录'}</Button>
-      {advanced ? <div className="reviews-advanced"><p className="muted">以下为协议级操作。必须逐项确认实际动作与载荷；不要把默认“不执行动作”当成采用建议。</p><ReviewBody item={item} /><ReviewWrites item={item} onReadback={review.reload} /></div> : null}
+      <div hidden={!advanced} className="reviews-advanced"><p className="muted">以下为协议级操作。必须逐项确认实际动作与载荷；不要把默认“不执行动作”当成采用建议。</p><ReviewBody item={item} /><ReviewWrites item={item} approve={approve} reject={reject} onReadback={review.reload} /></div>
     </> : null}
   </section>
 }
@@ -160,18 +180,7 @@ function ReviewBody({ item }: { item: Review }): JSX.Element {
  * produce a preview the panel refuses to open approve rather than inventing a
  * plan. The draft survives a `revision_conflict`.
  */
-function ReviewWrites({ item, onReadback }: { item: Review; onReadback: () => void }): JSX.Element {
-  const { endpoints } = useSession()
-  const writeTarget = { targetKey: item.review_id }
-  const approve = useWriteAction(
-    (body, signal) => endpoints.approveReview(item.review_id, body, signal),
-    writeTarget,
-  )
-  const reject = useWriteAction(
-    (body, signal) => endpoints.rejectReview(item.review_id, body, signal),
-    writeTarget,
-  )
-
+function ReviewWrites({ item, onReadback, approve, reject }: { item: Review; onReadback: () => void; approve: WriteAction; reject: WriteAction }): JSX.Element {
   const suggested = (item.preview?.plan.items ?? []).map((planItem) => ({
     candidate_index: planItem.candidate_index,
     action: planItem.action,
@@ -211,7 +220,7 @@ function ReviewWrites({ item, onReadback }: { item: Review; onReadback: () => vo
           action={approve}
           targetKey={item.review_id}
           submitLabel="提交批准"
-          ready={item.status === 'PENDING' && actionsValid}
+          ready={item.status === 'PENDING' && actionsValid && !approve.busy}
           onSucceeded={onReadback}
           fields={
             <>
@@ -266,7 +275,7 @@ function ReviewWrites({ item, onReadback }: { item: Review; onReadback: () => vo
         action={reject}
         targetKey={item.review_id}
         submitLabel="提交拒绝"
-        ready={item.status === 'PENDING'}
+        ready={item.status === 'PENDING' && !reject.busy}
         onSucceeded={onReadback}
         fields={<p className="muted">拒绝不会改动 Truth,也不会删除原解释与来源 Event。</p>}
         build={({ reason, hostId }) => ({ reason, host_id: hostId, expected_revision: item.revision })}
