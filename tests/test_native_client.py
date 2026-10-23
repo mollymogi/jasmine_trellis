@@ -31,7 +31,8 @@ a=json.loads(sys.stdin.readline()); print(json.dumps({'method':'answered','param
     c.respond('server-1',{'ok':True},Budget())
     self.assertEqual(c.next_message(Budget())['params']['id'],'server-1')
     self.assertTrue(any(d=='outbound' for d,m in receipts))
-    self.assertEqual(c.close(Budget())['cleanup'],'complete')
+    cleanup=c.close(Budget())
+    self.assertEqual(cleanup['cleanup'],'complete',cleanup)
  def test_invalid_json_and_framing(self):
     for raw,code in [(b'{"jsonrpc":"2.0","method":"n","method":"b"}\n','native_invalid_message'),(b'{"jsonrpc":"2.0","method":"n","params":{"x":NaN}}\n','native_invalid_message'),(b'{"jsonrpc":"2.0","method":"n","params":{"x":"\\ud800"}}\n','native_invalid_message'),(b'{"jsonrpc":"2.0"}','native_partial_eof'),(b'x'*1048577+b'\n','native_message_too_large')]:
         with self.subTest(code=code):
@@ -45,6 +46,7 @@ a=json.loads(sys.stdin.readline()); print(json.dumps({'method':'answered','param
     with patch('jasmine_core.adapter.native_client.os.killpg',side_effect=PermissionError('denied')):
         result=c.close(Budget(1))
     self.assertEqual(result['cleanup'],'incomplete_or_denied')
+    self.assertTrue(any(d['stage']=='group_kill' and d['type']=='PermissionError' for d in result['cleanup_diagnostics']))
  def test_sink_failure_blocks_send(self):
     c=self.client('import sys;sys.stdin.readline()\n',lambda *args:(_ for _ in ()).throw(OSError('sink failed')))
     with self.assertRaises(NativeClientFailure) as caught:c.send_request('init',{},Budget())
