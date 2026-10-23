@@ -17,6 +17,7 @@ if args.component in ('core','memory','processing'):
  if flow.get('enabled') is True:
   env.update(JASMINE_CORE_RESOLVER_ACTOR_ID=flow['actor_id'],JASMINE_CORE_RESOLVER_HOST_ID=flow['host_id'],JASMINE_CORE_INTERPRETER_CODEX=flow['executable'],JASMINE_CORE_INTERPRETER_CATALOG=flow['catalog'],JASMINE_CORE_DAILY_INTERPRETER='1')
   if flow.get('model_config'):env['JASMINE_CORE_INTERPRETER_MODEL_CONFIG']=flow['model_config']
+  if c.get('interpreter_control_config'):env['JASMINE_CORE_INTERPRETER_PROVIDERS']=c['interpreter_control_config']
  if args.component=='processing':
   if flow.get('enabled') is not True:raise SystemExit('Conversation processing is disabled')
   argv=[c['python'],'-I','-B',str(r/'scripts/deployment/conversation-processing-worker.py'),'--db',c['database']]

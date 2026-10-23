@@ -1,7 +1,7 @@
 // @vitest-environment node
 import http from 'node:http'
 import { once } from 'node:events'
-import { mkdtempSync,writeFileSync,readFileSync,chmodSync,symlinkSync,rmSync } from 'node:fs'
+import { mkdtempSync,writeFileSync,readFileSync,chmodSync,symlinkSync,rmSync,readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -39,4 +39,22 @@ it('rejects symlinked selection instead of exposing or overwriting another file'
  const {root,profile}=fixture(),target=join(root,'target.json');writeFileSync(target,JSON.stringify({version:1,model:'gpt-6.1-sol',revision:1}),{mode:0o600});rmSync(profile.selection);symlinkSync(target,profile.selection)
  expect(()=>selectInterpreterModel(profile,{model:'gpt-6-luna',expected_revision:1},'Bearer manager')).toThrow()
  expect(JSON.parse(readFileSync(target,'utf8')).model).toBe('gpt-6.1-sol')
+})
+it('selects only enabled provider/model pairs and restores a valid v1 backup',()=>{
+ const {root,profile}=fixture();Object.assign(profile,{version:2,providers:[{id:'codex',label:'Codex',detected:true,enabled:true,models:[]},{id:'grok',label:'Grok',detected:true,enabled:true,models:[{id:'grok-4.6',label:'Grok'}]},{id:'opencode',label:'OpenCode',detected:true,enabled:false,models:[{id:'other/model',label:'Deferred'}]}]})
+ expect(()=>selectInterpreterModel(profile,{provider:'opencode',model:'other/model',expected_revision:1},'Bearer manager')).toThrow('unsupported_model')
+ expect(()=>selectInterpreterModel(profile,{provider:'grok',model:'gpt-6-luna',expected_revision:1},'Bearer manager')).toThrow('unsupported_model')
+ const result=selectInterpreterModel(profile,{provider:'grok',model:'grok-4.6',expected_revision:1},'Bearer manager');expect(result).toMatchObject({provider:'grok',model:'grok-4.6',revision:2})
+ expect(JSON.parse(readFileSync(profile.selection,'utf8'))).toEqual({version:2,provider:'grok',model:'grok-4.6',revision:2})
+ expect(JSON.stringify(result)).not.toContain(root)
+ const backup=readdirSync(root).find(f=>f.includes('.backup-1-'))!;expect(JSON.parse(readFileSync(join(root,backup),'utf8'))).toEqual({version:1,model:'gpt-6.1-sol',revision:1})
+})
+it('runs a fixed health helper only for granted, enabled catalog choices',async()=>{
+ const {root,profile}=fixture(),helper=join(root,'fixed-check');writeFileSync(helper,'#!/bin/sh\nprintf \'{"status":"passed"}\\n\'\n',{mode:0o700})
+ Object.assign(profile,{version:2,python:helper,test_runner:join(root,'operator-check.py'),profile_path:join(root,'profile.json'),providers:[{id:'codex',label:'Codex',detected:true,enabled:true,models:[]},{id:'grok',label:'Grok',detected:true,enabled:true,models:[{id:'grok-4.6',label:'Grok'}]},{id:'opencode',label:'OpenCode',detected:true,enabled:false,models:[]}]})
+ const core=await listen((_,res)=>{res.writeHead(200);res.end('{}')}),host=await listen((req,res)=>{void serveLocalInterpreter(req,res,core,profile)}),url=new URL('/_local/interpreter',host)
+ const post=(token:string,body:any)=>fetch(url,{method:'POST',headers:{Authorization:'Bearer '+token,Origin:host.origin},body:JSON.stringify(body)})
+ const body={action:'test',provider:'grok',model:'grok-4.6'}
+ expect((await post('reader',body)).status).toBe(403);expect((await post('manager',{...body,command:'echo unwanted'})).status).toBe(400);expect((await post('manager',{...body,provider:'opencode'})).status).toBe(400)
+ expect(await (await post('manager',body)).json()).toEqual({status:'passed'});expect(readInterpreterState(profile,'Bearer manager')).toMatchObject({provider:'codex',revision:1})
 })

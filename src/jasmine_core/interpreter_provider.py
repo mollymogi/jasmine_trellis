@@ -312,6 +312,7 @@ def configured_provider():
     executable=os.environ.get('JASMINE_CORE_INTERPRETER_CODEX')
     catalog=os.environ.get('JASMINE_CORE_INTERPRETER_CATALOG')
     model=MODEL
+    client='codex'
     selection=os.environ.get('JASMINE_CORE_INTERPRETER_MODEL_CONFIG')
     if selection:
         try:
@@ -319,9 +320,20 @@ def configured_provider():
             path=Path(selection)
             if not path.is_absolute():raise ValueError('absolute selection path required')
             value=json.loads(_private_bytes(path,'Interpreter model selection'))
-            if (set(value)!={'version','model','revision'} or value['version']!=1
+            expected={'version','model','revision'} if value.get('version')==1 else {'version','provider','model','revision'}
+            if (set(value)!=expected or value['version'] not in (1,2)
                 or type(value['revision']) is not int or value['revision']<1):raise ValueError('invalid selection')
             model=value['model']
+            client=value.get('provider','codex')
         except Exception:
             return UnavailableProvider()
+    if client!='codex':
+        try:
+            from .hosthook.binding import _private_bytes
+            from .interpreter_cli import LocalCliProvider
+            registry=json.loads(_private_bytes(Path(os.environ['JASMINE_CORE_INTERPRETER_PROVIDERS']),'Interpreter providers'))
+            providers=[p for p in registry['providers'] if p['id']==client and p.get('detected') and p.get('enabled') is True]
+            if registry['version']!=2 or len(providers)!=1:raise ValueError('unsupported provider')
+            return LocalCliProvider(client,providers[0],model,daily=os.environ.get('JASMINE_CORE_DAILY_INTERPRETER')=='1')
+        except Exception:return UnavailableProvider()
     return CodexProvider(executable,catalog,daily=os.environ.get('JASMINE_CORE_DAILY_INTERPRETER')=='1',model=model) if executable and catalog else UnavailableProvider()

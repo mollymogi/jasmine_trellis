@@ -24,8 +24,12 @@ def prepare(base,cache,confirmed=False):
  if not entries or len({e['slug'] for e in entries})!=len(entries):raise ValueError('invalid catalog')
  catalog=base/'config/interpreter-models.json';selection=base/'config/interpreter-model.json';profile=base/'config/interpreter-control.json'
  selected=json.loads(_private_bytes(selection,'model selection')) if selection.exists() else {'version':1,'model':MODEL,'revision':1}
- if (set(selected)!={'version','model','revision'} or selected['version']!=1 or type(selected['revision']) is not int or selected['revision']<1
-     or selected['model'] not in {e['slug'] for e in entries}):raise ValueError('invalid model selection')
+ existing=json.loads(_private_bytes(profile,'model control')) if profile.exists() else {}
+ expected={'version','model','revision'} if selected.get('version')==1 else {'version','provider','model','revision'}
+ if (set(selected)!=expected or selected['version'] not in (1,2) or type(selected['revision']) is not int or selected['revision']<1):raise ValueError('invalid model selection')
+ if selected.get('provider','codex')=='codex':
+  if selected['model'] not in {e['slug'] for e in entries}:raise ValueError('invalid model selection')
+ elif not any(p['id']==selected['provider'] and p.get('enabled') is True and any(m['id']==selected['model'] for m in p['models']) for p in existing.get('providers',[])):raise ValueError('invalid provider selection')
  data=(json.dumps({'models':entries},ensure_ascii=False,indent=2)+'\n').encode()
  if len(data)>512*1024:raise ValueError('model catalog too large')
  fd,name=tempfile.mkstemp(dir=catalog.parent,prefix='.interpreter-catalog-');temp=Path(name)
@@ -49,7 +53,7 @@ def prepare(base,cache,confirmed=False):
   if previous==encoded:return
   _backup(path,previous);_write(path,value);path.chmod(0o600)
  write(catalog,{'models':entries});write(selection,selected)
- write(profile,{'version':1,'enabled':True,'browser_token_sha256':hashlib.sha256(browser['token'].encode()).hexdigest(),
+ write(profile,{**existing,'version':existing.get('version',1),'enabled':True,'browser_token_sha256':hashlib.sha256(browser['token'].encode()).hexdigest(),
                 'catalog':str(catalog),'catalog_sha256':hashlib.sha256(catalog.read_bytes()).hexdigest(),
                 'selection':str(selection),'audit':str(base/'logs/interpreter-model-changes.jsonl')})
  write(runtime_path,{**runtime,'conversation_processing':{**flow,'catalog':str(catalog),'model_config':str(selection)},'interpreter_control_config':str(profile)})

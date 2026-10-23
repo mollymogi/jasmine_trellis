@@ -824,7 +824,7 @@ main {
 @media(max-width: 520px) { .agent-inventory li { flex-direction: column; gap: 10px; } .agent-capture-action { align-items: flex-start; text-align: left; max-width: 100%; } }
 
 .processing-panel { margin: 0 0 16px; min-width: 0; }
-.processing-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:16px; }
+.processing-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:16px; }
 .processing-heading h2 { display:flex; align-items:center; gap:8px; font-size:20px; font-weight:600; margin:0 0 8px; }
 .processing-heading p { font-size:12px; color:var(--muted-foreground); margin:0; line-height:1.7; }
 .processing-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -889,3 +889,17 @@ main {
  .processing-records td[data-label="序号"] { display:none; }
  .processing-detail-dialog { width:calc(100vw - 24px); }
 }
+
+.processing-heading-count { color:var(--muted-foreground); font-size:12px; font-weight:400; margin-left:6px; white-space:nowrap; }
+.processing-heading > .processing-actions { flex-shrink:0; }
+.interpreter-fields { display:grid; grid-template-columns:1fr 1.4fr; gap:16px; }
+.interpreter-fields > div { min-width:0; }
+.interpreter-fields label { display:block; font-size:12px; margin-bottom:8px; }
+.interpreter-fields select { width:100%; min-width:0; height:36px; }
+.interpreter-client-note { display:flex; gap:10px; align-items:flex-start; font-size:12px; color:var(--muted-foreground); line-height:1.8; }
+.interpreter-client-note .agent-logo { flex-shrink:0; margin-top:2px; }
+.interpreter-settings details { font-size:12px; color:var(--muted-foreground); line-height:1.8; }
+.interpreter-settings [role=alert] { color:var(--destructive); font-size:13px; }
+.interpreter-settings [role=status] { font-size:13px; line-height:1.7; }
+.interpreter-footer { display:flex; justify-content:space-between; gap:8px; padding-top:8px; }
+@media(max-width:540px){.interpreter-fields{grid-template-columns:minmax(0,1fr)}.interpreter-footer{flex-wrap:wrap}}
