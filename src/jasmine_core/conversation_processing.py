@@ -118,9 +118,15 @@ class ConversationProcessing:
     item=out['interpretation'];ident=item['interpretation_id']
    self._save(event_id,owner,interpretation_id=ident)
    if item['status']!='EXTRACTED':raise errors.InvalidRequest('interpreter_failed',provider_code=item.get('error_code') or item['status'])
-   preview=self.resolver.preview(ident)
-   out=self.resolver.resolve(ident,{'idempotency_key':'daily-resolve:'+ident,'host_id':self.host,'policy_version':preview['policy_version'],'expected_revisions':preview['expected_revisions'],'expected_context_digest':preview['expected_context_digest']},actor_id=self.actor)
-   resolution=out['resolution'];disposition=resolution['result']['disposition'];status='APPLIED' if disposition=='SOURCE_REPLAYED' else disposition
+   # resolve() commits before the queue projection is saved. Recover that
+   # durable result before previewing context that may have changed since then.
+   request_key='daily-resolve:'+ident
+   prior=self.conn.execute('SELECT resolution_id FROM resolution_request_keys WHERE actor_id=? AND idempotency_key=?',(self.actor,request_key)).fetchone()
+   if prior:resolution=self.resolver.get(prior['resolution_id'])
+   else:
+    preview=self.resolver.preview(ident)
+    resolution=self.resolver.resolve(ident,{'idempotency_key':request_key,'host_id':self.host,'policy_version':preview['policy_version'],'expected_revisions':preview['expected_revisions'],'expected_context_digest':preview['expected_context_digest']},actor_id=self.actor)['resolution']
+   disposition=resolution['result']['disposition'];status='APPLIED' if disposition=='SOURCE_REPLAYED' else disposition
    self._save(event_id,owner,status=status,resolution_id=resolution['resolution_id'],lease_owner=None,lease_until=None)
    with db.transaction(self.conn):self._change(event_id,status,self.actor,interpretation_id=ident,resolution_id=resolution['resolution_id'])
    return {'event_id':event_id,'status':status}
