@@ -222,8 +222,10 @@ class AuthorityStore:
                    status: str | None = None, scope_kind: str | None = None,
                    limit: int = 50, offset: int = 0) -> dict[str, Any]:
         """Browse stored rules, distinct from Guard's inherited effective-rule lookup."""
-        if type(limit) is not int or not 1 <= limit <= 200 or type(offset) is not int or offset < 0:
-            raise errors.InvalidRequest("limit must be 1..200 and offset must be nonnegative")
+        # SQLite binds OFFSET as a signed 64-bit integer.
+        if (type(limit) is not int or not 1 <= limit <= 200
+                or type(offset) is not int or not 0 <= offset <= 9223372036854775807):
+            raise errors.InvalidRequest("limit must be 1..200 and offset must be 0..9223372036854775807")
         if status is not None and status not in STATUS:
             raise errors.InvalidRequest("unknown rule status", field="status")
         if scope_kind is not None and scope_kind not in ("global", "project", "task"):
