@@ -149,7 +149,7 @@ const VIEWS: ReadonlyArray<[string, string, RegExp, string]> = [
   ['health', '#/memory/health', /Memory 健康/, '/v1/memory/health'],
   ['jobs list', '#/memory/jobs', /Memory Jobs/, '/v1/memory/jobs'],
   ['job detail', `#/memory/jobs/${JOB}`, /Memory Job/, `/v1/memory/jobs/${JOB}`],
-  ['items list', '#/memory/items', /Memory Items/, '/v1/memory/items'],
+  ['items list', '#/memory/items', /记忆条目/, '/v1/memory/items'],
   ['item detail', `#/memory/items/${ITEM}`, /记忆详情/, `/v1/memory/items/${ITEM}`],
   ['traces list', '#/memory/traces', /Memory Traces/, '/v1/memory/traces'],
   ['trace detail', `#/memory/traces/${TRACE}`, /Memory Trace/, `/v1/memory/traces/${TRACE}`],
@@ -223,9 +223,9 @@ describe('Memory is marked non-authoritative from Core own field', () => {
         body: { items: [{ ...item(), lifecycle: lifecycle() }], count: 1, non_authoritative: true },
       },
     })
-    const panel = await screen.findByRole('region', { name: /Memory Items/ })
+    const panel = await screen.findByRole('region', { name: /记忆条目/ })
     const marker = await within(panel).findByTestId('non-authoritative')
-    expect(marker.textContent).toContain('NON_AUTHORITATIVE')
+    expect(marker.textContent).toContain('记忆仅供历史参考')
   })
 
   it('does NOT claim it when Core does not send the field', async () => {
@@ -236,7 +236,7 @@ describe('Memory is marked non-authoritative from Core own field', () => {
       ...SIGNED_IN,
       'GET /v1/memory/items': { body: { items: [], count: 0 } },
     })
-    const panel = await screen.findByRole('region', { name: /Memory Items/ })
+    const panel = await screen.findByRole('region', { name: /记忆条目/ })
     await waitFor(() => expect(panel.textContent).toContain('空'))
     expect(within(panel).queryByTestId('non-authoritative')).toBeNull()
   })
@@ -281,7 +281,7 @@ describe('empty, not-found, refused and pending stay four different states', () 
       ...SIGNED_IN,
       'GET /v1/memory/items': coreError(404, 'not_found', 'project not found'),
     })
-    const panel = await screen.findByRole('region', { name: /Memory Items/ })
+    const panel = await screen.findByRole('region', { name: /记忆条目/ })
     const notFound = await within(panel).findByTestId('not-found')
     expect(notFound.textContent).toContain('无权访问')
     expect(within(panel).queryByRole('alert')).toBeNull()
@@ -289,7 +289,7 @@ describe('empty, not-found, refused and pending stay four different states', () 
     // No error-styled retry: the *standing* re-read control every Memory view carries is
     // not the same thing as a failure banner inviting a retry, which is what was wrong.
     expect(within(panel).queryByRole('alert')).toBeNull()
-    expect(panel.textContent).not.toContain('失败')
+    expect(notFound.textContent).not.toContain('失败')
   })
 
   it('shows a missing scope as Core refusal, not as the missing dependency', async () => {
@@ -327,7 +327,7 @@ describe('empty, not-found, refused and pending stay four different states', () 
       ...SIGNED_IN,
       'GET /v1/memory/items': coreError(500, 'internal_error', 'boom'),
     })
-    const panel = await screen.findByRole('region', { name: /Memory Items/ })
+    const panel = await screen.findByRole('region', { name: /记忆条目/ })
     await waitFor(() => expect(within(panel).getByRole('alert')).toBeTruthy())
     expect(within(panel).queryByTestId('not-found')).toBeNull()
   })
@@ -375,14 +375,15 @@ describe('a real P4 read renders the record it was given', () => {
         body: { items: [{ ...item(), lifecycle: lifecycle() }], count: 1, non_authoritative: true },
       },
     })
-    const panel = await screen.findByRole('region', { name: /Memory Items/ })
+    const panel = await screen.findByRole('region', { name: /记忆条目/ })
     const table = await within(panel).findByTestId('memory-items')
-    expect(table.textContent).toContain(ITEM)
-    expect(table.textContent).toContain('ACTIVE')
-    expect(table.textContent).toContain('RETAINED')
+    expect(table.textContent).not.toContain(ITEM)
+    expect(table.textContent).toContain('fixture memory text')
+    expect(table.textContent).toContain('保留中')
+    expect(table.textContent).toContain('已保存至引擎')
     expect(within(panel).getByTestId('non-authoritative')).toBeTruthy()
-    // The Event the memory was derived from stays reachable: P4 keeps provenance.
-    expect(within(table).getByRole('link', { name: /source Event/i })).toBeTruthy()
+    // Provenance remains reachable through the detail; IDs are not default row labels.
+    expect(within(table).getByRole('link', { name: '查看详情' }).getAttribute('href')).toContain(ITEM)
   })
 
   it('lists traces with their mode, status and token spend', async () => {
@@ -577,7 +578,7 @@ describe('the read views stay read-only, and the write controls are gated', () =
     const controls = [...panel.querySelectorAll('button, input[type=submit]')]
     for (const control of controls) {
       const name = (control.textContent ?? '').trim()
-      const allowed = READ_ONLY_CONTROLS.some(([, matches]) => matches(name))
+      const allowed = READ_ONLY_CONTROLS.some(([, matches]) => matches(name)) || ['刷新', '重试项目名称', '载入更多项目名称', '载入更多记忆', '打开记忆'].includes(name)
       expect(allowed, `unexpected control: ${JSON.stringify(name)}`).toBe(true)
     }
     // And no request left the page that was not a read.

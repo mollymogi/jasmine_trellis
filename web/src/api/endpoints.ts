@@ -297,6 +297,8 @@ export function makeEndpoints(client: CoreClient) {
     // the baseline Core has no /v1/memory/* route, so the proxy refuses them by name until
     // an operator points it at a P4 Core with P6_ENABLE_P4_READS=1. There is deliberately
     // no retry, no lifecycle command and no reflect here: those are writes (P6-03b2).
+    conversationProcessingSummary: (projectId: string | null, signal?: AbortSignal) =>
+      client.get<{ count: number; counts: Record<string, number> }>('/conversation-processing', { query: { project_id: projectId, limit: 1, offset: 0 }, signal }),
     memoryHealth: (signal?: AbortSignal) =>
       client.get<MemoryHealth>('/memory/health', { signal }),
     listMemoryJobs: (
@@ -313,12 +315,12 @@ export function makeEndpoints(client: CoreClient) {
         { signal },
       ),
     listMemoryItems: (
-      filters: { project_id?: string | null; status?: string | null } = {},
+      filters: { project_id?: string | null; status?: string | null; memory_type?: string | null; limit?: number; after_memory_id?: string | null } = {},
       signal?: AbortSignal,
     ) =>
       client.get<{ items: MemoryItemListRow[]; count: number; non_authoritative: boolean }>(
         '/memory/items',
-        { query: { project_id: filters.project_id, status: filters.status }, signal },
+        { query: { project_id: filters.project_id, status: filters.status, memory_type: filters.memory_type, limit: filters.limit, after_memory_id: filters.after_memory_id }, signal },
       ),
     getMemoryItem: (memoryId: string, signal?: AbortSignal) =>
       client.get<{
