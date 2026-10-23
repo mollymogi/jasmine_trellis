@@ -20,11 +20,16 @@ def prepare(base,executable,catalog,confirmed):
  binding=json.loads((base/'config/codex-conversation-device.json').read_text());host=binding['host_id'];metadata=base/'config/conversation-processing-actor.json';conn=db.connect(runtime['database'])
  try:
   check_version(conn)
-  if metadata.exists():actor=json.loads(metadata.read_text())['actor_id']
-  else:
-   actor=ids.new_id('act')
+  saved=json.loads(metadata.read_text()) if metadata.exists() else None
+  if saved and saved.get('host_id')!=host:raise ValueError('processor metadata belongs to a different host')
+  actor=saved['actor_id'] if saved else ids.new_id('act')
+  row=conn.execute('SELECT kind,home_host_id FROM actors WHERE actor_id=?',(actor,)).fetchone()
+  if row and (row['kind']!='system' or row['home_host_id']!=host):raise ValueError('processor principal differs from registered metadata')
+  # A matched restored database may predate this private metadata file. Recover
+  # only the fixed local system principal, never overwrite an existing actor.
+  if not row:
    with db.transaction(conn):registry.Registry(conn).upsert_actor(actor,kind='system',display_name='Daily conversation Interpreter and Resolver',home_host_id=host)
-   _write(metadata,{'actor_id':actor,'host_id':host});metadata.chmod(0o600)
+  if not saved:_write(metadata,{'actor_id':actor,'host_id':host});metadata.chmod(0o600)
   ConversationProcessing(conn,schema_version=14,processor_actor_id=actor,host_id=host,provider=provider).activate()
  finally:conn.close()
  document={**runtime,'conversation_processing':{'enabled':True,'actor_id':actor,'host_id':host,'executable':str(executable.resolve()),'catalog':str(catalog.resolve())}}

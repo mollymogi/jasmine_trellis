@@ -1,5 +1,7 @@
 """Daily queue integration over real Core kernels; model is a labeled simulation."""
-import json,unittest
+import json,unittest,importlib.util,tempfile
+from pathlib import Path
+from unittest.mock import Mock
 from unittest.mock import patch
 from support import DbTestCase
 from test_interpretations import Simulation,output
@@ -84,6 +86,13 @@ class Processing(DbTestCase):
   ReviewStore(self.worker.resolver).change(review['review_id'],'approve',{'idempotency_key':'earlier-approval','host_id':self.host,'expected_revision':1,'reason':'Confirm project convention','expected_revisions':p['expected_revisions'],'expected_context_digest':p['expected_context_digest'],'actions':[{'candidate_index':0,'action':'CREATE_RULE','payload':{}}]},actor_id=self.human,scopes={'authority:propose','authority:manage'})
   JobStore(self.conn,MemoryStore(self.conn,schema_version=SCHEMA_VERSION)).enqueue_from_sources(SourceRegistry())
   self.assertEqual(self.worker.tick()['status'],'APPLIED');row=self.worker.list(event_id=event)['items'][0];self.assertEqual(row['effect'],'MEMORY_ELIGIBLE');self.assertEqual(len(row['memory_items']),1);self.assertEqual(self.conn.execute('select count(*) from rules').fetchone()[0],1)
+ def test_deployment_recovers_metadata_after_matching_database_restore(self):
+  script=Path(__file__).resolve().parents[1]/'scripts/deployment/prepare-conversation-processing.py';spec=importlib.util.spec_from_file_location('prepare_daily',script);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp);config=root/'config';config.mkdir();(config/'runtime.json').write_text(json.dumps({'database':str(self.db_path)}));(config/'codex-conversation-device.json').write_text(json.dumps({'host_id':self.host}));orphan=ids.new_id('act');(config/'conversation-processing-actor.json').write_text(json.dumps({'actor_id':orphan,'host_id':self.host}))
+   provider=Mock(valid=True,config={'model':'component-only'})
+   with patch.object(module,'CodexProvider',return_value=provider):result=module.prepare(root,script,script,True)
+   self.assertEqual(result['status'],'prepared');actor=self.conn.execute('SELECT kind,home_host_id FROM actors WHERE actor_id=?',(orphan,)).fetchone();self.assertEqual((actor['kind'],actor['home_host_id']),('system',self.host))
  def test_processing_audit_is_append_only(self):
   self.event();self.worker.tick()
   with self.assertRaises(Exception):self.conn.execute('delete from conversation_processing_changes')
