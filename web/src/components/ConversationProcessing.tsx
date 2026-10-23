@@ -7,6 +7,7 @@ import { Badge } from './ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog'
 import { RawText } from './RawText'
+import { InterpreterSettings } from './InterpreterSettings'
 import { AgentLogo } from './AgentLogo'
 import type { Review } from '../api/types'
 
@@ -36,7 +37,7 @@ export function ConversationProcessing({projectId=null,sessionId=null,eventId=nu
  const available=configured&&!!page?.last_tick_at&&Date.now()-Date.parse(page.last_tick_at)<300000
  const content=<>
   <div className="processing-heading"><div><h2><Sparkles size={17}/>对话提炼</h2><p>{!page?'正在读取提炼记录…':available?'从对话中找出值得记住的内容，需要确认的会提醒你审核。':configured?'自动分析暂未响应，已收录的消息和处理记录仍保留。':'自动分析尚未启动，原对话仍正常收录。'}</p></div><div className="processing-actions"><Button variant="outline" size="sm" onClick={()=>void load()}><RefreshCw size={14}/>刷新</Button>{(eventId||sessionId||projectId)?<Button size="sm" disabled={busy||!page?.worker_configured} onClick={()=>void action('/v1/conversation-processing/enqueue',eventId?{event_id:eventId}:sessionId?{session_id:sessionId}:{project_id:projectId})}>分析{eventId?'此消息':sessionId?'本次会话':'项目历史'}</Button>:null}</div></div>
-  {!compact&&page?<p className="processing-count">共 {page.count} 条提炼记录</p>:null}
+  {!compact?<div className="processing-actions"><InterpreterSettings/>{page?<p className="processing-count">共 {page.count} 条提炼记录</p>:null}</div>:null}
   {notice?<p role="status" className="processing-notice">{notice}</p>:null}{error?<p role="alert" className="processing-error"><TriangleAlert size={14}/>{error}</p>:null}
   {!page&&!error?<p className="muted">正在读取处理进度…</p>:null}
   {page?.items.length===0?<p className="processing-empty">还没有提炼记录。新对话会自动分析，也可以从对话页选择已有会话。</p>:null}

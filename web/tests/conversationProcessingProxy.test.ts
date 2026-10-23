@@ -16,3 +16,10 @@ it('rejects a foreign-origin enqueue before Core',async()=>{
  try{const addr=server.address();if(!addr||typeof addr==='string')throw Error('missing address');const r=await fetch(`http://127.0.0.1:${addr.port}/v1/conversation-processing/enqueue`,{method:'POST',headers:{origin:'http://unrelated.invalid','content-type':'application/json'},body:'{}'});expect(r.status).toBe(403);expect((await r.json()).error.code).toBe('proxy_origin_not_allowed')}
  finally{await new Promise<void>(resolve=>server.close(()=>resolve()))}
 })
+it('routes model settings to authenticated local control without crashing the dashboard',async()=>{
+ process.env.P6_ENABLE_CONVERSATION_PROCESSING='1'
+ const server=createDashboardServer({root:'/unused',origin:new URL('http://127.0.0.1:1'),allowlist:loadAllowlist(join(process.cwd(),'server'),{enableConversationProcessing:true})})
+ await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve))
+ try{const addr=server.address();if(!addr||typeof addr==='string')throw Error('missing address');const r=await fetch(`http://127.0.0.1:${addr.port}/_local/interpreter`);expect(r.status).toBe(401);expect((await r.json()).error).toBe('authentication_required')}
+ finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()))}
+})
