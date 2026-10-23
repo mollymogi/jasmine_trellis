@@ -1,0 +1,95 @@
+{
+  "status": "PASS_SCOPED_MEMORY_UI_AND_READ_ONLY_AUDIT",
+  "ui_source_commit": "afc5ded6a60fb2c5bb0aa10475250fd2dda53e1b",
+  "backend_release_commit": "6930a2818e18e084cda632748cd2f83c5593200e",
+  "schema": 14,
+  "schema_migration": false,
+  "runtime_pointer_unchanged": true,
+  "formal_business_posts": 0,
+  "formal_memory_and_rules_unchanged": true,
+  "protected_configuration_unchanged": true,
+  "validation": {
+    "frontend_files": 59,
+    "frontend_passed": 674,
+    "new_catalog_tests": 8,
+    "final_affected_passed": 63,
+    "typescript_build": "PASS; existing bundle-size advisory",
+    "python": "not rerun; no backend changes in this task"
+  },
+  "read_only_snapshot": {
+    "sampled_at": "2026-10-23T16:17:04.127339+00:00",
+    "memory_total": 8,
+    "memory_types": {
+      "CONFIRMED_DECISION": 1,
+      "FAILURE_LESSON": 1,
+      "STABLE_PROJECT_FACT": 1,
+      "VERIFIED_OUTCOME": 5
+    },
+    "memory_lifecycle": {
+      "ACTIVE": 8
+    },
+    "memory_engine": {
+      "RETAINED": 8
+    },
+    "memory_created_dates": {
+      "2026-10-12": 7,
+      "2026-10-23": 1
+    },
+    "processing": {
+      "APPLIED": 30,
+      "FAILED": 43,
+      "NO_ACTION": 48,
+      "PENDING_REVIEW": 28
+    },
+    "processing_failures": {
+      "invalid_output:no_structure_mixed": 8,
+      "invalid_output:source_span_mismatch": 3,
+      "provider_error": 1,
+      "provider_timeout": 31
+    },
+    "applied_actions": {
+      "CREATE_RULE": 1,
+      "CREATE_TASK": 29
+    },
+    "reviews": {
+      "APPROVED": 1,
+      "PENDING": 28
+    },
+    "memory_jobs": {
+      "DONE": 8
+    }
+  },
+  "formal_browser": {
+    "status": "PASS",
+    "qualification": "formal_read_only_memory_ui",
+    "savedRows": 8,
+    "layout": "light/dark/726px/390px",
+    "typeFilter": true,
+    "optionalProcessingCounts": true,
+    "memoryBodyVisibleWithoutDialog": true,
+    "sourceTraceAccessible": true,
+    "posts": [],
+    "pageErrors": []
+  },
+  "copy_browser": {
+    "status": "PASS",
+    "qualification": "database_copy_read_only_memory_ui",
+    "savedRows": 8,
+    "layout": "light/dark/726px/390px",
+    "typeFilter": true,
+    "optionalProcessingCounts": true,
+    "memoryBodyVisibleWithoutDialog": true,
+    "sourceTraceAccessible": true,
+    "posts": [],
+    "pageErrors": []
+  },
+  "service_restart": "dashboard only",
+  "backend_worker_guard_and_eligibility_changes": false,
+  "source_failures_fixed": false,
+  "evidence_sha256": {
+    "deployment.json": "b049d8d27a0a078259e86f5d4d3dfc5b175ee1c6ceef00c4b06dde5bd9207602",
+    "source-audit.json": "ffa10d325b93ad8e4092ddd5f630e48f39b223c61f06dd62b4c1cdf3004083c4",
+    "formal-browser-proof.json": "8225c6ac32f8ccf68c39e6740b7d2b0ebbbd3284772d7244208be24001f9439b",
+    "copy-browser-proof.json": "99453ee2a4b0638edaa3e4fe6caf04e4bb63fda78491d3aeeb6a5127935f013d"
+  }
+}

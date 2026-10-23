@@ -30,7 +30,6 @@ import type { CoreApiError } from '../api/errors'
 import type {
   MemoryHealth,
   MemoryItem,
-  MemoryItemListRow,
   MemoryJob,
   MemoryJobCounts,
   MemoryTrace,
@@ -45,7 +44,7 @@ import { RawText } from '../components/RawText'
 import { Empty, ErrorPanel, Loading, Panel, StaleBanner } from '../components/States'
 import { KeyValue, SourceLink } from '../components/Trace'
 import { isCoreId } from '../lib/ids'
-import { formatTimestamp } from '../lib/text'
+import { formatTimestamp, maskCredentials } from '../lib/text'
 import {
   Hash,
   MemoryDependencyPending,
@@ -58,6 +57,8 @@ import {
 } from './MemoryDependency'
 import { MemoryLifecyclePanel, MemoryRetryPanel } from './MemoryWrites'
 import { MemoryAuthority, HistoricalMemoryFilters } from './MemoryAuthority'
+import { MemoryCatalog } from './MemoryCatalog'
+import { memoryType } from '../lib/memoryPresentation'
 import { MemoryHealthDashboard } from './MemoryHealthDashboard'
 import { MemoryEngineStart } from './MemoryEngineStart'
 import type { MemoryEngineState } from '../api/memoryEngine'
@@ -465,42 +466,6 @@ function MemoryJobBody({ job }: { job: MemoryJob }): JSX.Element {
  * Items
  * -------------------------------------------------------------------------- */
 
-function ItemTable({ items }: { items: readonly MemoryItemListRow[] }): JSX.Element {
-  return (
-    <Table data-testid="memory-items">
-      <TableHeader>
-        <TableRow>
-          <TableHead>memory_id</TableHead>
-          <TableHead>memory_type</TableHead>
-          <TableHead>status</TableHead>
-          <TableHead>engine_state</TableHead>
-          <TableHead>revision</TableHead>
-          <TableHead>source</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {items.map((item) => (
-          <TableRow key={item.memory_id}>
-            <TableCell>
-              <a href={hrefFor({ name: 'memoryItem', memoryId: item.memory_id })}>
-                <code>{item.memory_id}</code>
-              </a>
-            </TableCell>
-            <TableCell>{item.memory_type}</TableCell>
-            <TableCell>{item.status}</TableCell>
-            <TableCell>{item.engine_state}</TableCell>
-            <TableCell>{item.revision}</TableCell>
-            {/* P4 keeps provenance: the Event this memory was derived from stays reachable. */}
-            <TableCell>
-              <SourceLink kind="event" id={item.source_event_id} label="source Event" />
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  )
-}
-
 export function MemoryItemsView({ memoryId }: { memoryId: string | null }): JSX.Element {
   const { endpoints } = useSession()
   const [draft, setDraft] = useState('')
@@ -512,10 +477,7 @@ export function MemoryItemsView({ memoryId }: { memoryId: string | null }): JSX.
       : null,
     [memoryId],
   )
-  const list = useResource(
-    memoryId === null ? (signal) => endpoints.listMemoryItems({}, signal) : null,
-    [],
-  )
+
 
   if (memoryId !== null) {
     return (
@@ -533,6 +495,7 @@ export function MemoryItemsView({ memoryId }: { memoryId: string | null }): JSX.
           <MemoryAuthority
             key={memoryId}
             comparison={payload.authority_comparison}
+            memory={payload.memory}
             actions={<Button variant="outline" onClick={detail.reload}><RefreshCw /> 刷新</Button>}
             aside={<MemoryItemSupport
               key={memoryId}
@@ -561,38 +524,12 @@ export function MemoryItemsView({ memoryId }: { memoryId: string | null }): JSX.
     )
   }
 
-  return (
-    <MemoryPanel
-      title="Memory Items"
-      what="Memory items"
-      method="GET"
-      path="/v1/memory/items"
-      scopes={READ_SCOPES}
-      badId={null}
-      resource={list}
-      isEmpty={(data) => data.items.length === 0}
-      emptyHint="这个 actor 没有任何可见的 memory item。P4 对无授权的 actor 返回空列表,而不是整个数据库。"
-    >
-      {(data) => (
-        <>
-          <NonAuthoritative payload={data} />
-          <ItemTable items={data.items} />
-          <MemoryIdForm
-            label="按 ID 打开 item"
-            prefix="mem"
-            draft={draft}
-            setDraft={setDraft}
-            onSubmit={() => {
-              globalThis.location.hash = hrefFor({ name: 'memoryItem', memoryId: draft.trim() })
-            }}
-          />
-        </>
-      )}
-    </MemoryPanel>
-  )
+  return <MemoryCatalog />
 }
 
 function MemoryItemSupport({ item, record, management }: { item: MemoryItem; record: ReactNode; management: ReactNode }): JSX.Element {
+  const { endpoints } = useSession()
+  const project = useResource(item.project_id ? signal => endpoints.getProject(item.project_id!, signal) : null, [item.project_id])
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState('record')
   const [container, setContainer] = useState<HTMLDivElement | null>(null)
@@ -601,8 +538,8 @@ function MemoryItemSupport({ item, record, management }: { item: MemoryItem; rec
     <Card>
       <CardHeader><CardTitle className="text-sm">来源概况</CardTitle></CardHeader>
       <CardContent><DescriptionList compact>
-        <DescriptionItem term="类型">{item.memory_type === 'CONFIRMED_DECISION' ? '决策记忆' : item.memory_type}</DescriptionItem>
-        <DescriptionItem term="范围">{item.project_id ? '项目内' : '全局'}</DescriptionItem>
+        <DescriptionItem term="类型">{memoryType(item.memory_type)}</DescriptionItem>
+        <DescriptionItem term="范围">{maskCredentials(item.project_id ? project.data?.project.name ?? '项目名称待确认' : '所有项目').text}</DescriptionItem>
         <DescriptionItem term="生命周期">{MEMORY_STATUS_LABEL[item.status] ?? item.status}</DescriptionItem>
         <DescriptionItem term="置顶">{item.pinned ? '已置顶' : '未置顶'}</DescriptionItem>
       </DescriptionList></CardContent>
