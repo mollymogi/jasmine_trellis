@@ -25,13 +25,16 @@ class LocalCliTests(unittest.TestCase):
   self.assertTrue((Path(env['GROK_HOME'])/'auth.json').is_symlink());self.assertEqual(auth.read_text(),'component-secret')
   self.assertIn('hooks = false',(Path(env['GROK_HOME'])/'config.toml').read_text())
   argv=cli_argv('grok',sys.executable,work,'grok-4.6');self.assertEqual(argv[argv.index('--tools')+1],'');self.assertIn('--deny',argv);self.assertIn('--no-subagents',argv)
-  wrapped=sandbox_argv(sys.executable,work,argv);self.assertIn('(deny process-exec)',wrapped[2]);self.assertIn('(deny file-write*)',wrapped[2])
+  # Policy construction is a component test of an explicitly available sandbox.
+  with patch('jasmine_core.interpreter_cli.Path.is_file',return_value=True):
+   wrapped=sandbox_argv(sys.executable,work,argv)
+  self.assertIn('(deny process-exec)',wrapped[2]);self.assertIn('(deny file-write*)',wrapped[2])
  def test_selection_routes_next_invocation_and_preserves_previous_configuration(self):
   print('local CLI fixture capability:',json.dumps({'platform':sys.platform,'sandbox_exec_is_file':Path('/usr/bin/sandbox-exec').is_file()}),flush=True)
   choice=self.root/'choice.json';registry=self.root/'registry.json'
   registry.write_text(json.dumps({'version':2,'providers':[{'id':'grok','detected':True,'enabled':True,**self.profile}]}));registry.chmod(0o600)
   choice.write_text(json.dumps({'version':2,'provider':'grok','model':'grok-4.6','revision':1}));choice.chmod(0o600)
-  with patch.dict(os.environ,{'JASMINE_CORE_INTERPRETER_PROVIDERS':str(registry),'JASMINE_CORE_INTERPRETER_MODEL_CONFIG':str(choice),'JASMINE_CORE_DAILY_INTERPRETER':'1'}):
+  with patch.dict(os.environ,{'JASMINE_CORE_INTERPRETER_PROVIDERS':str(registry),'JASMINE_CORE_INTERPRETER_MODEL_CONFIG':str(choice),'JASMINE_CORE_DAILY_INTERPRETER':'1'}), patch('jasmine_core.interpreter_cli.Path.is_file',return_value=True):
    first=configured_provider();self.assertIsInstance(first,LocalCliProvider);self.assertTrue(first.valid)
    self.assertEqual(first.configuration()['prompt_version'],'jasmine.interpreter.daily.v1')
    choice.write_text(json.dumps({'version':2,'provider':'opencode','model':'arbitrary','revision':2}));self.assertIsInstance(configured_provider(),UnavailableProvider)
@@ -48,3 +51,22 @@ class LocalCliTests(unittest.TestCase):
   self.assertEqual(failure.exception.code,'provider_output_too_large')
   with self.assertRaises(ProviderFailure) as failure:bounded_run([sys.executable,'-c','import sys;print("not logged in");sys.exit(1)'],b'',env,self.root,5)
   self.assertEqual(failure.exception.code,'provider_login_required')
+
+ def test_missing_native_sandbox_fails_closed_without_running_client(self):
+  with patch('jasmine_core.interpreter_cli.Path.is_file',return_value=False), patch('jasmine_core.interpreter_cli.bounded_run') as run:
+   with self.assertRaises(ProviderFailure) as failure:sandbox_argv(sys.executable,self.root,[sys.executable])
+   self.assertEqual(failure.exception.code,'provider_sandbox_unavailable')
+   provider=LocalCliProvider('grok',self.profile,'grok-4.6')
+   self.assertFalse(provider.valid)
+   with self.assertRaises(ProviderFailure):provider.extract({})
+   run.assert_not_called()
+
+ def test_native_sandbox_capability_matches_this_runner(self):
+  provider=LocalCliProvider('grok',self.profile,'grok-4.6')
+  available=Path('/usr/bin/sandbox-exec').is_file()
+  self.assertEqual(provider.valid,available)
+  if available:
+   self.assertEqual(sandbox_argv(sys.executable,self.root,[sys.executable])[0],'/usr/bin/sandbox-exec')
+  else:
+   with self.assertRaises(ProviderFailure) as failure:sandbox_argv(sys.executable,self.root,[sys.executable])
+   self.assertEqual(failure.exception.code,'provider_sandbox_unavailable')
