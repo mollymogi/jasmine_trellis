@@ -19,6 +19,7 @@ class LocalCliTests(unittest.TestCase):
    with self.assertRaises(ProviderFailure):parse_cli_output('grok',raw)
   with self.assertRaises(ProviderFailure):parse_cli_output('opencode','{}')
  def test_fixed_argv_private_home_and_disabled_hooks_without_auth_copy(self):
+  print('local CLI fixture capability:',json.dumps({'platform':sys.platform,'sandbox_exec_is_file':Path('/usr/bin/sandbox-exec').is_file()}),flush=True)
   auth=self.root/'native-auth';auth.write_text('component-secret');auth.chmod(0o600);work=self.root/'work';work.mkdir()
   env=cli_environment('grok',work,{'auth_file':str(auth)})
   self.assertTrue((Path(env['GROK_HOME'])/'auth.json').is_symlink());self.assertEqual(auth.read_text(),'component-secret')
@@ -26,6 +27,7 @@ class LocalCliTests(unittest.TestCase):
   argv=cli_argv('grok',sys.executable,work,'grok-4.6');self.assertEqual(argv[argv.index('--tools')+1],'');self.assertIn('--deny',argv);self.assertIn('--no-subagents',argv)
   wrapped=sandbox_argv(sys.executable,work,argv);self.assertIn('(deny process-exec)',wrapped[2]);self.assertIn('(deny file-write*)',wrapped[2])
  def test_selection_routes_next_invocation_and_preserves_previous_configuration(self):
+  print('local CLI fixture capability:',json.dumps({'platform':sys.platform,'sandbox_exec_is_file':Path('/usr/bin/sandbox-exec').is_file()}),flush=True)
   choice=self.root/'choice.json';registry=self.root/'registry.json'
   registry.write_text(json.dumps({'version':2,'providers':[{'id':'grok','detected':True,'enabled':True,**self.profile}]}));registry.chmod(0o600)
   choice.write_text(json.dumps({'version':2,'provider':'grok','model':'grok-4.6','revision':1}));choice.chmod(0o600)
