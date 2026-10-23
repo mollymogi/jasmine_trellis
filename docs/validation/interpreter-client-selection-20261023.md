@@ -36,7 +36,22 @@ Staging Chrome passed client/model change, save/reopen and restoration to
 `Codex / gpt-6.1-sol`, with only local settings writes. Both light/dark appearance
 and a 390px viewport were inspected; no dialog horizontal overflow occurred.
 
-Formal deployment and live browser outcomes are recorded in the accompanying
-manifest after verification. Private evidence stays outside Git, including native
+Formal Chrome passed the live **验证可用性** call for Grok, selection/save/reopen,
+and restoration to `Codex / gpt-6.1-sol`. The final release is
+`4b169684cd5a3dfafca94139786d540f327d0c8c`; the preceding validated release has the
+identical Git source tree. The final route readback passed after release restart.
+All 62 prior Interpretation configuration hashes were preserved. Hindsight
+remained running as PID 1590. Native capture Hooks, browser credentials, Agent
+control and Memory-provider configuration hashes were unchanged. No schema or
+network configuration change was performed.
+
+A further **read-only** check used a genuine, previously captured human Claude
+Code greeting as the immutable source. The runtime-configured Grok provider
+returned schema/source-bound `NO_STRUCTURE`. This proves cross-Agent source
+extraction and actual provider selection, while intentionally adding no business
+record or Memory. Full persistent Conversation → review → Memory validation
+remains documented in the earlier conversation-memory package.
+
+Detailed outcomes are recorded in the accompanying manifest. Private evidence stays outside Git, including native
 receipts, screenshots, deployment backups and configuration audits. No tokens,
 conversation bodies or native authentication material are published.
