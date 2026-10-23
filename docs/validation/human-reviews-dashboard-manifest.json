@@ -1,0 +1,51 @@
+{
+  "status": "PASS_SCOPED_REVIEW_UI",
+  "deployed_commit": "6930a2818e18e084cda632748cd2f83c5593200e",
+  "schema": 14,
+  "schema_migration": false,
+  "formal_pending_rows": 27,
+  "formal_business_writes": 0,
+  "formal_reviews_and_rules_unchanged": true,
+  "validation": {
+    "frontend_files": 58,
+    "frontend_passed": 666,
+    "new_human_review_tests": 9,
+    "typescript_build": "PASS; existing bundle-size advisory",
+    "python": "not rerun; frontend-only change"
+  },
+  "formal_browser": {
+    "status": "PASS",
+    "qualification": "formal_read_only_human_ui",
+    "initialRows": 27,
+    "layout": "light/dark/390px",
+    "sourceConversationLink": true,
+    "pageErrors": []
+  },
+  "copy_browser": {
+    "status": "PASS",
+    "qualification": "database_copy_component_ui_reject",
+    "layout": "light/dark/390px",
+    "sourceConversationLink": true,
+    "pageErrors": []
+  },
+  "copy_approval": {
+    "status": "PASS",
+    "qualification": "synthetic_provider_database_copy_component_ui_approval",
+    "approved": true,
+    "ruleState": "ACTIVE",
+    "enforcement": "CONTEXT",
+    "severity": "NORMAL",
+    "matchingScope": true,
+    "liveHindsightNotUsed": true
+  },
+  "service_restart": "dashboard only",
+  "core_hindsight_processing_memory_preserved": true,
+  "hooks_credentials_provider_model_controls_unchanged": true,
+  "guard_matching_changed": false,
+  "evidence_sha256": {
+    "deployment.json": "e32b0d01fb9035ec35f9a86d233e853ca4e50b4db86c834f55bee94b44f7a028",
+    "formal-browser-proof.json": "b340aa4bf2270acf1dc6beab9185fa6f69685e271a3fd5864062cac257b17abc",
+    "copy-browser-proof.json": "6b2e7725167c6f3076bf78c85bef90f550eda908ad6fa82d436c56a97407ad4b",
+    "copy-approval-proof.json": "60805c6ea700e72f4e8c47cd376733c11bd364a5351718e5b5a82db8feca7afb"
+  }
+}
