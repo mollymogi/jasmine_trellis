@@ -842,3 +842,5 @@ main {
 .processing-raw-records > summary { cursor:pointer; margin:18px 0; color:var(--muted-foreground); font-size:12px; }
 .processing-pagination { display:flex; justify-content:center; align-items:center; gap:14px; padding-top:20px; font-size:12px; }
 @media(max-width:700px){.processing-cards{grid-template-columns:minmax(0,1fr)}.processing-heading{flex-direction:column}}
+
+.processing-source { display:flex; align-items:center; gap:6px; min-width:0; max-width:60%; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }

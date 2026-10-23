@@ -85,7 +85,7 @@ export function InterpretationsView({
 
   return (
     <div className="stack">
-      <ConversationProcessing projectId={projectId}/>
+      <ConversationProcessing projectId={projectId} eventId={eventId}/>
       <details className="processing-raw-records"><summary>解释原始记录与筛选</summary>
       <nav className="breadcrumb" aria-label="位置">
         <a href={sourceHref.conversation(projectId, taskId)}>Conversation</a>

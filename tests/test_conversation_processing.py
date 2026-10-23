@@ -35,7 +35,7 @@ class Processing(DbTestCase):
   return EventStore(self.conn,schema_version=SCHEMA_VERSION).append(NewEvent(event_type='assistant.message' if assistant else 'user.prompt',source_system=source,occurred_at=self.clock.now(),actor_id=self.system if assistant else self.human,actor_kind='system' if assistant else 'human',host_id=self.host,project_id=project or self.project,payload={'text':text}))[0]['event_id']
  def test_greeting_exactly_once_and_no_memory(self):
   ident=self.event();self.assertEqual(self.worker.tick()['status'],'NO_ACTION');self.assertEqual(self.worker.tick()['status'],'idle');self.assertEqual(self.fake.calls,1)
-  self.assertEqual(self.worker.list(event_id=ident)['items'][0]['source_text'],'你好');self.assertEqual(self.conn.execute('select count(*) from memory_jobs').fetchone()[0],0)
+  self.assertEqual(self.worker.list(event_id=ident)['items'][0]['source_text'],'你好');self.assertEqual(self.worker.list(event_id=ident)['items'][0]['project_name'],'Daily');self.assertEqual(self.conn.execute('select count(*) from memory_jobs').fetchone()[0],0)
  def test_project_rule_waits_for_review_then_memory_queue_links_back(self):
   self.kind='RULE';event=self.event('项目文档统一使用中文');self.assertEqual(self.worker.tick()['status'],'PENDING_REVIEW')
   row=self.worker.list(event_id=event)['items'][0];self.assertEqual(row['memory_items'],[]);self.assertIsNotNone(row['review_id']);self.assertEqual(self.conn.execute('select count(*) from rules').fetchone()[0],0)

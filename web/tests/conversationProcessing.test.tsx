@@ -40,3 +40,7 @@ it('reports a stale worker separately from configured automatic processing',asyn
 it('requires explicit review and shows the high-impact warning for a project convention',async()=>{
  serve([{...row,candidates:[{...candidate,impact:'HIGH'}]}]);api.getReview.mockResolvedValue({review:{review_id:'rvw_test',revision:1,status:'PENDING',preview:null}});render(<ConversationProcessing/>);await screen.findByText('待审核');fireEvent.click(screen.getByRole('button',{name:'审核项目约定'}));await screen.findByText('此候选被标记为高影响，请仔细核对。这里仅批准为本项目的上下文约定。');expect(api.approveReview).not.toHaveBeenCalled()
 })
+
+it('preserves an exact Event scope for trace links and explicit message analysis',async()=>{
+ const f=serve([]);render(<ConversationProcessing eventId="evt_source"/>);await screen.findByRole('button',{name:'分析此消息'});expect(f.mock.calls[0]?.[0]).toContain('event_id=evt_source');fireEvent.click(screen.getByRole('button',{name:'分析此消息'}));await waitFor(()=>expect(f.mock.calls.some(call=>call[1]?.body===JSON.stringify({event_id:'evt_source'}))).toBe(true))
+})

@@ -137,6 +137,7 @@ class ConversationProcessing:
     self.conn.execute('UPDATE conversation_processing SET status=?,updated_at=? WHERE event_id=?',(target,clock.now_rfc3339(),row['event_id']));self._change(row['event_id'],target,self.actor,reason='review_completed')
  def _view(self,row):
   out=dict(row);event=self.events.get(out['event_id']);out.update(project_id=event['project_id'],session_id=event['session_id'],host_id=event['host_id'],source_actor_kind=event['actor_kind'],source_system=event['source_system'],source_text=event['payload'].get('text',''),event_type=event['event_type'],candidates=[],review_id=None,memory_items=[],memory_jobs=[],effect='NONE')
+  project=self.conn.execute('SELECT name FROM projects WHERE project_id=?',(event['project_id'],)).fetchone();out['project_name']=project['name'] if project else None
   if out['interpretation_id']:
    item=self.interpretations.get(out['interpretation_id']);out['candidates']=item['candidates'] or [];out['extractor_model']=item['extractor_model']
   if out['resolution_id']:
