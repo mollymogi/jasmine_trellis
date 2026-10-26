@@ -87,9 +87,34 @@ class RateLimitCooldown(_DailyHarness):
             self.expire_cooldown()
         self.assertEqual(result["status"], "FAILED")
         self.assertEqual(self.row(event)["error_code"], "provider_rate_limited")
-        self.assertEqual(seen[:RATE_LIMIT_ATTEMPTS - 1],
+        self.assertEqual(seen,
                          [min(COOLDOWN_MIN * 2 ** i, COOLDOWN_MAX)
-                          for i in range(RATE_LIMIT_ATTEMPTS - 1)])
+                          for i in range(RATE_LIMIT_ATTEMPTS)])
+
+    def test_exhausted_message_still_cools_down_the_next_queued_message(self):
+        first = self.event("first")
+        self.outcomes = ["rate_limited"]
+        self.worker.tick()
+        second = self.event("second")
+        for _ in range(RATE_LIMIT_ATTEMPTS - 1):
+            self.expire_cooldown()
+            self.outcomes = ["rate_limited"]
+            result = self.worker.tick()
+        self.assertEqual(result["event_id"], first)
+        self.assertEqual(result["status"], "FAILED")
+        self.assertEqual(self.row(first)["status"], "FAILED")
+        self.assertEqual(self.worker._rate_limits(first), RATE_LIMIT_ATTEMPTS)
+        self.assertEqual(db.get_meta(self.conn, COOLDOWN_SECONDS), str(COOLDOWN_MAX))
+        calls = self.fake.calls
+        self.assertEqual(self.worker.tick(),
+                         {"status": "idle", "cooldown_until": result["cooldown_until"]})
+        self.assertEqual(self.fake.calls, calls)
+        self.assertEqual(self.row(second)["status"], "PENDING")
+        self.assertEqual(self.row(second)["attempt"], 0)
+        self.expire_cooldown()
+        resumed = self.worker.tick()
+        self.assertEqual((resumed["event_id"], resumed["status"]), (second, "NO_ACTION"))
+        self.assertEqual(self.fake.calls, calls + 1)
 
     def test_a_manual_retry_restores_the_attempt_budget(self):
         event = self.event("你好")

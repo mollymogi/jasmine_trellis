@@ -101,14 +101,17 @@ class ConversationProcessing:
  def _rate_limits(self,event_id):
   return self.conn.execute("SELECT COUNT(*) FROM conversation_processing_changes WHERE event_id=? AND action='RATE_LIMITED' AND seq>COALESCE((SELECT MAX(seq) FROM conversation_processing_changes WHERE event_id=? AND action IN ('ENQUEUED','RETRY_REQUESTED')),0)",(event_id,event_id)).fetchone()[0]
  def _rate_limited(self,event_id,owner,code):
-  """Requeue in place and start (or lengthen) the queue-wide cooldown."""
+  """Start the queue-wide cooldown even when this message exhausts its budget."""
   with db.transaction(self.conn):
+   exhausted=self._rate_limits(event_id)>=RATE_LIMIT_ATTEMPTS-1
+   status='FAILED' if exhausted else 'PENDING'
    seconds=min(max(int(db.get_meta(self.conn,COOLDOWN_SECONDS,0) or 0)*2,COOLDOWN_MIN),COOLDOWN_MAX);until=_future(seconds)
-   changed=self.conn.execute("UPDATE conversation_processing SET status='PENDING',error_code=?,lease_owner=NULL,lease_until=NULL,updated_at=? WHERE event_id=? AND status='PROCESSING' AND lease_owner=?",(code,clock.now_rfc3339(),event_id,owner)).rowcount
+   changed=self.conn.execute("UPDATE conversation_processing SET status=?,error_code=?,lease_owner=NULL,lease_until=NULL,updated_at=? WHERE event_id=? AND status='PROCESSING' AND lease_owner=?",(status,code,clock.now_rfc3339(),event_id,owner)).rowcount
    if not changed:raise errors.InvalidRequest('daily processing lease lost')
    db.set_meta(self.conn,COOLDOWN_SECONDS,str(seconds));db.set_meta(self.conn,COOLDOWN_UNTIL,until)
    self._change(event_id,'RATE_LIMITED',self.actor,error_code=code,cooldown_seconds=seconds,cooldown_until=until)
-  return {'event_id':event_id,'status':'RATE_LIMITED','error_code':code,'cooldown_until':until}
+   if exhausted:self._change(event_id,'FAILED',self.actor,error_code=code)
+  return {'event_id':event_id,'status':'FAILED' if exhausted else 'RATE_LIMITED','error_code':code,'cooldown_until':until}
  def claim(self,owner,lease_seconds=180):
   self._executor()
   if self.cooldown_until():return None
@@ -160,7 +163,7 @@ class ConversationProcessing:
    return {'event_id':event_id,'status':status}
   except Exception as exc:
    code=getattr(exc,'details',{}).get('provider_code') or getattr(exc,'code',type(exc).__name__)
-   if str(code).startswith('provider_rate_limited') and self._rate_limits(event_id)<RATE_LIMIT_ATTEMPTS-1:
+   if str(code).startswith('provider_rate_limited'):
     return self._rate_limited(event_id,owner,str(code)[:160])
    self._save(event_id,owner,status='FAILED',error_code=str(code)[:160],lease_owner=None,lease_until=None)
    with db.transaction(self.conn):self._change(event_id,'FAILED',self.actor,error_code=str(code)[:160])
