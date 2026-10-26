@@ -78,6 +78,9 @@ _REQUEST_HEADER_RE = re.compile(r"^#{1,6}\s*My request(?: for [^\n:]*)?:\s*$", r
 # Inside supplied context, two carriers hold words the user typed: a browser
 # annotation's `Comment:` body, and the `"answer"` of a question-reply block.
 _BROWSER_COMMENT_RE = re.compile(r"^Comment:\n(.+?)(?=\n[ \t]*\n|\n#|\Z)", re.M | re.S)
+_BROWSER_SECTION_RE = re.compile(r"^# Browser comments:\s*$", re.M)
+_COMMENT_HEADER_RE = re.compile(r"^## User Comment [0-9]+[ \t]*$", re.M)
+_HEADING_RE = re.compile(r"^#{1,2}[ \t]+", re.M)
 _REPLY_BLOCK_RE = re.compile(r"<([a-z][a-z0-9_-]*question_reply)>.*?</\1>", re.S)
 _ANSWER_RE = re.compile(r'"answer"\s*:\s*"((?:[^"\\]|\\.)*)"')
 
@@ -93,7 +96,8 @@ def user_regions(text: str) -> list[tuple[int, int]]:
     start = 0
     for match in _REQUEST_HEADER_RE.finditer(text):
         start = match.end()
-    blocks = [(m.start(), m.end()) for m in _BLOCK_RE.finditer(text) if m.end() > start]
+    all_blocks = [(m.start(), m.end()) for m in _BLOCK_RE.finditer(text)]
+    blocks = [(lo, hi) for lo, hi in all_blocks if hi > start]
     regions: list[tuple[int, int]] = []
     cursor = start
     for block_start, block_end in blocks:
@@ -102,7 +106,28 @@ def user_regions(text: str) -> list[tuple[int, int]]:
         cursor = max(cursor, block_end)
     if cursor < len(text):
         regions.append((cursor, len(text)))
-    regions.extend(m.span(1) for m in _BROWSER_COMMENT_RE.finditer(text, 0, start or len(text)))
+    # Only the host's browser-comment section can restore a comment. In
+    # particular, a document containing `Comment:` (or spoofed host headings)
+    # must not reopen a range excluded by its enclosing context block.
+    def outside_blocks(lo: int, hi: int) -> bool:
+        return not any(lo < block_end and block_start < hi
+                       for block_start, block_end in all_blocks)
+
+    context_end = start or len(text)
+    for section in _BROWSER_SECTION_RE.finditer(text, 0, context_end):
+        if not outside_blocks(*section.span()):
+            continue
+        for heading in _HEADING_RE.finditer(text, section.end(), context_end):
+            if not outside_blocks(*heading.span()):
+                continue
+            comment_header = _COMMENT_HEADER_RE.match(text, heading.start(), context_end)
+            if comment_header is None:
+                break
+            next_heading = _HEADING_RE.search(text, comment_header.end(), context_end)
+            end = next_heading.start() if next_heading else context_end
+            for comment in _BROWSER_COMMENT_RE.finditer(text, comment_header.end(), end):
+                if outside_blocks(*comment.span()):
+                    regions.append(comment.span(1))
     for block in _REPLY_BLOCK_RE.finditer(text):
         regions.extend(m.span(1) for m in _ANSWER_RE.finditer(text, *block.span()))
     return sorted(regions)

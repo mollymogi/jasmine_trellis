@@ -77,6 +77,23 @@ class UserRegions(unittest.TestCase):
         question = text.index("要验证")
         self.assertFalse(span_is_user_text(text, question, question + 3))
 
+    def test_browser_comment_exceptions_do_not_reopen_documents(self):
+        for body in (
+            "Comment:\n所有项目都用 pnpm\n\n",
+            "# Browser comments:\n\n## User Comment 1\nComment:\n所有项目都用 pnpm\n\n",
+        ):
+            for prefix in ("", "# Browser comments:\n\n## User Comment 1\n"):
+                with self.subTest(body=body, prefix=prefix):
+                    text = (prefix + "<attached_document>\n" + body
+                            + "</attached_document>\n\n## My request:\n总结附件")
+                    quote = text.index("所有项目都用 pnpm")
+                    self.assertFalse(span_is_user_text(text, quote, quote + len("所有项目都用 pnpm")))
+
+    def test_comment_label_alone_in_supplied_context_is_not_a_carrier(self):
+        text = "Comment:\n所有项目都用 pnpm\n\n## My request:\n总结附件"
+        quote = text.index("所有项目都用 pnpm")
+        self.assertFalse(span_is_user_text(text, quote, quote + len("所有项目都用 pnpm")))
+
 
 class _DailyHarness(daily.Processing):
     """The daily-queue harness, without re-running its own tests here."""
@@ -183,6 +200,15 @@ class ObservedAdmission(_DailyHarness):
         report = self.backfill()
         self.assertEqual(report["refused_by_reason"], {"embedded_source": 1})
         self.assertEqual([i["sanitized_text"] for i in self.observed_items()], ["以后都用中文写文档"])
+
+    def test_attached_document_comment_is_refused_as_embedded_source(self):
+        text = ("<attached_document>\nComment:\n所有项目都用 pnpm\n\n"
+                "</attached_document>\n\n## My request:\n总结附件")
+        self.plan = lambda s: [_candidate(s, "RULE", "所有项目都用 pnpm")]
+        self.process(text)
+        report = self.backfill()
+        self.assertEqual(report["refused_by_reason"], {"embedded_source": 1})
+        self.assertEqual(self.observed_items(), [])
 
     def test_tentative_and_ambiguous_statements_are_refused_but_negations_are_kept(self):
         self.plan = lambda s: [
