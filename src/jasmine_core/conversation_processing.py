@@ -18,6 +18,14 @@ from .interpretation_maintenance import MaintenanceStore
 SOURCES=('codex-native-conversation-v1','claude-native-conversation-v1','grok-native-conversation-v1')
 CURSOR='conversation_processing_cursor'
 ACTIVATED='conversation_processing_started_at'
+# A rate-limited provider is an account-wide condition, not a property of one
+# message: every claim during it fails the same way and spends quota. So the
+# whole queue cools down (5 min, doubling to 1 h, reset by a success) and the
+# message goes back to PENDING in its original place, failing only after
+# RATE_LIMIT_ATTEMPTS consecutive rate limits since it was last (re)queued.
+COOLDOWN_UNTIL='conversation_processing_cooldown_until'
+COOLDOWN_SECONDS='conversation_processing_cooldown_seconds'
+COOLDOWN_MIN,COOLDOWN_MAX,RATE_LIMIT_ATTEMPTS=300,3600,5
 
 def _future(seconds):return (datetime.now(timezone.utc)+timedelta(seconds=seconds)).isoformat(timespec='microseconds').replace('+00:00','Z')
 
@@ -87,8 +95,23 @@ class ConversationProcessing:
    if row['status']!='FAILED':raise errors.InvalidRequest('only failed processing may be retried')
    self.conn.execute("UPDATE conversation_processing SET status='PENDING',error_code=NULL,updated_at=? WHERE event_id=?",(clock.now_rfc3339(),event_id));self._change(event_id,'RETRY_REQUESTED',actor_id)
   return {'status':'PENDING','event_id':event_id}
+ def cooldown_until(self):
+  until=db.get_meta(self.conn,COOLDOWN_UNTIL,None)
+  return until if until and until>clock.now_rfc3339() else None
+ def _rate_limits(self,event_id):
+  return self.conn.execute("SELECT COUNT(*) FROM conversation_processing_changes WHERE event_id=? AND action='RATE_LIMITED' AND seq>COALESCE((SELECT MAX(seq) FROM conversation_processing_changes WHERE event_id=? AND action IN ('ENQUEUED','RETRY_REQUESTED')),0)",(event_id,event_id)).fetchone()[0]
+ def _rate_limited(self,event_id,owner,code):
+  """Requeue in place and start (or lengthen) the queue-wide cooldown."""
+  with db.transaction(self.conn):
+   seconds=min(max(int(db.get_meta(self.conn,COOLDOWN_SECONDS,0) or 0)*2,COOLDOWN_MIN),COOLDOWN_MAX);until=_future(seconds)
+   changed=self.conn.execute("UPDATE conversation_processing SET status='PENDING',error_code=?,lease_owner=NULL,lease_until=NULL,updated_at=? WHERE event_id=? AND status='PROCESSING' AND lease_owner=?",(code,clock.now_rfc3339(),event_id,owner)).rowcount
+   if not changed:raise errors.InvalidRequest('daily processing lease lost')
+   db.set_meta(self.conn,COOLDOWN_SECONDS,str(seconds));db.set_meta(self.conn,COOLDOWN_UNTIL,until)
+   self._change(event_id,'RATE_LIMITED',self.actor,error_code=code,cooldown_seconds=seconds,cooldown_until=until)
+  return {'event_id':event_id,'status':'RATE_LIMITED','error_code':code,'cooldown_until':until}
  def claim(self,owner,lease_seconds=180):
   self._executor()
+  if self.cooldown_until():return None
   with db.transaction(self.conn):
    now=clock.now_rfc3339();row=self.conn.execute("SELECT * FROM conversation_processing WHERE status='PENDING' OR (status='PROCESSING' AND lease_until<=?) ORDER BY queued_at,event_id LIMIT 1",(now,)).fetchone()
    if not row:return None
@@ -104,7 +127,9 @@ class ConversationProcessing:
   with db.transaction(self.conn):db.set_meta(self.conn,'conversation_processing_heartbeat',clock.now_rfc3339())
   self.scan();self.reconcile();owner=owner or socket.gethostname()+':'+str(os.getpid())+':'+uuid.uuid4().hex
   row=self.claim(owner)
-  if not row:return {'status':'idle'}
+  if not row:
+   until=self.cooldown_until()
+   return {'status':'idle','cooldown_until':until} if until else {'status':'idle'}
   event_id=row['event_id']
   try:
    ident=row['interpretation_id']
@@ -128,10 +153,15 @@ class ConversationProcessing:
     resolution=self.resolver.resolve(ident,{'idempotency_key':request_key,'host_id':self.host,'policy_version':preview['policy_version'],'expected_revisions':preview['expected_revisions'],'expected_context_digest':preview['expected_context_digest']},actor_id=self.actor)['resolution']
    disposition=resolution['result']['disposition'];status='APPLIED' if disposition=='SOURCE_REPLAYED' else disposition
    self._save(event_id,owner,status=status,resolution_id=resolution['resolution_id'],lease_owner=None,lease_until=None)
-   with db.transaction(self.conn):self._change(event_id,status,self.actor,interpretation_id=ident,resolution_id=resolution['resolution_id'])
+   with db.transaction(self.conn):
+    self._change(event_id,status,self.actor,interpretation_id=ident,resolution_id=resolution['resolution_id'])
+    # The provider answered: the next rate limit starts from the minimum again.
+    if db.get_meta(self.conn,COOLDOWN_SECONDS,None) not in (None,'0'):db.set_meta(self.conn,COOLDOWN_SECONDS,'0')
    return {'event_id':event_id,'status':status}
   except Exception as exc:
    code=getattr(exc,'details',{}).get('provider_code') or getattr(exc,'code',type(exc).__name__)
+   if str(code).startswith('provider_rate_limited') and self._rate_limits(event_id)<RATE_LIMIT_ATTEMPTS-1:
+    return self._rate_limited(event_id,owner,str(code)[:160])
    self._save(event_id,owner,status='FAILED',error_code=str(code)[:160],lease_owner=None,lease_until=None)
    with db.transaction(self.conn):self._change(event_id,'FAILED',self.actor,error_code=str(code)[:160])
    return {'event_id':event_id,'status':'FAILED','error_code':str(code)[:160]}
@@ -177,4 +207,4 @@ class ConversationProcessing:
   total=self.conn.execute('SELECT COUNT(*)'+sql,params).fetchone()[0]
   rows=self.conn.execute('SELECT q.*'+sql+' ORDER BY q.queued_at DESC,q.event_id DESC LIMIT ? OFFSET ?',[*params,limit,offset]).fetchall()
   counts=dict(self.conn.execute('SELECT q.status,COUNT(*)'+sql+' GROUP BY q.status',params).fetchall())
-  return {'items':[self._view(row) for row in rows],'count':total,'counts':counts,'started_at':db.get_meta(self.conn,ACTIVATED,None),'worker_configured':bool(self.actor and self.host),'last_tick_at':db.get_meta(self.conn,'conversation_processing_heartbeat',None),'automatic_scope':'new_native_user_prompts','limit':limit,'offset':offset}
+  return {'items':[self._view(row) for row in rows],'count':total,'counts':counts,'started_at':db.get_meta(self.conn,ACTIVATED,None),'worker_configured':bool(self.actor and self.host),'last_tick_at':db.get_meta(self.conn,'conversation_processing_heartbeat',None),'cooldown_until':self.cooldown_until(),'automatic_scope':'new_native_user_prompts','limit':limit,'offset':offset}
