@@ -7,7 +7,7 @@ existing P2 policy; the browser keeps its existing scopes and review ownership.
 from pathlib import Path
 import argparse,json,os,sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'src'))
-from jasmine_core import db,ids,registry
+from jasmine_core import SCHEMA_VERSION,db,ids,registry
 from jasmine_core.migrations import check_version
 from jasmine_core.interpreter_provider import CodexProvider
 from jasmine_core.conversation_processing import ConversationProcessing
@@ -30,7 +30,7 @@ def prepare(base,executable,catalog,confirmed):
   if not row:
    with db.transaction(conn):registry.Registry(conn).upsert_actor(actor,kind='system',display_name='Daily conversation Interpreter and Resolver',home_host_id=host)
   if not saved:_write(metadata,{'actor_id':actor,'host_id':host});metadata.chmod(0o600)
-  ConversationProcessing(conn,schema_version=14,processor_actor_id=actor,host_id=host,provider=provider).activate()
+  ConversationProcessing(conn,schema_version=SCHEMA_VERSION,processor_actor_id=actor,host_id=host,provider=provider).activate()
  finally:conn.close()
  document={**runtime,'conversation_processing':{'enabled':True,'actor_id':actor,'host_id':host,'executable':str(executable.resolve()),'catalog':str(catalog.resolve())}}
  if runtime!=document:_backup(path,path.read_bytes());_write(path,document);path.chmod(0o600)

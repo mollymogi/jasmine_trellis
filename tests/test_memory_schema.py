@@ -64,7 +64,8 @@ class SchemaShape(MemoryTestCase):
             "trg_memory_item_sources_immutable_update",
             "trg_memory_item_sources_immutable_delete",
         }, _triggers(self.conn))
-        self.assertIn("ux_memory_jobs_source", _indexes(self.conn))
+        # m0015: one job per item per kind (ADR 0034 §7).
+        self.assertIn("ux_memory_jobs_item", _indexes(self.conn))
 
     def test_p4_created_no_table_it_does_not_own(self) -> None:
         """P4's own migration touches Memory tables and nothing else.
@@ -283,7 +284,8 @@ class MigrationFromP1(MemoryTestCase):
         # without the migrations it renumbers past actually existing.
         self.assertEqual(applied, ["m0008_resolutions", "m0009_continuity",
                                    "m0010_context", "m0011_memory", "m0012_web_confirmations",
-                                   "m0013_host_hooks", "m0014_conversation_processing"])
+                                   "m0013_host_hooks", "m0014_conversation_processing",
+                               "m0015_observed_memory"])
         self.assertEqual(current_version(self.conn), SCHEMA_VERSION)
         self.assertEqual(
             self.conn.execute("SELECT display_name FROM hosts WHERE host_id=?",

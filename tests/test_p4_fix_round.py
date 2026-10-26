@@ -15,6 +15,7 @@ migrated Core per test. The live engine halves remain the orchestrator's run.
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 import json
 import os
 import subprocess
@@ -1113,7 +1114,24 @@ class OutageHoldsAndRecoveryFinishesTheSameJob(unittest.TestCase):
                                        task_id=task)
         conn = self.gate.conn()
         try:
+            # Since m0015 (ADR 0034 §7) the schema itself refuses this shape —
+            # one retain job per memory — so the forgery below needs the unique
+            # index out of the way to reach the verifier at all. The verifier
+            # stays the second line of defence for a database not on m0015.
+            with self.assertRaises(sqlite3.IntegrityError), db.transaction(conn):
+                conn.execute(
+                    "INSERT INTO memory_jobs (job_id, kind, memory_id, source_event_id,"
+                    " project_id, task_id, memory_type, bank_id, document_id,"
+                    " content_sha256, status, retry_count, max_attempts, next_attempt_at,"
+                    " created_at, updated_at)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (ids.new_id("mjb"), "retain", first["memory_id"], extra_source,
+                     self.project, task, first["memory_type"], first["bank_id"],
+                     "doc-second-0", "d" * 64, "PENDING", 0, 5,
+                     "2026-01-02T00:00:00.000000Z", "2026-01-02T00:00:00.000000Z",
+                     "2026-01-02T00:00:00.000000Z"))
             with db.transaction(conn):
+                conn.execute("DROP INDEX ux_memory_jobs_item")
                 for job in pending:
                     conn.execute("UPDATE memory_jobs SET status='DONE', completed_at='2026-01-02T00:00:00.000000Z' WHERE job_id=?",
                                  (job["job_id"],))

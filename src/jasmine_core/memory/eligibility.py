@@ -110,6 +110,12 @@ class Candidate:
     provenance: Provenance
     document_id: str
     context: str
+    # ADR 0034. Authority candidates keep the defaults; an observed candidate
+    # names the Interpretation and the candidate position it came from.
+    candidate_index: int = 0
+    admission: str = "AUTHORITY"
+    trust: str = "VERIFIED"
+    interpretation_id: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -122,6 +128,10 @@ class Candidate:
             "occurred_at": self.occurred_at,
             "document_id": self.document_id,
             "context": self.context,
+            "candidate_index": self.candidate_index,
+            "admission": self.admission,
+            "trust": self.trust,
+            "interpretation_id": self.interpretation_id,
             **self.provenance.as_dict(),
         }
 
@@ -185,7 +195,7 @@ def evidence_reference_status(conn: sqlite3.Connection, evidence_id: str) -> str
                          f"{evidence_id}: {type(exc).__name__}") from exc
 
 
-def document_id_for(source_event_id: str, memory_type: str) -> str:
+def document_id_for(source_event_id: str, memory_type: str, candidate_index: int | None = None) -> str:
     """The stable engine document id for one source.
 
     Deterministic, so a crash between "Truth committed" and "job inserted", and
@@ -196,7 +206,12 @@ def document_id_for(source_event_id: str, memory_type: str) -> str:
     from . import ENGINE_ID
     from ..canonical import sha256_hex
 
-    return f"{ENGINE_ID}:{memory_type.lower()}:{sha256_hex(source_event_id)[:32]}"
+    base = f"{ENGINE_ID}:{memory_type.lower()}:{sha256_hex(source_event_id)[:32]}"
+    # Authority documents keep the exact id they always had, so a re-scan after
+    # m0015 lands on the already-retained remote document. Observed documents are
+    # one per candidate, and the index is what keeps two statements from one
+    # message apart.
+    return base if candidate_index is None else f"{base}:c{int(candidate_index)}"
 
 
 class AuthorityEvidenceSource:
@@ -396,7 +411,11 @@ class AuthorityEvidenceSource:
             memory_type = "FAILURE_LESSON"
         else:
             raise Ineligible("evidence_status_not_memory_eligible", record["status"])
-        detail = payload.get("summary") or payload.get("tool_name") or "recorded result"
+        detail = self._evidence_subject(conn, record, payload)
+        if detail is None:
+            # ADR 0034 §9: a kind plus a command hash says nothing a recall could
+            # use, and such items were the bulk of a real deployment's Memory.
+            raise Ineligible("evidence_without_summary", evidence_id)
         return self._candidate(
             conn, row,
             memory_type=memory_type,
@@ -443,13 +462,34 @@ class AuthorityEvidenceSource:
                                title=title, body=body,
                                context=f"jasmine {memory_type.lower().replace('_', ' ')}")
 
+    @staticmethod
+    def _evidence_subject(conn: sqlite3.Connection, record: sqlite3.Row,
+                          payload: dict[str, Any]) -> str | None:
+        """What the result was about, in words, or `None` when nothing says so.
+
+        A stated summary wins; otherwise the Step and Task titles the result was
+        recorded against. Hashes and ids are provenance, not a subject.
+        """
+        summary = payload.get("summary")
+        if isinstance(summary, str) and summary.strip():
+            return summary.strip()
+        titles = []
+        if record["step_id"]:
+            step = conn.execute("SELECT title FROM steps WHERE step_id=?",
+                                (record["step_id"],)).fetchone()
+            if step is not None and (step["title"] or "").strip():
+                titles.append(f"step \u201c{step['title'].strip()}\u201d")
+        task = conn.execute("SELECT title FROM tasks WHERE task_id=?",
+                            (record["task_id"],)).fetchone()
+        if task is not None and (task["title"] or "").strip():
+            titles.append(f"task \u201c{task['title'].strip()}\u201d")
+        return " of ".join(titles) or None
+
     def _evidence_body(self, record: sqlite3.Row, payload: dict[str, Any], detail: str) -> str:
         parts = [
-            f"{record['kind']} {record['status']} evidence for task {record['task_id']}",
-            f"command: {record['command_sha256']}" if record["command_sha256"] else None,
+            f"{record['kind']} {record['status']} for {detail}",
             f"tool: {record['tool_name']}" if record["tool_name"] else None,
-            f"workspace fingerprint: {record['fingerprint_sha256']}",
-            f"detail: {detail}",
+            f"evidence: {record['evidence_id']} (task {record['task_id']})",
         ]
         return "\n".join(part for part in parts if part)
 
@@ -544,7 +584,7 @@ def resolve_destination(candidate: Candidate) -> Any:
     own committed scope decides, and `scope.resolve_scope_for_item` is the only
     thing that constructs the result.
     """
-    if candidate.scope_kind == "global":
+    if candidate.scope_kind == "global" and candidate.admission == "AUTHORITY":
         return scope.global_bank()
     return scope.project_bank(candidate.project_id)
 

@@ -48,7 +48,8 @@ ATTEMPT_ID_PREFIX = "mja"
 
 _ITEM_COLUMNS = (
     "memory_id", "bank_id", "scope_kind", "project_id", "task_id", "memory_type",
-    "document_id", "source_event_id", "evidence_ids_json", "origin_rule_id",
+    "document_id", "source_event_id", "candidate_index", "admission", "trust",
+    "interpretation_id", "evidence_ids_json", "origin_rule_id",
     "origin_rule_version", "origin_event_id",
     "content_sha256", "sanitized_text", "status", "pinned",
     "revision", "engine_state", "receipt_json", "last_error_code", "safe_error_summary",
@@ -174,7 +175,9 @@ class MemoryStore:
 
     def insert_item(self, *, bank: BankRef, memory_type: str, document_id: str,
                     source_event_id: str, provenance: Provenance, sanitized_text: str,
-                    content_sha256: str, task_id: str | None, at: str) -> str:
+                    content_sha256: str, task_id: str | None, at: str,
+                    candidate_index: int = 0, admission: str = "AUTHORITY",
+                    trust: str = "VERIFIED", interpretation_id: str | None = None) -> str:
         """Create the item and its source rows. Caller holds the transaction.
 
         `bank` is the *only* admissible destination: it was produced by
@@ -184,12 +187,14 @@ class MemoryStore:
         memory_id = ids.new_id(MEMORY_ID_PREFIX, now_ms=_now_ms(at))
         self._conn.execute(
             "INSERT INTO memory_items (memory_id, bank_id, scope_kind, project_id, task_id,"
-            " memory_type, document_id, source_event_id, evidence_ids_json, origin_rule_id,"
+            " memory_type, document_id, source_event_id, candidate_index, admission, trust,"
+            " interpretation_id, evidence_ids_json, origin_rule_id,"
             " origin_rule_version, origin_event_id, content_sha256, sanitized_text, status,"
             " pinned, revision, engine_state, created_at, updated_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'ACTIVE',0,1,'PENDING_RETAIN',?,?)",
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'ACTIVE',0,1,'PENDING_RETAIN',?,?)",
             (memory_id, bank.bank_id, bank.scope_kind, bank.project_id, task_id,
-             memory_type, document_id, source_event_id,
+             memory_type, document_id, source_event_id, candidate_index, admission, trust,
+             interpretation_id,
              canonical_json(list(provenance.evidence_ids)),
              provenance.origin_rule_id, provenance.origin_rule_version,
              provenance.origin_event_id,
