@@ -50,6 +50,7 @@ from . import jobs as jobs_module
 from . import provenance
 from .adapter import MemoryAdapter
 from .eligibility import SourceRegistry
+from .observed import ObservedCandidateSource, ensure_started
 from .store import MemoryStore
 from .transport import MemoryTransport, TransportError
 from .types import RetainRequest, RetainReceipt
@@ -67,6 +68,7 @@ class WorkerReport:
     events_examined: int = 0
     candidates: int = 0
     created: list[str] | None = None
+    observed_admitted: int = 0
     claimed: str | None = None
     outcome: str | None = None       # "retained" | "deleted" | "retry" | "failed" | "idle"
     error_code: str | None = None
@@ -76,6 +78,7 @@ class WorkerReport:
         return {
             "events_examined": self.events_examined, "candidates": self.candidates,
             "created": self.created or [],
+            "observed_admitted": self.observed_admitted,
             "claimed": self.claimed, "outcome": self.outcome, "error_code": self.error_code,
             "receipt": self.receipt,
         }
@@ -105,6 +108,7 @@ class MemoryWorker:
     def __init__(self, conn: sqlite3.Connection, store: MemoryStore,
                  transport: MemoryTransport | None, *,
                  registry: SourceRegistry | None = None,
+                 observed: ObservedCandidateSource | None = None,
                  lease_owner: str | None = None,
                  lease_seconds: int = jobs_module.DEFAULT_LEASE_SECONDS,
                  max_attempts: int = jobs_module.DEFAULT_MAX_ATTEMPTS,
@@ -115,6 +119,7 @@ class MemoryWorker:
         self._store = store
         self._transport = transport
         self._registry = registry or SourceRegistry()
+        self._observed = observed or ObservedCandidateSource()
         self._jobs = jobs_module.JobStore(conn, store)
         self._adapter = MemoryAdapter(conn, store, transport)
         self.lease_owner = lease_owner or default_lease_owner()
@@ -146,6 +151,19 @@ class MemoryWorker:
             report.events_examined = int(scan_report["events_examined"])
             report.candidates = int(scan_report["candidates"])
             report.created = list(scan_report["created"])
+            try:
+                # ADR 0034: only Interpretations finished since automatic
+                # admission started; older ones wait for the explicit backfill.
+                observed_report = self._jobs.enqueue_observed(
+                    self._observed, limit=self.scan_limit, since=ensure_started(self._conn),
+                    trigger="automatic", max_attempts=self.max_attempts,
+                )
+            except db.errors.DatabaseBusy:
+                report.outcome = "busy"
+                report.error_code = "database_busy"
+                return report
+            report.observed_admitted = int(observed_report["admitted"])
+            report.created.extend(observed_report["created"])
         try:
             claimed = self._jobs.claim_due(owner=self.lease_owner,
                                             lease_seconds=self.lease_seconds)

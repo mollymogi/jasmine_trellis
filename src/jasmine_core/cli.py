@@ -204,6 +204,19 @@ def cmd_memory(args: argparse.Namespace) -> int:
             )
             print(json.dumps(report, ensure_ascii=False, indent=2))
             return 0
+        if command == "observed-backfill":
+            # ADR 0034 §11: admit observed statements from Interpretations that
+            # finished before automatic admission started. No model call; the
+            # existing EXTRACTED candidates are re-read. Bounded per call, and a
+            # dry run reports what would be admitted and why the rest is not.
+            from .memory.observed import ObservedCandidateSource
+
+            report = job_store.enqueue_observed(
+                ObservedCandidateSource(), limit=args.limit, since=None, trigger="backfill",
+                dry_run=not args.apply, max_attempts=args.max_attempts,
+            )
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            return 0
         if command == "reset-cursor":
             # Replay the whole Event stream. Safe by construction: the unique
             # index makes every already-known source a no-op.
@@ -379,6 +392,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     scan_parser.add_argument("--limit", type=int, default=200)
     scan_parser.add_argument("--max-attempts", type=int, default=5)
+
+    backfill_parser = memory_sub.add_parser(
+        "observed-backfill",
+        help="admit observed statements from already extracted conversations (dry run by default)",
+    )
+    backfill_parser.add_argument("--limit", type=int, default=200,
+                                 help="Interpretations examined per call (1..500)")
+    backfill_parser.add_argument("--apply", action="store_true",
+                                 help="write the items; without it nothing is changed")
+    backfill_parser.add_argument("--max-attempts", type=int, default=5)
 
     cursor_parser = memory_sub.add_parser(
         "reset-cursor", help="move the recovery scan cursor (a full replay is safe)"

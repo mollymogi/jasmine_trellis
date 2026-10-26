@@ -3,12 +3,12 @@
 from pathlib import Path
 import argparse,json,os,signal,sys,time
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'src'))
-from jasmine_core import db
+from jasmine_core import SCHEMA_VERSION,db
 from jasmine_core.migrations import check_version
 from jasmine_core.conversation_processing import ConversationProcessing
 p=argparse.ArgumentParser();p.add_argument('--db',type=Path,required=True);p.add_argument('--max-ticks',type=int);a=p.parse_args()
 os.umask(0o077);conn=db.connect(a.db);check_version(conn);stop=False
-worker=ConversationProcessing(conn,schema_version=14)
+worker=ConversationProcessing(conn,schema_version=SCHEMA_VERSION)
 def halt(*_):
  global stop
  stop=True

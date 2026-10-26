@@ -36,7 +36,7 @@ class LocalCliTests(unittest.TestCase):
   choice.write_text(json.dumps({'version':2,'provider':'grok','model':'grok-4.6','revision':1}));choice.chmod(0o600)
   with patch.dict(os.environ,{'JASMINE_CORE_INTERPRETER_PROVIDERS':str(registry),'JASMINE_CORE_INTERPRETER_MODEL_CONFIG':str(choice),'JASMINE_CORE_DAILY_INTERPRETER':'1'}), patch('jasmine_core.interpreter_cli.Path.is_file',return_value=True):
    first=configured_provider();self.assertIsInstance(first,LocalCliProvider);self.assertTrue(first.valid)
-   self.assertEqual(first.configuration()['prompt_version'],'jasmine.interpreter.daily.v1')
+   self.assertEqual(first.configuration()['prompt_version'],'jasmine.interpreter.daily.v2')
    choice.write_text(json.dumps({'version':2,'provider':'opencode','model':'arbitrary','revision':2}));self.assertIsInstance(configured_provider(),UnavailableProvider)
    self.assertEqual(first.configuration()['model'],'grok-4.6')
  def test_private_registry_and_binary_are_pinned_and_no_fallback_is_used(self):
