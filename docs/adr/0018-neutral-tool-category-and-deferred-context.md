@@ -34,7 +34,8 @@ a Context Pack cannot be injected at the events Core produces it on.
 Limits, stated plainly: the category comes from each dialect's tool table. A tool a dialect does not know is `other`, and
 a table can be wrong for a tool name nobody has observed (Grok Build's table is built from open-source names and is not
 yet confirmed on a real conversation). The shell `action` is a heuristic (ADR 0017 section 8) and compound commands
-resolve to nothing, so they come back `confirm`.
+resolve to nothing, so they come back `confirm` whenever an active rule matches on `action` or `path_prefix`
+(ADR 0035; with no such rule they are decided on the dimensions that are present).
 
 ## 3. Decision B: `inject_mode: "deferred"`
 

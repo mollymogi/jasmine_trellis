@@ -178,7 +178,9 @@ Proposal body: `rule_key`, `kind`, `severity`, `enforcement`, `content`,
 Approve/retire body: `host_id`, positive integer `expected_revision`, optional
 `event_id`. Supersede also carries replacement `kind/severity/enforcement/content/matcher`,
 the *same* `scope`, and `origin_event_id`. Guard body may carry `project_id`,
-`task_id`, `tool`, `action`, `path`; omitted context can produce `confirm`.
+`task_id`, `tool`, `tool_category`, `action`, `path`; omitted context produces `confirm`
+only when an active DENY/CONFIRM/VERIFY rule uses the omitted dimension, or a scoped
+rule cannot be loaded without the omitted Task/Project (ADR 0035).
 
 New errors: `403 forbidden_actor_kind`, `409 rule_key_conflict`; existing
 `revision_conflict` and `event_id_conflict` apply. The `replayed` response flag
