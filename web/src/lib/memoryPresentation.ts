@@ -3,6 +3,8 @@ import { clip, maskCredentials } from './text'
 export const MEMORY_TYPES: Record<string, string> = {
   CONFIRMED_DECISION: '已确认的决定', STABLE_PROJECT_FACT: '项目约定与事实',
   RESOLVED_ISSUE: '已解决的问题', VERIFIED_OUTCOME: '有验证依据的结果', FAILURE_LESSON: '失败经验',
+  OBSERVED_CONVENTION: '对话中的约定', OBSERVED_DECISION: '对话中的决定',
+  OBSERVED_CORRECTION: '对话中的纠正', OBSERVED_ACCEPTANCE: '对话中的验收',
 }
 export const MEMORY_STATES: Record<string, string> = { ACTIVE: '保留中', OBSOLETE: '已过期', DELETED: '已删除' }
 export const MEMORY_ENGINE_STATES: Record<string, string> = {

@@ -129,6 +129,11 @@ def user_regions(text: str) -> list[tuple[int, int]]:
                 if outside_blocks(*comment.span()):
                     regions.append(comment.span(1))
     for block in _REPLY_BLOCK_RE.finditer(text):
+        # A genuine carrier is itself an excluded block. Only restore its
+        # answer when no other context/document block encloses or overlaps it.
+        if any(block.start() < hi and lo < block.end() and (lo, hi) != block.span()
+               for lo, hi in all_blocks):
+            continue
         regions.extend(m.span(1) for m in _ANSWER_RE.finditer(text, *block.span()))
     return sorted(regions)
 

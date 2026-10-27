@@ -10,6 +10,12 @@ function item(overrides: Record<string, unknown> = {}) {
   return { memory_id: memoryId, project_id: projectId, task_id: null, scope_kind: 'project', memory_type: 'STABLE_PROJECT_FACT', sanitized_text: '项目文档统一使用中文。', status: 'ACTIVE', engine_state: 'RETAINED', pinned: false, revision: 1, source_event_id: `evt_${suffix}`, origin_rule_id: null, origin_rule_version: null, origin_event_id: null, evidence_ids: [], receipt: null, recall_count: 0, created_at: '2026-10-23T08:00:00Z', updated_at: '2026-10-23T08:00:00Z', lifecycle: { status: 'ACTIVE', recallable: true, pinned: false, engine_state: 'RETAINED' }, ...overrides }
 }
 let fake: FakeCore | null = null
+const observedTypes = [
+  ['OBSERVED_CONVENTION', '对话中的约定'],
+  ['OBSERVED_DECISION', '对话中的决定'],
+  ['OBSERVED_CORRECTION', '对话中的纠正'],
+  ['OBSERVED_ACCEPTANCE', '对话中的验收'],
+]
 afterEach(() => { fake?.restore(); fake = null; location.hash = '' })
 async function enter(routes: Parameters<typeof installFakeCore>[0] = {}, handler?: Parameters<typeof installFakeCore>[1], hash = '#/memory/items') {
   fake = installFakeCore({ 'GET /v1/health': { body: { status: 'ok', core_version: '0.2.0', schema_version: 14 } }, 'GET /v1/projects': { body: { projects: [{ project_id: projectId, name: '文档项目' }], count: 1 } }, ['GET /v1/projects/' + projectId]: { body: { project: { name: '文档项目' } } }, 'GET /v1/memory/items': { body: { items: [item()], count: 1, non_authoritative: true } }, ...routes }, handler)
@@ -34,6 +40,21 @@ it('shows saved content and Chinese labels, without putting IDs or engine fields
   expect(document.querySelector('.readonly-banner')).toBeNull()
   expect(fake!.callsTo('GET', '/v1/conversation-processing')).toHaveLength(0)
   expect(fake!.requests.filter(r => r.method === 'POST')).toHaveLength(0)
+})
+
+it.each(observedTypes)('displays and filters %s in the catalog', async (type, label) => {
+  const user = await enter({ 'GET /v1/memory/items': { body: { items: [item({ memory_type: type })], count: 1, non_authoritative: true } } })
+  const table = await screen.findByRole('table', { name: '记忆内容列表' })
+  expect(within(table).getByText(label)).toBeTruthy()
+  await user.selectOptions(screen.getByLabelText('记忆类型'), type)
+  await waitFor(() => expect(fake!.callsTo('GET', '/v1/memory/items').at(-1)!.query.get('memory_type')).toBe(type))
+})
+
+it.each(observedTypes)('displays %s on memory detail', async (type, label) => {
+  await enter({ ['GET /v1/memory/items/' + memoryId]: { body: { memory: item({ memory_type: type }), recallable: true, non_authoritative: true, sources: [], jobs: [], lifecycle: {}, engine_claim: 'fixture', authority_comparison: { status: 'NOT_APPLICABLE', reason: 'not_decision_memory', sampled_at: '2026-10-23T08:00:00Z', current_rule: null, historical_rule: null } } } }, undefined, '#/memory/items/' + memoryId)
+  await screen.findByText('项目文档统一使用中文。')
+  expect(screen.getAllByText(label)).toHaveLength(2)
+  expect(screen.queryByText('其他记忆类型')).toBeNull()
 })
 
 it('reports processing and writing as separate stages, and never calls applied tasks saved memories', async () => {
