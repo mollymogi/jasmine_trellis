@@ -120,6 +120,22 @@ class SessionLedger:
                     del session.seen[memory_id]
 
 
+_LEDGERS: dict[str, SessionLedger] = {}
+_LEDGERS_LOCK = threading.Lock()
+
+
+def ledger_for(database: str) -> SessionLedger:
+    """The process-wide ledger for one database.
+
+    The API builds a fresh `Core` (and so a fresh `MemoryServices`) for every
+    request, so a ledger held there forgets each turn as soon as it answers.
+    Keyed by the database path so two Cores on different databases in one
+    process (tests) never share hints.
+    """
+    with _LEDGERS_LOCK:
+        return _LEDGERS.setdefault(database, SessionLedger())
+
+
 def _line(item: dict[str, Any]) -> str | None:
     """One rendered line, or None when the stored text may not be shown."""
     text = item.get("sanitized_text")

@@ -135,7 +135,11 @@ def capture_device(native,device,claude_home):
 
 #: The synchronous hint handler waits this long for the transcript to show the
 #: turn is typed human input. Unverified turns get no hint (ADR 0036 section 4).
-HINT_ORIGIN_WAIT=.5
+#: Claude persists the turn after dispatching the hook; 0.6 s was observed live.
+HINT_ORIGIN_WAIT=1.0
+#: Hard cap from handler start, inside the installed 3 s hook timeout (process
+#: start-up comes on top). The hint's own budget starts after confirmation.
+HINT_HANDLER_SECONDS=2.7
 
 def memory_hint_device(native,device,claude_home,*,now=time.monotonic):
     """Return `(text, receipt)` for the separate synchronous hint handler.
@@ -143,7 +147,7 @@ def memory_hint_device(native,device,claude_home,*,now=time.monotonic):
     Separate from capture because capture's UserPromptSubmit handler is async and
     Claude discards an async handler's output. This handler records nothing.
     """
-    deadline=now()+memory_hint.BUDGET_SECONDS
+    cap=now()+HINT_HANDLER_SECONDS
     if not device.memory_hint:return None,{'status':'disabled'}
     n=_native(native,claude_home)
     if n is None or n['event']!='UserPromptSubmit':return None,{'status':'ignored','reason':'unsupported_or_unverified_main_session'}
@@ -151,7 +155,9 @@ def memory_hint_device(native,device,claude_home,*,now=time.monotonic):
     while origin is None and now()<wait:
         time.sleep(.05);origin=_prompt_origin(n)
     if origin is None:return None,{'status':'ignored','reason':'no_current_typed_input_evidence','native_session_id':n['sid']}
-    remaining=deadline-now()
+    # The recall budget is spent only on a turn known to be the user's.
+    confirmed=now();deadline=min(confirmed+memory_hint.BUDGET_SECONDS,cap)
+    remaining=deadline-confirmed
     if remaining<=0.05:return None,{'status':'skipped','reason':'no_time_left','native_session_id':n['sid']}
     binding=bind_workspace(n,device,source=SOURCE,timeout=remaining)
     text,receipt=memory_hint.request(binding,project_id=binding.project_id,native_session_id=n['sid'],prompt=n['text'],deadline=deadline)

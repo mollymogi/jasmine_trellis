@@ -68,9 +68,12 @@ class MemoryServices:
         self.access = scope_module.ProjectAccess(self.conn, mode=self.mode)
         self._transport = None
         self._probed = False
-        from .hint import SessionLedger
+        from .hint import ledger_for
 
-        self.hint_ledger = SessionLedger()
+        database = next(row[2] for row in self.conn.execute("PRAGMA database_list")
+                        if row[1] == "main")
+        # Shared across requests: this object itself lives for one request.
+        self.hint_ledger = ledger_for(database)
         # An `acl` deployment with no grants is a misconfiguration, not a
         # permissive default; refuse the first Memory request rather than serve
         # the whole database to whoever holds any key.
