@@ -188,7 +188,45 @@ class MemoryHintHooks(ClaudeCapture):
                 patch.object(memory_hint, "request", return_value=(None, {"status": "empty"})):
             claude_session.memory_hint_device(packet, device, self.home,
                                              now=iter([0.0, 0.0, 0.5]).__next__)
-        self.assertEqual(bind.call_args.kwargs["timeout"], 1.0)
+        # The hint budget starts at confirmation (0.5 s), not at handler start.
+        self.assertEqual(bind.call_args.kwargs["timeout"], memory_hint.BUDGET_SECONDS)
+
+    def test_claude_waits_for_a_lagging_transcript_and_budgets_after_confirmation(self):
+        """Live 2026-10-27: the transcript showed the turn ~0.6 s after dispatch."""
+        packet = self.packet("UserPromptSubmit", prompt="接下来的视频版本怎么定？")
+        device = self.enable()
+        clock = [0.0]
+        lag = 0.7
+
+        def origin(n):
+            if clock[0] < lag:
+                return None
+            self.typed("接下来的视频版本怎么定？") if not self.transcript.read_text() else None
+            return real_origin(n)
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        real_origin = claude_session._prompt_origin
+        with patch.object(claude_session, "_prompt_origin", side_effect=origin), \
+                patch.object(claude_session.time, "sleep", side_effect=sleep), \
+                patch.object(claude_session, "bind_workspace", return_value=device), \
+                patch.object(memory_hint, "request", return_value=(HINT, {"status": "ok"})) as asked:
+            text, _ = claude_session.memory_hint_device(packet, device, self.home, now=lambda: clock[0])
+        self.assertEqual(text, HINT)
+        confirmed = clock[0]
+        self.assertGreaterEqual(confirmed, lag)
+        self.assertAlmostEqual(asked.call_args.kwargs["deadline"], confirmed + memory_hint.BUDGET_SECONDS)
+        self.assertLessEqual(asked.call_args.kwargs["deadline"], claude_session.HINT_HANDLER_SECONDS)
+        # A transcript slower than the wait still gives up, without spending the budget.
+        clock[0] = 0.0
+        lag = claude_session.HINT_ORIGIN_WAIT + 1
+        with patch.object(claude_session, "_prompt_origin", side_effect=origin), \
+                patch.object(claude_session.time, "sleep", side_effect=sleep), \
+                patch.object(memory_hint, "request") as asked:
+            text, receipt = claude_session.memory_hint_device(packet, device, self.home, now=lambda: clock[0])
+        self.assertEqual((text, receipt["reason"]), (None, "no_current_typed_input_evidence"))
+        asked.assert_not_called()
 
     def test_claude_skips_registration_when_hint_budget_is_exhausted(self):
         packet = self.packet("UserPromptSubmit", prompt="接下来的视频版本怎么定？")
@@ -197,7 +235,8 @@ class MemoryHintHooks(ClaudeCapture):
         with patch.object(claude_session, "bind_workspace") as bind, \
                 patch.object(memory_hint, "request") as asked:
             text, receipt = claude_session.memory_hint_device(
-                packet, device, self.home, now=iter([0.0, 0.0, 1.5]).__next__)
+                packet, device, self.home,
+                now=iter([0.0, 0.0, claude_session.HINT_HANDLER_SECONDS]).__next__)
         self.assertIsNone(text)
         self.assertEqual(receipt["reason"], "no_time_left")
         bind.assert_not_called()

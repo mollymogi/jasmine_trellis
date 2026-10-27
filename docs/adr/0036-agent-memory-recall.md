@@ -98,7 +98,8 @@ Not recalled, mechanically:
 * prompts shorter than 6 characters after trimming, slash commands (`/…`), and
   prompts that are only a `*question_reply` / tool-result echo;
 * items already hinted in the same `session_id` during the last 20 turns
-  (an in-process per-session ledger in the hint service, at most 200
+  (a per-process ledger in the hint service, one per database and shared by
+  every request — the API builds a `Core` per request — at most 200
   entries per session, 24 h TTL; lost on restart, which only repeats a hint) — repetition costs tokens and adds nothing;
 * `GLOBAL` bank items unless the deployment configured the global bank (ADR 0012).
 
@@ -206,9 +207,12 @@ Where the code differs from, or settles, the text above:
   `additionalContext` envelope.
 * **Claude Code.** A second `UserPromptSubmit` handler, label
   `Jasmine Memory hint for Claude`, `timeout: 3`, not async, running the same
-  launcher with `--memory-hint`. It waits at most 0.5 s for the transcript to
-  prove typed human input, registers the workspace through the same idempotent
-  call capture uses, records no Event, and always exits 0 with valid JSON.
+  launcher with `--memory-hint`. It waits at most 1.0 s for the transcript to
+  prove typed human input; the 1.5 s hint budget (workspace registration plus
+  the request) starts only after that proof, under a 2.7 s cap from handler
+  start that keeps it inside the 3 s hook timeout. It registers the workspace
+  through the same idempotent call capture uses, records no Event, and always
+  exits 0 with valid JSON.
 * **Grok and Host Hook `prompt.submit`.** Not in phase A.
 * **Dashboard.** `POST /_local/agents/{codex|claude}/memory-hint`
   (`{action: enable|disable}`), same local-origin, Core-authorization and pinned
@@ -221,6 +225,17 @@ Deployment: run `prepare-agent-capture.py` once after upgrading (it issues the
 two keys), then enable per Agent on the Agent page. Rollback to a release
 without this ADR requires disabling the hint first and restoring the binding
 backup, because older code refuses the two new binding fields.
+
+### Amendment (2026-10-27, live verification on local-item6)
+
+Two defects found with real sessions, both in the "fewer hints" direction:
+
+* The session ledger lived on `MemoryServices`, which the API rebuilds per
+  request, so de-duplication never held: a second Codex prompt in one session
+  repeated 3 of its 4 items. The ledger is now per process and per database.
+* The Claude handler waited 0.5 s; the transcript showed the turn about 0.6 s
+  after dispatch (capture, which waits 1.5 s, accepted the same turn 0.1 s after
+  the hint gave up). The wait is now 1.0 s and the hint budget starts after it.
 
 ## Alternatives considered
 

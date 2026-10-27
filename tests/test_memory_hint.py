@@ -11,6 +11,7 @@ import unittest
 
 import test_observed_memory as observed_tests
 from memory_support import HOST, FakeTransport
+from test_api import ACTOR
 from test_memory_api import MemoryApiTestCase
 
 from jasmine_core.memory import hint
@@ -201,6 +202,48 @@ class Endpoint(MemoryApiTestCase):
                     {"prompt": "x" * (hint.MAX_PROMPT_CHARS + 1)}, {"text": "unknown field"}):
             status, body = self.call("POST", "/v1/memory/hint", self.body(**bad), token=self.recaller)
             self.assertEqual(status, 400, (bad, body))
+
+    def test_the_ledger_outlives_the_request(self):
+        """Live 2026-10-27: the API builds a Core per request, so a ledger held on
+        `MemoryServices` forgot every turn and the same items were hinted again."""
+        from jasmine_core import db
+        from jasmine_core.api.handlers import Core
+        from jasmine_core.memory.api import MemoryServices
+
+        def ledger():
+            conn = db.connect(self.db_path)
+            self.addCleanup(conn.close)
+            return MemoryServices(Core(conn)).hint_ledger
+
+        first, second = ledger(), ledger()
+        self.assertIs(first, second)
+        first.note((ACTOR, self.project_id, "native-1"), ["m1"])
+        self.assertEqual(second.recent((ACTOR, self.project_id, "native-1")), {"m1"})
+        self.assertIsNot(first, hint.ledger_for(str(self.db_path) + "-other"))
+
+    def test_a_second_request_in_the_same_session_does_not_repeat_items(self):
+        from unittest.mock import PropertyMock, patch
+
+        from jasmine_core import db
+        from jasmine_core.memory.api import MemoryServices
+        from jasmine_core.memory.store import MemoryStore
+
+        conn = db.connect(self.db_path)
+        self.addCleanup(conn.close)
+        store = MemoryStore(conn, schema_version=15)
+        transport = FakeTransport(store)
+        item = store.item(self.memory_id)
+        transport.answer_for(item["bank_id"], self.memory_id, item["sanitized_text"])
+        with patch.object(MemoryServices, "transport", new_callable=PropertyMock, return_value=transport):
+            _, first = self.call("POST", "/v1/memory/hint", self.body(), token=self.recaller)
+            _, second = self.call("POST", "/v1/memory/hint", self.body(), token=self.recaller)
+            _, other = self.call("POST", "/v1/memory/hint", self.body(native_session_id="native-2"),
+                                 token=self.recaller)
+        self.assertEqual(first["status"], "ok", first)
+        self.assertEqual([i["memory_id"] for i in first["items"]], [self.memory_id])
+        self.assertEqual(second["status"], "empty", second)
+        self.assertEqual(second["withheld"], [{"memory_id": self.memory_id, "reason": "hinted_recently"}])
+        self.assertEqual(other["status"], "ok", other)
 
 
 if __name__ == "__main__":
