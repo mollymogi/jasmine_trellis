@@ -78,7 +78,7 @@ See [ADR 0021](../docs/adr/0021-observed-tool-decisions.md).
   see the filesystem the tool runs on. A command that cannot be resolved is sent without
   them. If an active DENY/CONFIRM/VERIFY rule matches on a missing dimension, Core's Guard
   answers `ask` (insufficient context), never an implicit allow; a rule that does not use
-  the missing dimension is decided on what is present (ADR 0031).
+  the missing dimension is decided on what is present (ADR 0035).
 
 Payloads per event are in the request schema.
 

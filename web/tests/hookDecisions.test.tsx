@@ -50,6 +50,8 @@ async function enterRules(
     {
       'GET /v1/health': { body: HEALTH },
       'GET /v1/projects': { body: { projects: [], count: 0 } },
+      'GET /v1/rules':{body:{rules:[],count:0,has_more:false,next_offset:null}},
+      'GET /v1/tasks':{body:{tasks:[],count:0}},
       'GET /v1/rules/active': { body: { rules: [], count: 0 } },
     },
     (request) =>
@@ -67,6 +69,7 @@ async function enterRules(
   await user.click(screen.getByRole('button', { name: '使用此 token' }))
   // Sign-in lands on the overview; go to the rules page explicitly and wait for its decisions panel.
   window.location.hash = '#/rules'
+  await user.click(await screen.findByRole('button',{name:'拦截记录'}))
   await screen.findByRole('region', { name: 'Hook 决定记录（Core 已记录）' })
 }
 

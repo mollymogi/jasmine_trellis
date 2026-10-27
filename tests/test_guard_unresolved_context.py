@@ -1,4 +1,4 @@
-"""ADR 0031: a missing tool/action/path is insufficient only when an active rule matches on it.
+"""ADR 0035: a missing tool/action/path is insufficient only when an active rule matches on it.
 
 Component level over real HTTP (Guard API and the host-hook route). These tests do not
 establish native agent behaviour.

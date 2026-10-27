@@ -74,7 +74,7 @@ export function isCurrent(route: Route, href: string): boolean {
   if (href.endsWith('/overview')) return route.name === 'overview'
   if (href.includes('/conversation')) return route.name === 'conversation'
   if (href.includes('/interpretations')) return route.name === 'interpretations'
-  if (href.includes('/reviews')) return route.name === 'reviews'
+  if (href.includes('/reviews')) return route.name === 'reviews' || route.name === 'review'
   if (href.includes('/validation')) return route.name.startsWith('validation')
   if (href.includes('/memory')) return route.name.startsWith('memory')
   if (href.includes('/rules')) return route.name === 'rules'

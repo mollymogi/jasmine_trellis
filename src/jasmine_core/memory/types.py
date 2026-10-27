@@ -22,7 +22,35 @@ MEMORY_TYPES: tuple[str, ...] = (
     "VERIFIED_OUTCOME",
     "FAILURE_LESSON",
 )
+#: ADR 0034: typed statements admitted from a captured conversation without
+#: review. They are recallable history, never Authority; m0015 binds them to
+#: `admission='OBSERVED'` by CHECK.
+AUTHORITY_MEMORY_TYPES: tuple[str, ...] = MEMORY_TYPES
+OBSERVED_MEMORY_TYPES: tuple[str, ...] = (
+    "OBSERVED_CONVENTION",
+    "OBSERVED_DECISION",
+    "OBSERVED_CORRECTION",
+    "OBSERVED_ACCEPTANCE",
+)
+MEMORY_TYPES = AUTHORITY_MEMORY_TYPES + OBSERVED_MEMORY_TYPES
 MEMORY_TYPE_SET = frozenset(MEMORY_TYPES)
+OBSERVED_MEMORY_TYPE_SET = frozenset(OBSERVED_MEMORY_TYPES)
+
+#: P2 candidate kind -> observed memory type. Kinds absent here are not admitted:
+#: `TASK_CREATE_OR_ATTACH` is already recorded by the Task object,
+#: `REQUIRED_CAPABILITY` is a task binding whose content is a bare capability
+#: name (`remotion`, `subagent`), and `NO_STRUCTURE` has no content.
+OBSERVED_TYPE_FOR_KIND: dict[str, str] = {
+    "RULE": "OBSERVED_CONVENTION",
+    "DECISION": "OBSERVED_DECISION",
+    "CORRECTION": "OBSERVED_CORRECTION",
+    "ACCEPTANCE": "OBSERVED_ACCEPTANCE",
+}
+
+ADMISSIONS: tuple[str, ...] = ("AUTHORITY", "OBSERVED")
+#: Aligned with the Mesh evidence levels. `VERIFIED` is only ever an Authority
+#: item; an observed item says who said it, not that it is true.
+TRUST_LEVELS: tuple[str, ...] = ("VERIFIED", "USER_STATED", "AGENT_REPORTED")
 
 #: A type name is a label, never a proof. These are the provenance facts the
 #: eligibility check must find in Core before a type may be used at all
@@ -35,6 +63,12 @@ REQUIRED_PROVENANCE: dict[str, tuple[str, ...]] = {
     "RESOLVED_ISSUE": ("failure_source",),
     "VERIFIED_OUTCOME": ("evidence_pass",),
     "FAILURE_LESSON": ("failure_source",),
+    # ADR 0034: an EXTRACTED Interpretation of a native user message whose
+    # quoted span lies in the user's own words.
+    "OBSERVED_CONVENTION": ("interpretation_candidate",),
+    "OBSERVED_DECISION": ("interpretation_candidate",),
+    "OBSERVED_CORRECTION": ("interpretation_candidate",),
+    "OBSERVED_ACCEPTANCE": ("interpretation_candidate",),
 }
 
 # -- banks (design §7) ---------------------------------------------------------
@@ -89,6 +123,8 @@ FILTER_REASONS: tuple[str, ...] = (
     "directive_injection",       # the text tries to act as an instruction
     "section_marker",            # the text contains a Context Pack section marker
     "over_budget",               # did not fit the Memory partition
+    "promoted",                  # an observed statement whose source message
+                                 # now backs an ACTIVE Authority memory (ADR 0034 §6)
 )
 
 #: A HARD Rule is loaded deterministically by P3, never by top-k Recall, and a
@@ -241,6 +277,11 @@ class RecallItem:
     historical: bool = True
     pinned: bool = False
     rank: int = 0
+    # ADR 0034: which tier, and who said it. A reader must be able to tell
+    # "the user said" from "verified" without looking the item up.
+    admission: str = "AUTHORITY"
+    trust: str = "VERIFIED"
+    task_id: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -257,6 +298,9 @@ class RecallItem:
             "historical": self.historical,
             "pinned": self.pinned,
             "rank": self.rank,
+            "admission": self.admission,
+            "trust": self.trust,
+            "task_id": self.task_id,
             **self.provenance.as_dict(),
         }
 

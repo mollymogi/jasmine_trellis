@@ -197,7 +197,7 @@ separate ADR. A `trust` value outside the three is `400`.
 
 `hosthook/resolve.py` (agent-neutral) resolves a simple shell command to `action` (basename of the first
 word) and canonical absolute `paths`. It resolves nothing (so Guard answers `confirm` when an active rule
-depends on the missing `action`/`path`, ADR 0005 as clarified by ADR 0031) for a
+depends on the missing `action`/`path`, ADR 0005 as clarified by ADR 0035) for a
 command containing `; & | > < \` $ ( ) { }`, a newline, an unparsable quote, a leading `VAR=` word, or more
 than 8 path-like words; relative words are resolved against the agent-reported cwd; each candidate is also
 resolved through the filesystem (`realpath` of the existing parent) and both forms are sent. Wildcard and

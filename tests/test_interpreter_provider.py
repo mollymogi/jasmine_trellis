@@ -60,6 +60,41 @@ print(json.dumps({'type':'turn.completed'}))
             with self.assertRaises(ProviderFailure) as raised:self.run_script(script)
             self.assertEqual(raised.exception.code,code)
 
+    def test_a_rate_limited_reconnect_fails_fast(self):
+        # Codex would sleep out the server's backoff (minutes) after this record.
+        script='''import json,sys,time
+sys.stdin.read()
+print(json.dumps({'type':'thread.started'}));print(json.dumps({'type':'turn.started'}))
+print(json.dumps({'type':'error','message':'Reconnecting... 1/5 (exceeded retry limit, last status: 429 Too Many Requests, request id: r)'}),flush=True)
+time.sleep(20)
+'''
+        start=time.monotonic()
+        with self.assertRaises(ProviderFailure) as raised:
+            self.run_script(script,timeout=10)
+        self.assertEqual(raised.exception.code,'provider_rate_limited')
+        self.assertLess(time.monotonic()-start,3)
+
+    def test_a_recovered_reconnect_notice_is_not_a_protocol_error(self):
+        script='''import json,sys
+sys.stdin.read()
+raw='{"ok":true}'
+open(sys.argv[1],'w').write(raw)
+print(json.dumps({'type':'thread.started'}));print(json.dumps({'type':'turn.started'}))
+print(json.dumps({'type':'error','message':'Reconnecting... 2/5 (stream disconnected before completion)'}))
+print(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':raw}}))
+print(json.dumps({'type':'turn.completed'}))
+'''
+        self.assertEqual(json.loads(self.run_script(script)),{'ok':True})
+
+    def test_other_error_records_are_still_protocol_errors(self):
+        script='''import json,sys
+sys.stdin.read();open(sys.argv[1],'w').write('{}')
+print(json.dumps({'type':'thread.started'}));print(json.dumps({'type':'turn.started'}))
+print(json.dumps({'type':'error','message':'model refused the request'}))
+'''
+        with self.assertRaises(ProviderFailure) as raised:self.run_script(script)
+        self.assertEqual(raised.exception.code,'provider_protocol_error')
+
     def test_unvalidated_binary_fails_closed(self):
         p=CodexProvider(sys.executable,'/nonexistent/catalog.json')
         self.assertFalse(p.valid)

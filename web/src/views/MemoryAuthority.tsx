@@ -1,7 +1,8 @@
 /** ADR 0022: Core owns the comparison; mogi-ui provides the dashboard hierarchy. */
 import { useRef, useState, type ReactNode } from 'react'
 import { ArrowRight, CircleHelp, FileText, History, Link2, LockKeyhole, ShieldCheck, TriangleAlert } from 'lucide-react'
-import type { MemoryAuthorityComparison } from '../api/types'
+import type { MemoryAuthorityComparison, MemoryItem } from '../api/types'
+import { memoryType, memoryEngineState, memoryState } from '../lib/memoryPresentation'
 import { SourceLink } from '../components/Trace'
 import { RawText } from '../components/RawText'
 import { formatTimestamp, clip, maskCredentials } from '../lib/text'
@@ -26,8 +27,8 @@ function ComparisonText({ value }: { value: string }): JSX.Element {
   return <p className="whitespace-pre-wrap [overflow-wrap:anywhere] text-base leading-relaxed">{clip(maskCredentials(value).text, 480) || '（空内容）'}</p>
 }
 
-export function MemoryAuthority({ comparison, aside, actions }: {
-  comparison?: MemoryAuthorityComparison; aside?: ReactNode; actions?: ReactNode
+export function MemoryAuthority({ comparison, aside, actions, memory }: {
+  comparison?: MemoryAuthorityComparison; aside?: ReactNode; actions?: ReactNode; memory?: MemoryItem
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
@@ -50,13 +51,14 @@ export function MemoryAuthority({ comparison, aside, actions }: {
   const copy = known ? COPY[status]! : { title: '暂时无法核对', description: 'Core 未提供可识别的完整结果，不能据此判断没有冲突。', badge: '信息不足' }
   const showCurrent = paired && validPair && current.status === 'ACTIVE'
   const warning = status === 'VERSION_CHANGED' || status === 'ORIGIN_RETIRED'
+  const description = memory && !paired ? ({ NOT_APPLICABLE: '历史参考；使用时以当前规则和任务状态为准。', UNVERIFIABLE: '暂不能核对这条记忆与当前规则的关联。', UNAVAILABLE: '当前权限无法查看关联规则，记忆原文仍可查看。' }[status] ?? copy.description) : copy.description
   const Icon = warning ? TriangleAlert : status === 'UNAVAILABLE' ? LockKeyhole : status === 'VERSION_MATCH' ? Link2 : CircleHelp
   return (
     <div ref={setContainer} data-testid="memory-authority" aria-label="历史 Memory 与当前 Authority">
       <DetailLayout
         header={<div className="flex flex-wrap items-start justify-between gap-4">
           <div className="grid gap-2">
-            <p className="text-xs font-medium tracking-widest text-muted-foreground"><a href="#/memory/items">MEMORY</a> / 决策对照</p>
+            <p className="text-xs font-medium tracking-widest text-muted-foreground"><a href="#/memory/items">记忆列表</a> / 内容与来源</p>
             <h1 className="text-2xl font-semibold tracking-tight">记忆详情</h1>
           </div>
           <div className="flex flex-wrap gap-2">{actions}<Button variant="outline" onClick={event => { triggerRef.current = event.currentTarget; setOpen(true) }}><FileText /> 查看判定依据</Button></div>
@@ -64,16 +66,18 @@ export function MemoryAuthority({ comparison, aside, actions }: {
         summary={<Card className={showCurrent ? 'border-primary/30 bg-accent/20' : warning ? 'border-warning/40 bg-warning-soft/30' : ''} data-testid={showCurrent ? 'memory-current-card' : undefined}>
           <CardHeader className="gap-4">
             <div className="flex flex-wrap items-center gap-3">
-              <Badge variant={showCurrent ? 'soft' : warning ? 'warning' : 'outline'}>{showCurrent ? <ShieldCheck /> : <Icon />} {showCurrent ? '当前要求' : copy.badge}</Badge>
+              <Badge variant={showCurrent ? 'soft' : warning ? 'warning' : 'outline'}>{showCurrent ? <ShieldCheck /> : <Icon />} {showCurrent ? '当前要求' : memory ? memoryType(memory.memory_type) : copy.badge}</Badge>
               {showCurrent && warning ? <Badge variant="warning"><TriangleAlert />{copy.badge}</Badge> : null}
             </div>
-            <CardTitle className="whitespace-pre-wrap [overflow-wrap:anywhere] text-2xl leading-snug sm:text-3xl">{showCurrent ? clip(maskCredentials(current.content).text, 480) || '（空内容）' : copy.title}</CardTitle>
-            <CardDescription role={warning ? 'alert' : 'status'} data-testid="memory-authority-status" data-status={status} className="text-sm leading-relaxed text-foreground">{copy.description}</CardDescription>
+            <CardTitle className="whitespace-pre-wrap [overflow-wrap:anywhere] text-2xl leading-snug sm:text-3xl">{showCurrent ? clip(maskCredentials(current.content).text, 480) || '（空内容）' : memory ? '记忆内容' : copy.title}</CardTitle>
+            <CardDescription role={warning ? 'alert' : 'status'} data-testid="memory-authority-status" data-status={status} className="text-sm leading-relaxed text-foreground">{description}</CardDescription>
+            {memory && !showCurrent ? <><div className="review-detail-meta"><span>{memoryState(memory)}</span><span>{memoryEngineState(memory)}</span><time>{formatTimestamp(memory.created_at)}</time></div><RawText value={memory.sanitized_text} label="记忆正文" appearance="chat" maxCollapsed={1200} /></> : null}
           </CardHeader>
         </Card>}
         aside={aside}
       >
-        <Card data-testid={paired && validPair ? 'memory-authority-comparison' : undefined}>
+        {memory && showCurrent ? <Card><CardHeader><CardTitle>保存下来的记忆</CardTitle><CardDescription>记忆保留历史；当前要求以上方规则为准。</CardDescription></CardHeader><CardContent><RawText value={memory.sanitized_text} label="记忆正文" appearance="chat" maxCollapsed={1200} /></CardContent></Card> : null}
+        {(!memory || paired && validPair) ? <Card data-testid={paired && validPair ? 'memory-authority-comparison' : undefined}>
           <CardHeader><CardTitle>历史来源</CardTitle><CardDescription>{paired && validPair ? '保留当时的内容供追溯，当前要求显示在页面顶部。' : '缺少可靠关联时，不把历史内容判定为当前依据。'}</CardDescription></CardHeader>
           <CardContent>
             {paired && validPair ? <div className="grid content-start gap-4 rounded-lg border bg-muted/40 p-4" data-testid="memory-history-card">
@@ -81,7 +85,7 @@ export function MemoryAuthority({ comparison, aside, actions }: {
               <p className="text-xs text-muted-foreground">{current.status === 'RETIRED' ? '来源规则已撤销，这段内容不能作为当前要求。' : '仅供追溯，不会覆盖顶部的当前规则。'}</p>
             </div> : <div className="grid gap-2 rounded-lg bg-muted/40 p-4"><p>暂不能展示版本对照。</p><p className="text-sm text-muted-foreground">此对照只核对明确关联的规则版本，不按文字判断任意语义冲突。</p></div>}
           </CardContent>
-        </Card>
+        </Card> : null}
         <p className="flex items-center gap-2 text-xs text-muted-foreground"><History className="size-4 shrink-0" />只读快照；记忆、规则和任务状态的修改需要分别提交。</p>
       </DetailLayout>
       <Sheet open={open} onOpenChange={setOpen}>

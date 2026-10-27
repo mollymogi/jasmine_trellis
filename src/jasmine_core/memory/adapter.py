@@ -197,7 +197,8 @@ class MemoryAdapter:
             for rank, result in enumerate(results):
                 collected.append((result, bank.bank_id, rank))
 
-        items, filtered = self._judge(collected, checker, types, budget)
+        items, filtered = self._judge(collected, checker, types, budget,
+                                      task_id=request.task_id)
         status = self._status(outcomes, failed_banks, items)
         first_failure = next((b for b in outcomes if b.status == "failed"), None)
         return self._record(RecallOutcome(
@@ -211,7 +212,8 @@ class MemoryAdapter:
 
     def _judge(self, collected: list[tuple[EngineResult, str, int]],
                checker: provenance.ProvenanceChecker, types: tuple[str, ...],
-               budget: int) -> tuple[list[RecallItem], list[FilteredItem]]:
+               budget: int, *, task_id: str | None = None,
+               ) -> tuple[list[RecallItem], list[FilteredItem]]:
         """Verify, de-duplicate, guard and budget the engine's answer.
 
         The order is fixed and each step is a refusal that cannot be undone
@@ -233,7 +235,24 @@ class MemoryAdapter:
                     reason="type_not_requested", memory_id=check.item["memory_id"],
                     document_id=result.document_id, memory_type=check.memory_type))
                 continue
+            if self._promoted(check.item):
+                filtered.append(FilteredItem(
+                    engine_result_id=result.engine_result_id, bank_id=result.bank_id,
+                    reason="promoted", memory_id=check.item["memory_id"],
+                    document_id=result.document_id, memory_type=check.memory_type))
+                continue
             verified.append((result, check))
+
+        # ADR 0034 §5: pinned, then Authority before observed, then the caller's
+        # own task, then engine relevance (the stable sort keeps engine order).
+        # Ranked before de-duplication so a duplicate keeps the stronger copy,
+        # and before the budget so an observed note cannot crowd out a verified
+        # one.
+        verified.sort(key=lambda pair: (
+            not pair[1].item["pinned"],
+            pair[1].item["admission"] != "AUTHORITY",
+            task_id is not None and pair[1].item["task_id"] != task_id,
+        ))
 
         merged: list[tuple[EngineResult, provenance.Verification]] = []
         seen: dict[str, int] = {}
@@ -302,9 +321,35 @@ class MemoryAdapter:
                 historical=True,
                 pinned=bool(check.item["pinned"]),
                 rank=rank,
+                admission=check.item["admission"],
+                trust=check.item["trust"],
+                task_id=check.item["task_id"],
             ))
             remaining -= cost
         return items, filtered
+
+    def _promoted(self, item: dict[str, Any]) -> bool:
+        """An observed item whose message now backs an ACTIVE Authority memory.
+
+        Review is how a statement becomes enforceable (ADR 0034 §6). Once it has,
+        the Authority memory says the same thing with a stronger claim, so the
+        observed copy is withheld from recall rather than shown twice. Derived at
+        read time from current rows, so it needs no lifecycle write and follows
+        the Authority item if that is later obsoleted.
+        """
+        if item["admission"] != "OBSERVED":
+            return False
+        # A reviewed Rule's origin Event is the `review.approved` command, whose
+        # payload names the exact source message, Interpretation and candidate.
+        return self._conn.execute(
+            "SELECT 1 FROM memory_items AS m JOIN events AS e ON e.event_id = m.origin_event_id"
+            " WHERE m.admission='AUTHORITY' AND m.status='ACTIVE'"
+            " AND e.event_type='review.approved'"
+            " AND json_extract(e.payload_json, '$.source_event_id') = ?"
+            " AND json_extract(e.payload_json, '$.interpretation_id') = ?"
+            " AND json_extract(e.payload_json, '$.candidate_index') = ? LIMIT 1",
+            (item["source_event_id"], item["interpretation_id"], item["candidate_index"]),
+        ).fetchone() is not None
 
     def _status(self, outcomes: Iterable[BankOutcome], failed: list[str],
                 items: list[RecallItem]) -> str:

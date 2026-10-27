@@ -1,6 +1,5 @@
 """Real Core HTTP and child-process startup tests; child speaks labelled stub /version."""
 import concurrent.futures,json,os,socket,sys,time
-from collections import deque
 from pathlib import Path
 from unittest.mock import patch
 from test_api import ApiTestCase,ACTOR,HOST,free_port
@@ -8,7 +7,7 @@ from jasmine_core import auth,db,errors,ids,registry
 from jasmine_core.memory.engine_control import CONFIG_ENV
 from jasmine_core.memory.hindsight import HindsightTransport
 
-STUB='''import sys,json,time,os
+STUB='''import sys,json,time,os,faulthandler
 from http.server import BaseHTTPRequestHandler,HTTPServer as _HTTPServer
 from socketserver import TCPServer
 class HTTPServer(_HTTPServer):
@@ -17,12 +16,18 @@ class HTTPServer(_HTTPServer):
   TCPServer.server_bind(self)
   self.server_name,self.server_port=self.server_address[:2]
 from pathlib import Path
+faulthandler.dump_traceback_later(3, repeat=False)
+print('stub: starting', file=sys.stderr, flush=True)
 Path(sys.argv[2]).open('a').write(str(os.getpid())+'\\n')
 class Handler(BaseHTTPRequestHandler):
  def do_GET(self):
   b=json.dumps({'api_version':'0.10.2','features':{}}).encode();self.send_response(200);self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b)
  def log_message(self,*a):pass
-HTTPServer(('127.0.0.1',int(sys.argv[1])),Handler).serve_forever()
+print('stub: constructing HTTPServer', file=sys.stderr, flush=True)
+server=HTTPServer(('127.0.0.1',int(sys.argv[1])),Handler)
+# One bounded stack dump also covers a serving child whose probes never arrive.
+print('stub: serving', file=sys.stderr, flush=True)
+server.serve_forever()
 '''
 class EngineControlApi(ApiTestCase):
  def setUp(self):
@@ -30,44 +35,42 @@ class EngineControlApi(ApiTestCase):
   self.root=Path(self._tmp.name);self.port_engine=free_port();self.script=self.root/'engine.py';self.script.write_text(STUB);self.started=self.root/'started';self.profile=self.root/'profile.json'
   self.write_profile([sys.executable,str(self.script),str(self.port_engine),str(self.started)])
   self.env=patch.dict(os.environ,{CONFIG_ENV:str(self.profile),'JASMINE_MEMORY_DEPLOYMENT_MODE':'single_user'});self.env.start();self.addCleanup(self.env.stop)
-  self.startup_diagnostics = self._testMethodName in (
-   'test_application_close_stops_the_owned_child',
-   'test_concurrent_clicks_share_one_process_and_health_stays_unverified',
-   'test_crashed_owned_process_is_reported_unreachable')
-  if self.startup_diagnostics:
-   # Only this known, single-threaded stub is dumped. Never signal a PID read
-   # from disk or inspect another process. Cancel once HTTPServer has bound.
-   self.script.write_text('import faulthandler\nfaulthandler.dump_traceback_later(3, repeat=False)\n' +
-    STUB.replace("HTTPServer(('127.0.0.1',int(sys.argv[1])),Handler).serve_forever()",
-     "server=HTTPServer(('127.0.0.1',int(sys.argv[1])),Handler)\nfaulthandler.cancel_dump_traceback_later()\nserver.serve_forever()"))
-   self.probe_diagnostics = deque(maxlen=12)
-   records = self.probe_diagnostics
-   class DiagnosticTransport(HindsightTransport):
-    def _request(self, *args, **kwargs):
-     try:
-      result = super()._request(*args, **kwargs)
-     except Exception as exc:
-      # Exception messages, URLs, headers and bodies may contain secrets.
-      # Keep only exception classes and numeric OS/HTTP error codes.
-      chain = []
-      current = exc
-      for _ in range(4):
-       if current is None:break
-       chain.append({'type':type(current).__name__,
-        'errno':getattr(current,'errno',None) if isinstance(getattr(current,'errno',None),int) else None})
-       current = current.__cause__
-      records.append({'exceptions':chain,
-       'http_status':getattr(exc,'http_status',None) if isinstance(getattr(exc,'http_status',None),int) else None})
-      raise
-     records.append({'request':'completed'})
-     return result
-    def version(self):
-     result = super().version()
-     records.append({'reachable':result.get('reachable'),
-      'error_code':result.get('error_code')})
-     return result
-   diagnostic_patch = patch('jasmine_core.memory.engine_control.HindsightTransport',DiagnosticTransport)
-   diagnostic_patch.start();self.addCleanup(diagnostic_patch.stop)
+  # Observe only this fixture's existing readiness calls; never print bodies,
+  # headers, environment, profile contents or arbitrary exception messages.
+  self.startup_failure_evidence=''
+  self.probe_diagnostics=[];original_version=HindsightTransport.version
+  original_request=HindsightTransport._request
+  def observed_request(transport,method,path,**kwargs):
+   if transport.config.origin_host!=f'http://127.0.0.1:{self.port_engine}' or method!='GET' or path!='/version':
+    return original_request(transport,method,path,**kwargs)
+   try:return original_request(transport,method,path,**kwargs)
+   except Exception as exc:
+    # version() converts TransportError into a status. Capture its cause here,
+    # without exception messages, URLs, headers, response bodies or environment.
+    chain=[];cause=exc
+    for _ in range(4):
+     if cause is None:break
+     entry={'type':type(cause).__name__}
+     for key in ('errno','code'):
+      value=getattr(cause,key,None)
+      if isinstance(value,int):entry[key]=value
+     chain.append(entry)
+     reason=getattr(cause,'reason',None)
+     cause=cause.__cause__ or (reason if isinstance(reason,BaseException) else None)
+    if len(self.probe_diagnostics)<16:self.probe_diagnostics.append({'request_exception_chain':chain})
+    raise
+  request_observer=patch.object(HindsightTransport,'_request',observed_request);request_observer.start();self.addCleanup(request_observer.stop)
+  def observed_version(transport):
+   if transport.config.origin_host!=f'http://127.0.0.1:{self.port_engine}':return original_version(transport)
+   try:
+    result=original_version(transport)
+   except Exception as exc:
+    if len(self.probe_diagnostics)<16:self.probe_diagnostics.append({'exception_type':type(exc).__name__})
+    raise
+   if len(self.probe_diagnostics)<16:
+    self.probe_diagnostics.append({'reachable':result.get('reachable'),'error_code':result.get('error_code')})
+   return result
+  observer=patch.object(HindsightTransport,'version',observed_version);observer.start();self.addCleanup(observer.stop)
  def write_profile(self,command,timeout=5):
   self.profile.write_text(json.dumps({'origin':f'http://127.0.0.1:{self.port_engine}','cwd':str(self.root),'command':command,'environment':{'PRIVATE_SENTINEL':'do-not-return-this'},'timeout_seconds':timeout}))
  def status(self):
@@ -77,22 +80,23 @@ class EngineControlApi(ApiTestCase):
   while time.monotonic()<until:
    value=self.status()
    if value['state'] not in ('STOPPED','STARTING'):
-    if self.startup_diagnostics and value['state'] != 'RUNNING':self.report_startup_diagnostics()
+    if value['state']=='FAILED':self.startup_diagnostics()
     return value
    time.sleep(.05)
-  if self.startup_diagnostics:self.report_startup_diagnostics()
-  self.fail('operation did not finish')
- def report_startup_diagnostics(self):
-  print('\nengine startup diagnostics: '+self._testMethodName,file=sys.stderr)
-  print(json.dumps(list(self.probe_diagnostics)),file=sys.stderr)
-  # This file contains only output from the fixed test stub (no credentials,
-  # environment dump or request headers). Bound the read and emitted output.
+  self.startup_diagnostics();self.fail('operation did not finish')
+ def startup_diagnostics(self):
+  self.startup_failure_evidence='engine fixture readiness: '+json.dumps(self.probe_diagnostics)
+  print(self.startup_failure_evidence,flush=True)
+  # Only the generated stub writes this log. Limit output to 16 KiB and do
+  # not expose logs from alternative commands/profiles used by other tests.
+  if self._testMethodName not in ('test_application_close_stops_the_owned_child','test_concurrent_clicks_share_one_process_and_health_stays_unverified','test_crashed_owned_process_is_reported_unreachable'):return
   try:
-   with (self.root/'engine-start.log').open('rb') as log:
-    output = log.read(16384)
-   print('stub engine-start.log (first 16384 bytes):\n'+output.decode('utf-8',errors='replace'),file=sys.stderr)
+   with (self.root/'engine-start.log').open('rb') as log:content=log.read(16384)
+   self.startup_failure_evidence+='\nengine fixture startup log: '+content.decode('utf-8',errors='replace')
+   print(self.startup_failure_evidence,flush=True)
   except OSError as exc:
-   print('stub log unavailable: '+type(exc).__name__,file=sys.stderr)
+   self.startup_failure_evidence+='\nengine fixture log unavailable: '+type(exc).__name__
+   print(self.startup_failure_evidence,flush=True)
  def test_unauthenticated_and_readonly_start_are_refused(self):
   self.assertEqual(self.call('POST','/v1/memory/engine/start',{})[0],401)
   self.assertFalse(self.status()['can_start'])
@@ -117,7 +121,7 @@ class EngineControlApi(ApiTestCase):
   with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
    values=list(pool.map(lambda _:self.call('POST','/v1/memory/engine/start',{},token=self.operator),range(4)))
   self.assertTrue(all(s==202 for s,_ in values));self.assertEqual(len({v['operation_id'] for _,v in values}),1)
-  value=self.wait_done();self.assertEqual(value['state'],'RUNNING',value);self.assertEqual(value['api_version'],'0.10.2');self.assertEqual(len(self.started.read_text().splitlines()),1)
+  value=self.wait_done();self.assertEqual(value['state'],'RUNNING',{'status':value,'startup':self.startup_failure_evidence});self.assertEqual(value['api_version'],'0.10.2');self.assertEqual(len(self.started.read_text().splitlines()),1)
   self.assertNotIn('command',value);self.assertNotIn('do-not-return-this',json.dumps(value))
   status,health=self.call('GET','/v1/memory/health',token=self.reader);self.assertEqual(status,200,health);self.assertEqual(health['status'],'idle');self.assertTrue(health['configured']);self.assertTrue(health['reachable']);self.assertIsNone(health['last_success_at'])
   self.assertEqual(before,{t:list(conn.execute('SELECT * FROM '+t)) for t in before})
@@ -139,7 +143,7 @@ class EngineControlApi(ApiTestCase):
   with patch.dict(os.environ,{CONFIG_ENV:''}):
    self.assertFalse(self.status()['enabled']);self.assertEqual(self.call('POST','/v1/memory/engine/start',{},token=self.operator)[0],400)
  def test_crashed_owned_process_is_reported_unreachable(self):
-  self.call('POST','/v1/memory/engine/start',{},token=self.operator);self.assertEqual(self.wait_done()['state'],'RUNNING')
+  self.call('POST','/v1/memory/engine/start',{},token=self.operator);self.assertEqual(self.wait_done()['state'],'RUNNING',self.startup_failure_evidence)
   os.kill(int(self.started.read_text().strip()),15)
   end=time.monotonic()+5
   while time.monotonic()<end:
@@ -154,5 +158,5 @@ class EngineControlApi(ApiTestCase):
   self.call('POST','/v1/memory/engine/start',{},token=self.operator)
   self.assertEqual(self.wait_done()['state'],'RUNNING')
  def test_application_close_stops_the_owned_child(self):
-  self.call('POST','/v1/memory/engine/start',{},token=self.operator);self.assertEqual(self.wait_done()['state'],'RUNNING');pid=int(self.started.read_text().strip());self.app.close()
+  self.call('POST','/v1/memory/engine/start',{},token=self.operator);self.assertEqual(self.wait_done()['state'],'RUNNING',self.startup_failure_evidence);pid=int(self.started.read_text().strip());self.app.close()
   with self.assertRaises(ProcessLookupError):os.kill(pid,0)

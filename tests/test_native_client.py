@@ -19,10 +19,15 @@ class NativeClientTests(unittest.TestCase):
     return client
  def test_correlated_response_preserves_requests_and_notifications(self):
     receipts=[]
-    c=self.client("""import sys,json
+    c=self.client("""import sys,json,os,time
+def diagnostic(stage):
+ with open('correlated-child.log','a') as log:
+  log.write(json.dumps({'stage':stage,'pid':os.getpid(),'pgid':os.getpgrp(),'sid':os.getsid(0),'monotonic':time.monotonic()})+'\\n')
+diagnostic('started')
 r=json.loads(sys.stdin.readline())
 for m in [{'method':'note','params':{}},{'id':'server-1','method':'tool','params':{}},{'id':r['id'],'result':{'ok':True}}]: print(json.dumps(m),flush=True)
 a=json.loads(sys.stdin.readline()); print(json.dumps({'method':'answered','params':a}),flush=True)
+diagnostic('answered_and_exiting')
 """,lambda direction,message:receipts.append((direction,message)))
     ident=c.send_request('init',{},Budget())
     self.assertEqual(c.wait_response(ident,Budget()),{'ok':True})
@@ -31,7 +36,39 @@ a=json.loads(sys.stdin.readline()); print(json.dumps({'method':'answered','param
     c.respond('server-1',{'ok':True},Budget())
     self.assertEqual(c.next_message(Budget())['params']['id'],'server-1')
     self.assertTrue(any(d=='outbound' for d,m in receipts))
-    cleanup=c.close(Budget())
+    # Observe only this owned fixture. Do not poll/reap the child before close:
+    # that would change the exit race under investigation.
+    observations=[]
+    killpg=os.killpg
+    def observed_killpg(pgid,sig):
+      entry={'signal':int(sig),'monotonic':time.monotonic()}
+      observations.append(entry)
+      try:
+        result=killpg(pgid,sig)
+        entry['result']='ok'
+        return result
+      except OSError as exc:
+        entry.update(error=type(exc).__name__,errno=exc.errno)
+        for name,probe in (
+            ('owned_child_pgid',lambda:os.getpgid(c.proc.pid)),
+            ('owned_child_sid',lambda:os.getsid(c.proc.pid)),
+            ('owned_group_signal_zero',lambda:killpg(pgid,0))):
+          try: entry[name]={'result':probe()}
+          except OSError as probe_exc:
+            entry[name]={'error':type(probe_exc).__name__,'errno':probe_exc.errno}
+        raise
+    try:
+      with patch('jasmine_core.adapter.native_client.os.killpg',side_effect=observed_killpg):
+        cleanup=c.close(Budget())
+    finally:
+      child_log=self.root/'correlated-child.log'
+      print('native correlated cleanup diagnostic: '+json.dumps({
+          'platform':sys.platform,'python':sys.version_info[:3],
+          'signals':observations,'returncode':c.proc.returncode,
+          'stderr':bytes(c.stderr[:2048]).decode('utf-8',errors='replace'),
+          'child_log':child_log.read_text()[:2048] if child_log.exists() else 'missing',
+          'stack_dump':'not requested: child may already have exited; avoid signaling a reused PID',
+      }),file=sys.stderr,flush=True)
     self.assertEqual(cleanup['cleanup'],'complete',cleanup)
  def test_invalid_json_and_framing(self):
     for raw,code in [(b'{"jsonrpc":"2.0","method":"n","method":"b"}\n','native_invalid_message'),(b'{"jsonrpc":"2.0","method":"n","params":{"x":NaN}}\n','native_invalid_message'),(b'{"jsonrpc":"2.0","method":"n","params":{"x":"\\ud800"}}\n','native_invalid_message'),(b'{"jsonrpc":"2.0"}','native_partial_eof'),(b'x'*1048577+b'\n','native_message_too_large')]:

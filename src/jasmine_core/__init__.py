@@ -19,7 +19,7 @@ __version__ = "0.2.0"
 #: continuity and context). `migrate()` refuses to run when the shipped
 #: migration count and this constant disagree, so a forgotten renumber is a
 #: startup failure rather than a silent schema divergence.
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 #: m0013_host_hooks (ADR 0017) adds the append-only host_hook_deliveries receipt table.
 
 #: m0014 adds the durable daily interpretation queue; Authority and Memory remain unchanged.

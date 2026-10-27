@@ -16,7 +16,8 @@ committed Events rather than a side effect of a write path:
     short transaction, so a crash mid-scan either has both or neither, and
     re-running picks up exactly where it stopped.
 
-The unique index `ux_memory_jobs_source(source_event_id, kind)` is what makes
+The unique index `ux_memory_jobs_item(memory_id, kind)` (m0015; it was
+`(source_event_id, kind)` while items and sources were one-to-one) is what makes
 that safe. It is a schema guarantee, not a code convention: a scan that runs
 twice over the same Event, on two workers, or after a cursor rollback, cannot
 produce a second job. A rolled-back Event is never seen by the scan, because the
@@ -183,13 +184,16 @@ class JobStore:
         retained and would look, to an Inspector, like retained memory.
         """
         stamp = at or clock.now_rfc3339()
-        existing = self._conn.execute(
-            "SELECT * FROM memory_jobs WHERE source_event_id=? AND kind='retain'",
-            (candidate.source_event_id,),
-        ).fetchone()
-        if existing is not None:
-            return job_row(existing), False
+        # One retain job per item (m0015). The document id is deterministic per
+        # source and candidate, so it finds the item a previous scan created.
         item = self._store.item_by_document(candidate.document_id)
+        if item is not None:
+            existing = self._conn.execute(
+                "SELECT * FROM memory_jobs WHERE memory_id=? AND kind='retain'",
+                (item["memory_id"],),
+            ).fetchone()
+            if existing is not None:
+                return job_row(existing), False
         if item is None:
             memory_id = self._store.insert_item(
                 bank=eligibility.resolve_destination(candidate),
@@ -201,6 +205,10 @@ class JobStore:
                 content_sha256=sha256_hex(candidate.body),
                 task_id=candidate.task_id,
                 at=stamp,
+                candidate_index=candidate.candidate_index,
+                admission=candidate.admission,
+                trust=candidate.trust,
+                interpretation_id=candidate.interpretation_id,
             )
             item = self._store.item(memory_id)
             assert item is not None
@@ -233,7 +241,7 @@ class JobStore:
           `busy_timeout` — so an ordinary scan makes every concurrent Truth write
           fail with `database_busy`. A read of committed data needs no lock, and
           correctness does not depend on the read being inside the transaction:
-          the unique index on `(source_event_id, kind)` is what makes a
+          the unique indexes on the item and the job are what make a
           duplicate impossible, and a rolled-back Event is invisible to a reader
           either way.
         * **The cursor.** It advances to the highest `seq` the window *examined*,
@@ -266,6 +274,55 @@ class JobStore:
                 "created": created, "already_present": skipped,
                 "ineligible": reasons,
                 "sources": registry.names}
+
+    def enqueue_observed(self, source: Any, *, limit: int = 200, since: str | None = None,
+                         trigger: str = "automatic", dry_run: bool = False,
+                         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+                         at: str | None = None) -> dict[str, Any]:
+        """Admit observed candidates (ADR 0034) and record each Interpretation examined.
+
+        Same shape as `enqueue_from_sources`: the examination reads committed
+        rows outside the write lock, and one short transaction writes the items,
+        their jobs and the ledger rows. A ledger row is written for every
+        Interpretation examined — including one that admits nothing — so the next
+        pass does not examine it again and a refusal stays inspectable.
+        """
+        if trigger not in ("automatic", "backfill"):
+            raise errors.InvalidRequest("trigger must be automatic or backfill",
+                                        field="trigger", value=trigger)
+        stamp = at or clock.now_rfc3339()
+        exams = source.pending(self._conn, limit=limit, since=since)
+        by_type: dict[str, int] = {}
+        refusals: dict[str, int] = {}
+        for exam in exams:
+            for candidate in exam.candidates:
+                by_type[candidate.memory_type] = by_type.get(candidate.memory_type, 0) + 1
+            for refusal in exam.refusals:
+                refusals[refusal["reason"]] = refusals.get(refusal["reason"], 0) + 1
+        created: list[str] = []
+        if not dry_run and exams:
+            with db.translate_lock_errors(), db.transaction(self._conn):
+                for exam in exams:
+                    if self._conn.execute(
+                        "SELECT 1 FROM memory_observed_admissions WHERE interpretation_id=?",
+                        (exam.interpretation_id,),
+                    ).fetchone() is not None:
+                        # Another worker recorded it between the read and the lock.
+                        continue
+                    for candidate in exam.candidates:
+                        _job, made = self.enqueue(candidate, max_attempts=max_attempts, at=stamp)
+                        if made:
+                            created.append(candidate.document_id)
+                    self._conn.execute(
+                        "INSERT INTO memory_observed_admissions (interpretation_id,"
+                        " source_event_id, admitted_count, refusals_json, trigger, created_at)"
+                        " VALUES (?,?,?,?,?,?)",
+                        (exam.interpretation_id, exam.source_event_id, len(exam.candidates),
+                         canonical_json(exam.refusals), trigger, stamp),
+                    )
+        return {"interpretations": len(exams), "dry_run": dry_run, "trigger": trigger,
+                "admitted": sum(by_type.values()), "admitted_by_type": by_type,
+                "refused_by_reason": refusals, "created": created}
 
     def cursor(self) -> int:
         return int(db.get_meta(self._conn, CURSOR_KEY, 0) or 0)
@@ -662,8 +719,8 @@ class JobStore:
         if item is None:
             raise errors.NotFound("memory", memory_id)
         existing = self._conn.execute(
-            "SELECT * FROM memory_jobs WHERE source_event_id=? AND kind='invalidate'",
-            (source_event_id,),
+            "SELECT * FROM memory_jobs WHERE memory_id=? AND kind='invalidate'",
+            (memory_id,),
         ).fetchone()
         if existing is not None:
             return job_row(existing)
@@ -711,8 +768,8 @@ class JobStore:
         if item is None:
             raise errors.NotFound("memory", memory_id)
         existing = self._conn.execute(
-            "SELECT * FROM memory_jobs WHERE source_event_id=? AND kind='delete'",
-            (source_event_id,),
+            "SELECT * FROM memory_jobs WHERE memory_id=? AND kind='delete'",
+            (memory_id,),
         ).fetchone()
         if existing is not None:
             return job_row(existing)
@@ -753,8 +810,8 @@ class JobStore:
           `DONE`, document present, nothing queued. Clearing its lease is safe
           rather than destructive, because `_assert_claim_held` then refuses the
           in-flight worker's own commit;
-        * no job at all is created, keyed on `source_event_id`, so the
-          `(source_event_id, kind)` uniqueness still makes enqueueing idempotent;
+        * no job at all is created, and the `(memory_id, kind)` uniqueness
+          still makes enqueueing idempotent;
         * a `DONE` or `FAILED` job is re-armed. That is the whole point: the
           normal `delete` can have completed *before* the stale write landed,
           which is precisely the orphan this is for. `retry_count` is **not**

@@ -1,6 +1,7 @@
-# ADR 0031: Missing Guard context matters only when a rule needs it
+# ADR 0035: Missing Guard context matters only when a rule needs it
 
 Status: Proposed. Date: 2026-10-23. Schema: unchanged (14). No migration.
+Renumbered from 0031 when `feat/human-memory-catalog` was merged into `main` (2026-10-27): ADR 0031 on that line is the Interpreter model selection, which ADRs 0032–0034 build on.
 Amends ADR 0005 (Deterministic Guard), ADR 0017 section 8 and ADR 0018 section 2.
 
 ## Problem

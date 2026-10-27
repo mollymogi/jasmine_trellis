@@ -76,3 +76,35 @@ writers, preserves the current database separately, restores the matching schema
 13 backup plus old runtime configuration, then starts the old services. There is
 no destructive downgrade migration; events arriving after the backup require
 separate reconciliation and must not be silently discarded.
+
+## Amendment (2026-10-26): provider rate limits
+
+On the local deployment the Codex account began returning HTTP 429. Codex then
+emits `{"type":"error","message":"Reconnecting... 1/5 (… 429 Too Many Requests …)"}`
+and sleeps out the server's backoff, measured at 44–465 s against the 120 s
+extraction budget. Over one morning that produced 49 `provider_timeout` (all at
+exactly 120 s) and 11 `provider_protocol_error` — the latter runs had *recovered*
+and returned a valid result, but the strict stream check rejected the reconnect
+record. Every failure was permanent (one attempt) and each burned 120 s of the
+same exhausted quota.
+
+* **Fail fast.** The Codex provider watches stdout as it arrives; a reconnect
+  record naming 429 / too many requests / rate or usage limit / quota ends the run
+  at once as `provider_rate_limited`. The local CLI clients already map their
+  rate-limit output to the same code.
+* **A recovered reconnect is not a protocol breach.** A non-rate-limit
+  `Reconnecting... n/m` record is skipped by the lifecycle check; any other
+  `error` record is still `provider_protocol_error`.
+* **Queue-wide cooldown, automatic retry.** A rate limit is account-wide, so the
+  message returns to `PENDING` in its original place (audited `RATE_LIMITED`
+  change) and the whole queue stops claiming until
+  `conversation_processing_cooldown_until` in `core_meta`: 5 min, doubling per
+  consecutive rate limit to 1 h, reset by the next successful resolution. The
+  worker reports `idle` with `cooldown_until` meanwhile, and the processing list
+  exposes it. A message fails as `provider_rate_limited` after 5 consecutive rate
+  limits since it was last enqueued or manually retried; a manual retry restores
+  that budget. Other provider failures, including `provider_timeout`, keep the
+  existing one-attempt behaviour.
+
+No schema change: the cooldown lives in `core_meta`, and the attempt budget is
+counted from the existing append-only `conversation_processing_changes`.

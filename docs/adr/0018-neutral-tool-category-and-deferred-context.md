@@ -35,7 +35,7 @@ Limits, stated plainly: the category comes from each dialect's tool table. A too
 a table can be wrong for a tool name nobody has observed (Grok Build's table is built from open-source names and is not
 yet confirmed on a real conversation). The shell `action` is a heuristic (ADR 0017 section 8) and compound commands
 resolve to nothing, so they come back `confirm` whenever an active rule matches on `action` or `path_prefix`
-(ADR 0031; with no such rule they are decided on the dimensions that are present).
+(ADR 0035; with no such rule they are decided on the dimensions that are present).
 
 ## 3. Decision B: `inject_mode: "deferred"`
 

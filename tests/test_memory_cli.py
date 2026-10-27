@@ -98,6 +98,17 @@ class MemoryCommands(CliTestCase):
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output)["created"], [])
 
+    def test_observed_backfill_is_a_dry_run_unless_applied(self) -> None:
+        self.seed()
+        code, output, _ = self._run(["memory", "observed-backfill"])
+        self.assertEqual(code, 0)
+        report = json.loads(output)
+        self.assertEqual((report["dry_run"], report["trigger"], report["interpretations"]),
+                         (True, "backfill", 0))
+        code, output, _ = self._run(["memory", "observed-backfill", "--apply", "--limit", "10"])
+        self.assertEqual(code, 0)
+        self.assertFalse(json.loads(output)["dry_run"])
+
     def test_reset_cursor_replays_the_whole_stream_safely(self) -> None:
         self.seed()
         self._run(["memory", "scan"])
