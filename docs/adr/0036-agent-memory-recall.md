@@ -207,12 +207,13 @@ Where the code differs from, or settles, the text above:
   `additionalContext` envelope.
 * **Claude Code.** A second `UserPromptSubmit` handler, label
   `Jasmine Memory hint for Claude`, `timeout: 3`, not async, running the same
-  launcher with `--memory-hint`. It waits at most 1.0 s for the transcript to
-  prove typed human input; the 1.5 s hint budget (workspace registration plus
-  the request) starts only after that proof, under a 2.7 s cap from handler
-  start that keeps it inside the 3 s hook timeout. It registers the workspace
-  through the same idempotent call capture uses, records no Event, and always
-  exits 0 with valid JSON.
+  launcher with `--memory-hint`. It gives a hint only when capture has already
+  verified an earlier typed-human turn of the same main session and workspace
+  (capture's private session state); the first turn of a session gets none.
+  It does not read or wait for the transcript (see the second amendment). The
+  1.5 s budget covers workspace registration and the request. It registers the
+  workspace through the same idempotent call capture uses, records no Event,
+  and always exits 0 with valid JSON.
 * **Grok and Host Hook `prompt.submit`.** Not in phase A.
 * **Dashboard.** `POST /_local/agents/{codex|claude}/memory-hint`
   (`{action: enable|disable}`), same local-origin, Core-authorization and pinned
@@ -236,6 +237,28 @@ Two defects found with real sessions, both in the "fewer hints" direction:
 * The Claude handler waited 0.5 s; the transcript showed the turn about 0.6 s
   after dispatch (capture, which waits 1.5 s, accepted the same turn 0.1 s after
   the hint gave up). The wait is now 1.0 s and the hint budget starts after it.
+
+### Amendment 2 (2026-10-27): Claude provenance is per session, not per turn
+
+A longer wait did not help. On local-item6 the hint handler gave up after
+0.5 s (07:58) and after 1.0 s (08:23), and both times async capture, polling
+every 50 ms, saw the turn about 0.1 s *after* the handler returned. Claude Code
+writes a turn to its transcript only after the synchronous `UserPromptSubmit`
+hooks return, so a synchronous handler can never see the current turn there,
+and every Claude prompt paid the wait for nothing.
+
+The hint handler therefore checks the session instead of the turn: a main
+session whose workspace matches and in which capture has verified at least one
+typed-human turn (`native_current_turn_typed_human_metadata`). Consequences,
+stated plainly:
+
+* The first turn of every Claude session gets no hint.
+* A later non-human turn in a verified session (a scheduler wake, a teammate
+  message) may get a hint. The hint is read-only, labelled non-authoritative
+  history; capture still refuses to record such a turn as the user's words, and
+  nothing in Memory admission or Authority changes.
+* Subagent packets, other workspaces and unreadable or non-private state still
+  get nothing.
 
 ## Alternatives considered
 

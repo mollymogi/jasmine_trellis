@@ -163,80 +163,90 @@ class MemoryHintHooks(ClaudeCapture):
 
     # -- Claude --------------------------------------------------------------
 
-    def test_claude_hint_needs_verified_typed_input(self):
-        packet = self.packet("UserPromptSubmit", prompt="接下来的视频版本怎么定？")
+    def verify_first_turn(self, text="第一轮：这首歌这次发布到哪个账号？"):
+        """Real capture of a typed first turn, which records the session as verified."""
+        self.typed(text)
+        receipt = claude_session.capture_device(self.packet("UserPromptSubmit", prompt=text),
+                                                load_device(self.binding_path), self.home)
+        self.assertEqual(receipt["status"], "accepted", receipt)
+
+    def next_turn(self, text="第二轮：开头用哪个视频版本？"):
+        # Claude has not written this turn to the transcript yet while the
+        # synchronous hint handler runs (observed live 2026-10-27).
+        self.turn = str(__import__("uuid").uuid4())
+        return self.packet("UserPromptSubmit", prompt=text)
+
+    def test_claude_hint_needs_a_capture_verified_turn_in_the_session(self):
+        packet = self.packet("UserPromptSubmit", prompt="这首歌这次发布到哪个账号？")
         self.assertEqual(claude_session.memory_hint_device(packet, load_device(self.binding_path), self.home)[1],
                          {"status": "disabled"})
         device = self.enable()
-        with patch.object(claude_session, "HINT_ORIGIN_WAIT", 0):
+        # First turn: nothing verified yet, even if the transcript already has it.
+        self.typed("这首歌这次发布到哪个账号？")
+        with patch.object(memory_hint, "request") as asked:
             text, receipt = claude_session.memory_hint_device(packet, device, self.home)
-        self.assertEqual((text, receipt["reason"]), (None, "no_current_typed_input_evidence"))
-        self.typed("接下来的视频版本怎么定？")
-        text, receipt = claude_session.memory_hint_device(packet, device, self.home)
-        self.assertIsNone(text)  # real Core, no engine
-        self.assertIn(receipt["status"], ("empty", "degraded"))
-        with patch.object(memory_hint, "request", return_value=(HINT, {"status": "ok"})) as asked:
-            text, _ = claude_session.memory_hint_device(packet, device, self.home)
-        self.assertTrue(asked.call_args.kwargs["project_id"].startswith("prj_"))
+        self.assertEqual((text, receipt["reason"]), (None, "no_verified_turn_in_session"))
+        asked.assert_not_called()
+        # Capture verifies that turn; the next turn gets a hint without waiting
+        # for the transcript, which does not contain it yet.
+        receipt = claude_session.capture_device(packet, load_device(self.binding_path), self.home)
+        self.assertEqual(receipt["status"], "accepted", receipt)
+        verified_turn = self.turn
+        packet = self.next_turn()
+        with patch.object(claude_session.time, "sleep", side_effect=AssertionError("must not wait")), \
+                patch.object(memory_hint, "request", return_value=(HINT, {"status": "ok"})) as asked:
+            text, receipt = claude_session.memory_hint_device(packet, device, self.home)
         self.assertEqual(text, HINT)
+        self.assertEqual(receipt["verified_turn"], verified_turn)
+        self.assertTrue(asked.call_args.kwargs["project_id"].startswith("prj_"))
+        # The real Core answers too (no engine here, so no text).
+        text, receipt = claude_session.memory_hint_device(packet, device, self.home)
+        self.assertIsNone(text)
+        self.assertIn(receipt["status"], ("empty", "degraded"))
+
+    def test_claude_session_state_must_match_and_be_verified(self):
+        device = self.enable()
+        self.verify_first_turn()
+        state_path = device.spool_dir / "claude-sessions" / (self.sid + ".json")
+        original = state_path.read_text()
+        packet = self.next_turn()
+        cases = {
+            "different workspace": lambda s: {**s, "cwd": "/somewhere/else"},
+            "turn without typed-input proof": lambda s: {**s, "turns": {t: {"text_sha256": v["text_sha256"]}
+                                                                    for t, v in s["turns"].items()}},
+            "no turns": lambda s: {**s, "turns": {}},
+        }
+        for name, change in cases.items():
+            state_path.write_text(json.dumps(change(json.loads(original))))
+            state_path.chmod(0o600)
+            with patch.object(memory_hint, "request") as asked:
+                text, receipt = claude_session.memory_hint_device(packet, device, self.home)
+            self.assertEqual((text, receipt["reason"]), (None, "no_verified_turn_in_session"), name)
+            asked.assert_not_called()
+        # A state file others can read is not trusted either.
+        state_path.write_text(original)
+        state_path.chmod(0o644)
+        self.assertEqual(claude_session.memory_hint_device(packet, device, self.home)[1]["reason"],
+                         "no_verified_turn_in_session")
 
     def test_claude_registration_uses_remaining_hint_budget(self):
-        packet = self.packet("UserPromptSubmit", prompt="接下来的视频版本怎么定？")
         device = self.enable()
-        self.typed("接下来的视频版本怎么定？")
+        self.verify_first_turn()
+        packet = self.next_turn()
         with patch.object(claude_session, "bind_workspace", return_value=device) as bind, \
-                patch.object(memory_hint, "request", return_value=(None, {"status": "empty"})):
-            claude_session.memory_hint_device(packet, device, self.home,
-                                             now=iter([0.0, 0.0, 0.5]).__next__)
-        # The hint budget starts at confirmation (0.5 s), not at handler start.
-        self.assertEqual(bind.call_args.kwargs["timeout"], memory_hint.BUDGET_SECONDS)
-
-    def test_claude_waits_for_a_lagging_transcript_and_budgets_after_confirmation(self):
-        """Live 2026-10-27: the transcript showed the turn ~0.6 s after dispatch."""
-        packet = self.packet("UserPromptSubmit", prompt="接下来的视频版本怎么定？")
-        device = self.enable()
-        clock = [0.0]
-        lag = 0.7
-
-        def origin(n):
-            if clock[0] < lag:
-                return None
-            self.typed("接下来的视频版本怎么定？") if not self.transcript.read_text() else None
-            return real_origin(n)
-
-        def sleep(seconds):
-            clock[0] += seconds
-
-        real_origin = claude_session._prompt_origin
-        with patch.object(claude_session, "_prompt_origin", side_effect=origin), \
-                patch.object(claude_session.time, "sleep", side_effect=sleep), \
-                patch.object(claude_session, "bind_workspace", return_value=device), \
-                patch.object(memory_hint, "request", return_value=(HINT, {"status": "ok"})) as asked:
-            text, _ = claude_session.memory_hint_device(packet, device, self.home, now=lambda: clock[0])
-        self.assertEqual(text, HINT)
-        confirmed = clock[0]
-        self.assertGreaterEqual(confirmed, lag)
-        self.assertAlmostEqual(asked.call_args.kwargs["deadline"], confirmed + memory_hint.BUDGET_SECONDS)
-        self.assertLessEqual(asked.call_args.kwargs["deadline"], claude_session.HINT_HANDLER_SECONDS)
-        # A transcript slower than the wait still gives up, without spending the budget.
-        clock[0] = 0.0
-        lag = claude_session.HINT_ORIGIN_WAIT + 1
-        with patch.object(claude_session, "_prompt_origin", side_effect=origin), \
-                patch.object(claude_session.time, "sleep", side_effect=sleep), \
-                patch.object(memory_hint, "request") as asked:
-            text, receipt = claude_session.memory_hint_device(packet, device, self.home, now=lambda: clock[0])
-        self.assertEqual((text, receipt["reason"]), (None, "no_current_typed_input_evidence"))
-        asked.assert_not_called()
+                patch.object(memory_hint, "request", return_value=(None, {"status": "empty"})) as asked:
+            claude_session.memory_hint_device(packet, device, self.home, now=iter([0.0, 0.4]).__next__)
+        self.assertAlmostEqual(bind.call_args.kwargs["timeout"], memory_hint.BUDGET_SECONDS - 0.4)
+        self.assertEqual(asked.call_args.kwargs["deadline"], memory_hint.BUDGET_SECONDS)
 
     def test_claude_skips_registration_when_hint_budget_is_exhausted(self):
-        packet = self.packet("UserPromptSubmit", prompt="接下来的视频版本怎么定？")
         device = self.enable()
-        self.typed("接下来的视频版本怎么定？")
+        self.verify_first_turn()
+        packet = self.next_turn()
         with patch.object(claude_session, "bind_workspace") as bind, \
                 patch.object(memory_hint, "request") as asked:
             text, receipt = claude_session.memory_hint_device(
-                packet, device, self.home,
-                now=iter([0.0, 0.0, claude_session.HINT_HANDLER_SECONDS]).__next__)
+                packet, device, self.home, now=iter([0.0, memory_hint.BUDGET_SECONDS]).__next__)
         self.assertIsNone(text)
         self.assertEqual(receipt["reason"], "no_time_left")
         bind.assert_not_called()

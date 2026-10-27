@@ -133,13 +133,30 @@ def capture_device(native,device,claude_home):
         return receipt
     finally:os.close(fd)
 
-#: The synchronous hint handler waits this long for the transcript to show the
-#: turn is typed human input. Unverified turns get no hint (ADR 0036 section 4).
-#: Claude persists the turn after dispatching the hook; 0.6 s was observed live.
-HINT_ORIGIN_WAIT=1.0
-#: Hard cap from handler start, inside the installed 3 s hook timeout (process
-#: start-up comes on top). The hint's own budget starts after confirmation.
-HINT_HANDLER_SECONDS=2.7
+#: Claude writes a turn to its transcript only after the synchronous
+#: UserPromptSubmit hooks have returned (observed live 2026-10-27), so the hint
+#: handler can never prove that *this* turn is typed input. It relies instead on
+#: capture having verified an earlier typed turn of the same main session; the
+#: first turn of a session gets no hint (ADR 0036 amendment).
+VERIFIED_CHECK='native_current_turn_typed_human_metadata'
+
+def _session_verified(device,n):
+    """The newest capture-verified typed turn of this session, or None.
+
+    Read without capture's lock: capture holds it while it waits for the
+    transcript, and replaces the state file atomically, so a lock-free read sees
+    either the old or the new state, never a torn one.
+    """
+    path=device.spool_dir/'claude-sessions'/(n['sid']+'.json')
+    try:
+        if path.is_symlink() or not path.is_file():return None
+        state=json.loads(_private_bytes(path,'Claude capture state'))
+        if not isinstance(state,dict) or state.get('cwd')!=n['cwd'] or not isinstance(state.get('turns'),dict):return None
+        verified=[turn for turn,stamp in state['turns'].items()
+                  if isinstance(stamp,dict) and isinstance(stamp.get('origin'),dict) and stamp['origin'].get('check')==VERIFIED_CHECK]
+    except Exception:  # unreadable state is "not verified", never an error
+        return None
+    return verified[-1] if verified else None
 
 def memory_hint_device(native,device,claude_home,*,now=time.monotonic):
     """Return `(text, receipt)` for the separate synchronous hint handler.
@@ -147,21 +164,17 @@ def memory_hint_device(native,device,claude_home,*,now=time.monotonic):
     Separate from capture because capture's UserPromptSubmit handler is async and
     Claude discards an async handler's output. This handler records nothing.
     """
-    cap=now()+HINT_HANDLER_SECONDS
+    deadline=now()+memory_hint.BUDGET_SECONDS
     if not device.memory_hint:return None,{'status':'disabled'}
     n=_native(native,claude_home)
     if n is None or n['event']!='UserPromptSubmit':return None,{'status':'ignored','reason':'unsupported_or_unverified_main_session'}
-    origin=_prompt_origin(n);wait=now()+HINT_ORIGIN_WAIT
-    while origin is None and now()<wait:
-        time.sleep(.05);origin=_prompt_origin(n)
-    if origin is None:return None,{'status':'ignored','reason':'no_current_typed_input_evidence','native_session_id':n['sid']}
-    # The recall budget is spent only on a turn known to be the user's.
-    confirmed=now();deadline=min(confirmed+memory_hint.BUDGET_SECONDS,cap)
-    remaining=deadline-confirmed
+    verified=_session_verified(device,n)
+    if verified is None:return None,{'status':'ignored','reason':'no_verified_turn_in_session','native_session_id':n['sid']}
+    remaining=deadline-now()
     if remaining<=0.05:return None,{'status':'skipped','reason':'no_time_left','native_session_id':n['sid']}
     binding=bind_workspace(n,device,source=SOURCE,timeout=remaining)
     text,receipt=memory_hint.request(binding,project_id=binding.project_id,native_session_id=n['sid'],prompt=n['text'],deadline=deadline)
-    return text,{**receipt,'native_session_id':n['sid']}
+    return text,{**receipt,'native_session_id':n['sid'],'verified_turn':verified}
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
