@@ -25,11 +25,13 @@ def request(binding: Binding, *, project_id: str, native_session_id: str, prompt
             client_factory=CoreClient) -> tuple[str | None, dict[str, Any]]:
     """Return `(text, receipt)`. The receipt holds counts and ids, never text."""
     started = time.monotonic()
+    # Avoid rounding the default timeout upward by adding and then subtracting
+    # a monotonic timestamp. Caller-supplied deadlines still share their budget.
+    remaining = BUDGET_SECONDS if deadline is None else deadline - started
     deadline = deadline if deadline is not None else started + BUDGET_SECONDS
     receipt: dict[str, Any] = {"status": "disabled"}
     if not binding.memory_hint or binding.memory_key_file is None:
         return None, receipt
-    remaining = deadline - started
     if remaining <= 0.05:
         return None, {"status": "skipped", "reason": "no_time_left"}
     try:

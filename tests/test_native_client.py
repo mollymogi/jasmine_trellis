@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import time
@@ -19,10 +20,10 @@ class NativeClientTests(unittest.TestCase):
     return client
  def test_correlated_response_preserves_requests_and_notifications(self):
     receipts=[]
-    c=self.client("""import sys,json,os,time
+    c=self.client("""import sys,json,os,time,traceback
 def diagnostic(stage):
  with open('correlated-child.log','a') as log:
-  log.write(json.dumps({'stage':stage,'pid':os.getpid(),'pgid':os.getpgrp(),'sid':os.getsid(0),'monotonic':time.monotonic()})+'\\n')
+  log.write(json.dumps({'stage':stage,'pid':os.getpid(),'pgid':os.getpgrp(),'sid':os.getsid(0),'monotonic':time.monotonic(),'stack':traceback.format_stack(limit=4) if stage=='answered_and_exiting' else []})+'\\n')
 diagnostic('started')
 r=json.loads(sys.stdin.readline())
 for m in [{'method':'note','params':{}},{'id':'server-1','method':'tool','params':{}},{'id':r['id'],'result':{'ok':True}}]: print(json.dumps(m),flush=True)
@@ -39,9 +40,25 @@ diagnostic('answered_and_exiting')
     # Observe only this owned fixture. Do not poll/reap the child before close:
     # that would change the exit race under investigation.
     observations=[]
+    waits=[]
+    wait=c.proc.wait
+    def observed_wait(*args,**kwargs):
+      entry={'monotonic':time.monotonic(),'timeout':kwargs.get('timeout'),
+             'returncode_before':c.proc.returncode}
+      waits.append(entry)
+      try:
+        result=wait(*args,**kwargs)
+        entry['result']=result
+        return result
+      except (OSError,subprocess.TimeoutExpired) as exc:
+        entry.update(error=type(exc).__name__,errno=getattr(exc,'errno',None))
+        raise
+      finally:
+        entry.update(finished=time.monotonic(),returncode_after=c.proc.returncode)
     killpg=os.killpg
     def observed_killpg(pgid,sig):
-      entry={'signal':int(sig),'monotonic':time.monotonic()}
+      entry={'signal':int(sig),'monotonic':time.monotonic(),
+             'returncode_before':c.proc.returncode}
       observations.append(entry)
       try:
         result=killpg(pgid,sig)
@@ -58,16 +75,16 @@ diagnostic('answered_and_exiting')
             entry[name]={'error':type(probe_exc).__name__,'errno':probe_exc.errno}
         raise
     try:
-      with patch('jasmine_core.adapter.native_client.os.killpg',side_effect=observed_killpg):
+      with patch('jasmine_core.adapter.native_client.os.killpg',side_effect=observed_killpg), patch.object(c.proc,'wait',side_effect=observed_wait):
         cleanup=c.close(Budget())
     finally:
       child_log=self.root/'correlated-child.log'
       print('native correlated cleanup diagnostic: '+json.dumps({
           'platform':sys.platform,'python':sys.version_info[:3],
-          'signals':observations,'returncode':c.proc.returncode,
+          'signals':observations,'waits':waits,'returncode':c.proc.returncode,
           'stderr':bytes(c.stderr[:2048]).decode('utf-8',errors='replace'),
           'child_log':child_log.read_text()[:2048] if child_log.exists() else 'missing',
-          'stack_dump':'not requested: child may already have exited; avoid signaling a reused PID',
+          'stack_dump':'bounded self-dump in child exit log; no signal sent to a possibly exited child',
       }),file=sys.stderr,flush=True)
     self.assertEqual(cleanup['cleanup'],'complete',cleanup)
  def test_invalid_json_and_framing(self):

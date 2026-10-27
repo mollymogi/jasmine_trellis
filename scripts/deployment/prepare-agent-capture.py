@@ -8,11 +8,42 @@ commands. No schema migration or daemon restart is performed here.
 from pathlib import Path
 import argparse,hashlib,json,os,sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'src'))
-from jasmine_core import auth,db,ids,registry
+from jasmine_core import auth,db,errors,ids,registry
 from jasmine_core.hosthook.install import _backup,_write
 
 #: ADR 0036 phase A delivers the prompt-time Memory hint to these Agents.
 MEMORY_HINT_AGENTS=('codex','claude')
+
+def _capture_metadata(runtime,agent,document,credentials):
+    """`<agent>-conversation-keys.json`, reconstructed when an older setup never wrote it.
+
+    The actors are found from the binding's own key files: each token's hash is
+    unique in `api_keys`, so this names exactly the key the hooks use, never a
+    guess by label. The key must be unrevoked, the system key must belong to a
+    system actor holding the capture scopes, and the prompt key to a human
+    actor; anything else stops here with nothing written. No token is stored.
+    """
+    metadata=credentials/f'{agent}-conversation-keys.json'
+    if metadata.exists():return json.loads(metadata.read_text())
+    from jasmine_core.hosthook.binding import read_key
+    conn=db.connect(runtime['database'])
+    try:
+        found={}
+        for kind,field,actor_kind,needed in (('system','api_key_file','system',{'objects:write','events:write'}),
+                                             ('human','human_api_key_file','human',{'events:write'})):
+            if not document.get(field):raise ValueError(f'{agent} binding has no {field}')
+            try:principal=auth.Auth(conn).authenticate('Bearer '+read_key(Path(document[field])))
+            except errors.Unauthenticated:raise ValueError(f'{agent} {kind} capture key is unknown or revoked') from None
+            row=conn.execute('SELECT k.key_id,k.actor_id,k.label,k.scopes,k.created_at,a.kind FROM api_keys k JOIN actors a USING(actor_id) WHERE k.key_id=?',(principal.key_id,)).fetchone()
+            if row['kind']!=actor_kind or not needed<=set(principal.scopes):
+                raise ValueError(f'{agent} {kind} capture key does not belong to a {actor_kind} capture actor')
+            found[kind]={'key_id':row['key_id'],'actor_id':row['actor_id'],'label':row['label'],
+                         'scopes':sorted(principal.scopes),'created_at':row['created_at']}
+    finally:conn.close()
+    meta={'system_actor_id':found['system']['actor_id'],'human_actor_id':found['human']['actor_id'],**found,
+          'reconstructed_from':'device binding key files'}
+    _write(metadata,meta);metadata.chmod(0o600)
+    return meta
 
 def _memory_key(runtime,agent,binding,credentials):
     """Give an existing device binding its `memory:recall`-only key, once.
@@ -23,7 +54,7 @@ def _memory_key(runtime,agent,binding,credentials):
     document=json.loads(binding.read_text())
     if document.get('memory_key_file'):return
     path=credentials/f'{agent}-conversation-memory.key'
-    metadata=credentials/f'{agent}-conversation-keys.json';meta=json.loads(metadata.read_text())
+    metadata=credentials/f'{agent}-conversation-keys.json';meta=_capture_metadata(runtime,agent,document,credentials)
     if not path.exists():
         conn=db.connect(runtime['database'])
         try:key=auth.Auth(conn).issue_key(actor_id=meta['system_actor_id'],label=agent+' native Memory hint',scopes=['memory:recall'])
