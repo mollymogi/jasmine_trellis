@@ -108,6 +108,19 @@ class MemoryHintHooks(ClaudeCapture):
         self.assertIsNone(memory_hint.request(device, project_id=self.project, native_session_id="n",
                                               prompt="hello there", client_factory=StubClient)[0])
 
+    def test_request_default_timeout_avoids_timestamp_rounding(self):
+        device = self.enable()
+        # Crossing a float exponent boundary makes (started + 1.5) - started
+        # round above 1.5; the default timeout must retain the exact budget.
+        with patch.object(memory_hint.time, "monotonic", return_value=127.9):
+            memory_hint.request(device, project_id=self.project, native_session_id="n",
+                                prompt="hello there", client_factory=StubClient)
+        self.assertEqual(StubClient.calls[-1]["timeout"], memory_hint.BUDGET_SECONDS)
+        with patch.object(memory_hint.time, "monotonic", return_value=127.9):
+            memory_hint.request(device, project_id=self.project, native_session_id="n",
+                                prompt="hello there", deadline=128.15, client_factory=StubClient)
+        self.assertEqual(StubClient.calls[-1]["timeout"], 0.25)
+
     def test_real_core_answers_the_hint_key_without_an_engine(self):
         device = self.enable()
         text, receipt = memory_hint.request(device, project_id=self.project, native_session_id="n",
