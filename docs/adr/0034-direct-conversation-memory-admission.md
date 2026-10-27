@@ -113,7 +113,7 @@ Context Pack Memory slot (ADR 0012, `context/memory_provider.py`) is a separate
 frozen contract that today accepts only Evidence-backed `VERIFIED_OUTCOME` and
 `FAILURE_LESSON` — not even `CONFIRMED_DECISION` — and is unchanged here, so
 observed items are not yet injected into Context Packs; extending that slot is a
-follow-up with its own ADR.
+follow-up with its own ADR (ADR 0036, proposed).
 
 Recall still runs through the existing filters (provenance, foreign project,
 obsolete, superseded/retired decision, duplicate, injection, budget). Ranking
