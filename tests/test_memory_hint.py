@@ -110,6 +110,27 @@ class Build(_Harness):
         self.assertEqual(again["withheld"][0]["reason"], "hinted_recently")
         self.assertEqual(self.build(session="s2")["status"], "ok")
 
+    def test_withheld_turns_age_out_through_build(self):
+        self.seed("就用 v3 版本。")
+        self.assertEqual(self.build()["status"], "ok")
+        for _ in range(hint.SESSION_TURNS):
+            result = self.build()
+            self.assertEqual(result["status"], "empty")
+            self.assertEqual(result["withheld"][0]["reason"], "hinted_recently")
+        self.assertEqual(self.build()["status"], "ok")
+
+    def test_one_bank_failure_discards_healthy_items_without_marking_seen(self):
+        self.seed("就用 v3 版本。")
+        self.transport.recall_error["jasmine-global"] = TransportError("engine_timeout", "slow")
+        result = self.build()
+        self.assertEqual(result["status"], "degraded")
+        self.assertEqual(result["items"], [])
+        self.assertIsNone(result["text"])
+        self.assertIsNotNone(result["trace_id"])
+        self.assertEqual(self.ledger._sessions, {})
+        del self.transport.recall_error["jasmine-global"]
+        self.assertEqual(self.build()["status"], "ok")
+
     def test_obsolete_and_unrenderable_items_are_withheld(self):
         long_text = "决定采用这个方案，" + "并且说明了很多细节" * 40
         first, second = sorted(self.seed("就用 v3 版本。", long_text),

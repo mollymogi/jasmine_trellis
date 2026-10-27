@@ -180,6 +180,29 @@ class MemoryHintHooks(ClaudeCapture):
         self.assertTrue(asked.call_args.kwargs["project_id"].startswith("prj_"))
         self.assertEqual(text, HINT)
 
+    def test_claude_registration_uses_remaining_hint_budget(self):
+        packet = self.packet("UserPromptSubmit", prompt="接下来的视频版本怎么定？")
+        device = self.enable()
+        self.typed("接下来的视频版本怎么定？")
+        with patch.object(claude_session, "bind_workspace", return_value=device) as bind, \
+                patch.object(memory_hint, "request", return_value=(None, {"status": "empty"})):
+            claude_session.memory_hint_device(packet, device, self.home,
+                                             now=iter([0.0, 0.0, 0.5]).__next__)
+        self.assertEqual(bind.call_args.kwargs["timeout"], 1.0)
+
+    def test_claude_skips_registration_when_hint_budget_is_exhausted(self):
+        packet = self.packet("UserPromptSubmit", prompt="接下来的视频版本怎么定？")
+        device = self.enable()
+        self.typed("接下来的视频版本怎么定？")
+        with patch.object(claude_session, "bind_workspace") as bind, \
+                patch.object(memory_hint, "request") as asked:
+            text, receipt = claude_session.memory_hint_device(
+                packet, device, self.home, now=iter([0.0, 0.0, 1.5]).__next__)
+        self.assertIsNone(text)
+        self.assertEqual(receipt["reason"], "no_time_left")
+        bind.assert_not_called()
+        asked.assert_not_called()
+
     def test_claude_hint_main_always_exits_zero_with_valid_json(self):
         argv = ["claude-capture.py", "--device-binding", str(self.binding_path), "--receipts", str(self.receipts),
                 "--claude-home", str(self.home), "--memory-hint"]

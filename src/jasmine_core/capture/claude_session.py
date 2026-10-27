@@ -151,7 +151,9 @@ def memory_hint_device(native,device,claude_home,*,now=time.monotonic):
     while origin is None and now()<wait:
         time.sleep(.05);origin=_prompt_origin(n)
     if origin is None:return None,{'status':'ignored','reason':'no_current_typed_input_evidence','native_session_id':n['sid']}
-    binding=bind_workspace(n,device,source=SOURCE)
+    remaining=deadline-now()
+    if remaining<=0.05:return None,{'status':'skipped','reason':'no_time_left','native_session_id':n['sid']}
+    binding=bind_workspace(n,device,source=SOURCE,timeout=remaining)
     text,receipt=memory_hint.request(binding,project_id=binding.project_id,native_session_id=n['sid'],prompt=n['text'],deadline=deadline)
     return text,{**receipt,'native_session_id':n['sid']}
 

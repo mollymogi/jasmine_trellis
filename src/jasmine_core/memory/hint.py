@@ -151,6 +151,11 @@ def build(adapter: MemoryAdapter, store, ledger: SessionLedger, *, actor_id: str
     outcome = adapter.recall(RecallRequest(
         project_id=project_id, actor_id=actor_id, query=query, task_id=task_id,
         session_id=session_id, types=tuple(MEMORY_TYPES), max_tokens=MAX_TOKENS))
+    if outcome.status == "degraded":
+        # Healthy-bank items are useful for ordinary recall, but hints fail open
+        # as a whole and must not mark any partial result as delivered.
+        return {"status": "degraded", "reason": outcome.error_code,
+                "items": [], "withheld": [], "text": None, "trace_id": outcome.trace_id}
     key = (actor_id, project_id, native_session_id)
     recent = ledger.recent(key)
     lines: list[str] = []
@@ -181,9 +186,8 @@ def build(adapter: MemoryAdapter, store, ledger: SessionLedger, *, actor_id: str
         chosen.append({"memory_id": memory_id, "memory_type": item["memory_type"],
                        "admission": item["admission"], "trust": item["trust"],
                        "recorded_at": item["created_at"]})
-    if chosen:
-        ledger.note(key, [c["memory_id"] for c in chosen])
-    status = "ok" if chosen else ("degraded" if outcome.status == "degraded" else "empty")
+    ledger.note(key, [c["memory_id"] for c in chosen])
+    status = "ok" if chosen else "empty"
     return {"status": status, "reason": outcome.error_code if status == "degraded" else None,
             "items": chosen, "withheld": withheld,
             "text": render(lines) if chosen else None, "trace_id": outcome.trace_id}
