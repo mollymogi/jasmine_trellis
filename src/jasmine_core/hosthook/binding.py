@@ -31,7 +31,10 @@ ALLOWED = {"version", "core_url", "host_id", "project_id", "task_id", "step_id",
 #: What a project file may say when a device binding applies (everything else is device-owned).
 PROJECT_FIELDS = {"version", "project_id", "task_id", "step_id", "inject_context"}
 DEVICE_FIELDS = {"version", "core_url", "host_id", "api_key_file", "human_api_key_file", "on_unavailable",
-                 "spool_dir", "timeout_seconds", "inject_context"}
+                 "spool_dir", "timeout_seconds", "inject_context",
+                 # ADR 0036: the prompt-time Memory hint is a device setting with
+                 # its own read-only credential; a project file cannot turn it on.
+                 "memory_key_file", "memory_hint"}
 MAX_FILE_BYTES = 64 * 1024
 
 
@@ -55,6 +58,9 @@ class Binding:
     inject_context: bool = True
     #: Set when the device binding supplied the device-owned fields (ADR 0019).
     device_path: Path | None = None
+    #: ADR 0036: `memory:recall`-only key and the per-Agent opt-in.
+    memory_key_file: Path | None = None
+    memory_hint: bool = False
 
     def key_file_for(self, event: str) -> Path:
         if event == "prompt.submit" and self.human_api_key_file is not None:
@@ -175,10 +181,18 @@ def _build(data: dict[str, Any], path: Path, spool_base: Path, device: Path | No
     spool = data.get("spool_dir")
     spool_dir = _abs_file(spool, "spool_dir") if spool else spool_base / "spool"
     human = data.get("human_api_key_file")
+    memory_key = data.get("memory_key_file")
+    memory_hint = data.get("memory_hint", False)
+    if type(memory_hint) is not bool:
+        raise BindingError("memory_hint must be a boolean")
+    if memory_hint and not memory_key:
+        raise BindingError("memory_hint requires memory_key_file")
     return Binding(path=path, core_url=url, host_id=data["host_id"], project_id=data.get("project_id"),
                    task_id=data.get("task_id"), step_id=data.get("step_id"),
                    api_key_file=_abs_file(data.get("api_key_file"), "api_key_file"),
                    human_api_key_file=_abs_file(human, "human_api_key_file") if human else None,
                    on_unavailable=policy, spool_dir=spool_dir,
                    timeout_seconds=float(timeout) if timeout is not None else None, inject_context=inject,
-                   device_path=device)
+                   device_path=device,
+                   memory_key_file=_abs_file(memory_key, "memory_key_file") if memory_key else None,
+                   memory_hint=memory_hint)

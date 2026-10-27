@@ -36,6 +36,10 @@ SCOPES = ("adapter:report", "adapter:attest", "adapter:read", "admin", "objects:
           # curate what the next turn will be told, and must not be the thing
           # that decides a history question is worth an LLM call.
           "memory:read", "memory:manage", "memory:reflect", "memory:engine:manage",
+          # ADR 0036: the prompt-time hint. Read-only and non-authoritative like
+          # `memory:read`, but held alone by the capture hook's hint key so that
+          # key can do nothing else.
+          "memory:recall",
           # P7-01 (ADR 0015 §6). `validation:read` is read-only over the
           # operator's recorded Validation runs, so any actor may hold it.
           # `validation:unattributed` reads a run that carries no project

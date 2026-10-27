@@ -70,10 +70,10 @@ def session_origin(n, home):
         return {'check':'persisted_main_session_summary','identity_sha256':hashlib.sha256(identity.encode()).hexdigest()}
     except (OSError,ValueError,TypeError,KeyError,AttributeError): return None
 
-def bind_workspace(n, device, source=SOURCE):
+def bind_workspace(n, device, source=SOURCE, *, timeout=2):
     root=workspace_root(n['cwd']);source=source+'-workspace'
     identity=canonical_json([source,device.host_id,str(root)])
-    project=CoreClient(device.core_url,read_key(device.api_key_file),timeout=2).post('/v1/projects',{
+    project=CoreClient(device.core_url,read_key(device.api_key_file),timeout=timeout).post('/v1/projects',{
         'name':root.name or str(root),'description':str(root),'host_id':device.host_id,
         'source_system':source,'source_event_id':identity,'event_id':_deterministic_event_id(source,identity)})['object']['project_id']
     return replace(device,project_id=project,task_id=None,step_id=None,inject_context=False)

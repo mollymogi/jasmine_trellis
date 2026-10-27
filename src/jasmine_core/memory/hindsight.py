@@ -266,6 +266,18 @@ class HindsightTransport:
     def config(self) -> HindsightConfig:
         return self._config
 
+    def with_timeout(self, seconds: float) -> "HindsightTransport":
+        """A transport to the same engine whose calls give up sooner.
+
+        For the prompt-time hint (ADR 0036), which must answer inside the
+        Agent's hook budget; never longer than the operator's own timeout.
+        """
+        config = object.__new__(HindsightConfig)
+        for name in HindsightConfig.__slots__:
+            setattr(config, name, getattr(self._config, name))
+        config.timeout_seconds = min(self._config.timeout_seconds, float(seconds))
+        return HindsightTransport(config)
+
     # -- low level ---------------------------------------------------------
 
     def _url(self, path: str, query: dict[str, Any] | None = None, *,

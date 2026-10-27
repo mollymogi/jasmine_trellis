@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSession } from './session'
 
-export type CaptureStatus = { configured: boolean; can_manage: boolean; available: boolean; configuration_changed: boolean; client_hooks_disabled?: boolean; last_message_at?: string | null; last_event_id?: string | null; last_error?: string | null }
+export type CaptureStatus = { configured: boolean; can_manage: boolean; available: boolean; configuration_changed: boolean; client_hooks_disabled?: boolean; last_message_at?: string | null; last_event_id?: string | null; last_error?: string | null; memory_hint?: { available: boolean; enabled: boolean } }
 export type DetectedAgent = { id: string; name: string; cli: boolean; desktop: boolean; detected: boolean; capture_supported: boolean; capture?: CaptureStatus }
 export function useAgentDiscovery(enabled = true) {
   const { token } = useSession()

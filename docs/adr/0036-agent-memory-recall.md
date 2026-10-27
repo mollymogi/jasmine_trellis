@@ -1,6 +1,6 @@
 # ADR 0036: Agents recall Memory automatically, as a non-authoritative prompt hint
 
-Status: Proposed. Written before the implementation. Amends ADR 0012 (Memory
+Status: Accepted. Phase A implemented (see "Phase A as implemented"); phase B not started. Amends ADR 0012 (Memory
 slot), ADR 0017 §2 (`prompt.submit` without a Task binding), ADR 0028 (daily
 capture hooks never add context) and ADR 0034 §5 (observed items not injected).
 It does not change ADR 0014 §1.
@@ -172,6 +172,55 @@ installer adds or removes only its own labelled hint handler.
 3. Spot check of 20 hinted prompts by the user: share of prompts where at least
    one hinted line was relevant, recorded in `docs/memory-recall-results.md`. No
    quality claim before that number exists.
+
+## Phase A as implemented
+
+Where the code differs from, or settles, the text above:
+
+* **Request.** The hook sends the whole prompt (at most 64 KiB) as `prompt`, plus
+  `project_id`, `native_session_id` and optional Core `session_id` / `task_id`.
+  Core derives the engine query itself from the user's own words (ADR 0034 §3
+  regions, `memory.observed.user_regions`), capped at 2,000 characters. Empty,
+  slash-command and under-6-character queries are `skipped` before the engine
+  and write no trace; every recall that reaches the engine writes the ordinary
+  recall trace (query hash and length only).
+* **Engine budget.** `HindsightTransport.with_timeout(1.0)`, never longer than
+  the operator's own timeout. Token counts use Memory's own estimator
+  (`memory.tokens.estimate`), not the P3 tokenizer.
+* **Rendering.** Labels and the preamble are fixed Chinese strings
+  (`memory/hint.py`); the block ends with `[/JASMINE RELEVANT MEMORY]`. A line
+  is dropped when the stored text exceeds 300 characters, contains a control
+  character or any `[JASMINE` / `[/JASMINE` marker, or trips the directive
+  filter. Several engine facts of one item render once.
+* **Credential.** `prepare-agent-capture.py` issues one key per Agent
+  (`<agent>-conversation-memory.key`) to that Agent's capture system actor with
+  the single scope `memory:recall`, and records it as `memory_key_file` in the
+  device binding. Existing bindings are upgraded in place (with a backup).
+  Recording the key does not enable anything.
+* **Opt-in.** `memory_hint: true` in the **device** binding, written only by the
+  installers (`--memory-hint enable|disable`); a project binding cannot set it,
+  and it is invalid without `memory_key_file`. Full (`--binding`) project
+  bindings never get a hint. Disabling capture also disables the hint.
+* **Codex.** Same hook command bytes (Codex's own hook trust is kept); after a
+  `user.prompt` Core has accepted, the hook asks for the hint and prints the
+  `additionalContext` envelope.
+* **Claude Code.** A second `UserPromptSubmit` handler, label
+  `Jasmine Memory hint for Claude`, `timeout: 3`, not async, running the same
+  launcher with `--memory-hint`. It waits at most 0.5 s for the transcript to
+  prove typed human input, registers the workspace through the same idempotent
+  call capture uses, records no Event, and always exits 0 with valid JSON.
+* **Grok and Host Hook `prompt.submit`.** Not in phase A.
+* **Dashboard.** `POST /_local/agents/{codex|claude}/memory-hint`
+  (`{action: enable|disable}`), same local-origin, Core-authorization and pinned
+  operator-key checks as capture, through the pinned installer only. The Agent
+  page shows `Memory 提示` state and a toggle once capture is configured.
+* **Receipts.** Capture receipts gain a `memory_hint` object (status, item count,
+  trace id, latency); hint text is never written to a receipt.
+
+Deployment: run `prepare-agent-capture.py` once after upgrading (it issues the
+two keys), then enable per Agent on the Agent page. Rollback to a release
+without this ADR requires disabling the hint first and restoring the binding
+backup, because older code refuses the two new binding fields.
 
 ## Alternatives considered
 

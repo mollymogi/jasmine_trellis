@@ -7,6 +7,9 @@ import { promisify } from 'node:util'
 const execute = promisify(execFile)
 const LABELS={grok:'Jasmine daily Grok conversation capture',claude:'Jasmine daily Claude conversation capture',codex:'Jasmine daily conversation capture'}
 export const CAPTURE_AGENTS=Object.keys(LABELS)
+// ADR 0036 phase A: the prompt-time Memory hint, per Agent, off by default.
+export const MEMORY_HINT_AGENTS=['codex','claude']
+const HINT_LABEL='Jasmine Memory hint for Claude'
 const EVENTS=['SessionStart','UserPromptSubmit','Stop','SessionEnd']
 const inflight=new Map()
 const quoted=value=>/^[\w@%+=:,./-]+$/.test(value)?value:"'"+value.replaceAll("'", "'\"'\"'")+"'"
@@ -71,50 +74,73 @@ function messageReceipt(file){
   return {last_message_at:message?.checked_at??null,last_event_id:message?.event_id??null,last_error:last?.status==='failed'?'native_capture_failed':null}
  }catch{return {}}finally{if(fd!==undefined)closeSync(fd)}
 }
+function readPrivateJson(file) {
+ let fd
+ try {fd=openSync(file,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);const stat=fstatSync(fd)
+  if(!stat.isFile()||stat.uid!==process.getuid()||stat.mode&0o077||stat.size>65536)return null
+  return JSON.parse(readFileSync(fd,'utf8'))
+ }catch{return null}finally{if(fd!==undefined)closeSync(fd)}
+}
+function memoryHintState(adapter,agent,doc) {
+ if(!adapter||!MEMORY_HINT_AGENTS.includes(agent))return undefined
+ const binding=readPrivateJson(adapter.device_binding)
+ const available=typeof binding?.memory_key_file==='string'
+ let enabled=available&&binding.memory_hint===true
+ if(enabled&&agent==='claude'){
+  const command=expectedCommand(adapter,agent)+' --memory-hint'
+  const handlers=doc?.hooks?.UserPromptSubmit?.flatMap(group=>group.hooks??[]).filter(hook=>hook.statusMessage===HINT_LABEL)??[]
+  enabled=handlers.length===1&&handlers[0].type==='command'&&handlers[0].command===command&&handlers[0].async!==true
+ }
+ return {available,enabled}
+}
 export function captureStates(profile,authorization) {
  const states={}
  for(const agent of CAPTURE_AGENTS){
   const adapter=adapterFor(profile,agent)
-  let configured=false,drift=false,blocked=false
+  let configured=false,drift=false,blocked=false,doc=null
   if(adapter){
    const file=join(adapter.home,agent==='grok'?'hooks/jasmine-conversation.json':agent==='claude'?'settings.json':'hooks.json')
    try{
-    const doc=readHookDocument(file),command=expectedCommand(adapter,agent)
+    doc=readHookDocument(file);const command=expectedCommand(adapter,agent)
     const owned=event=>doc.hooks?.[event]?.flatMap(group=>group.hooks??[]).filter(hook=>agent==='grok'||hook.statusMessage===LABELS[agent])??[]
     configured=(agent!=='grok'||doc.description===LABELS.grok)&&EVENTS.every(event=>{const handlers=owned(event);return handlers.length===1&&handlers[0].type==='command'&&handlers[0].command===command&&(agent!=='claude'||event!=='UserPromptSubmit'||handlers[0].async===true)})
     drift=!configured&&(agent==='grok'||EVENTS.some(event=>owned(event).length>0))
     blocked=agent==='claude'&&doc.disableAllHooks===true
    }catch{drift=existsSync(file)&&agent==='grok'}
   }
-  states[agent]={configured,can_manage:!!adapter&&canManageCapture(profile,authorization),available:!!adapter,configuration_changed:drift,client_hooks_disabled:blocked,...messageReceipt(adapter?.receipts)}
+  const hint=memoryHintState(adapter,agent,doc)
+  states[agent]={configured,can_manage:!!adapter&&canManageCapture(profile,authorization),available:!!adapter,configuration_changed:drift,client_hooks_disabled:blocked,...messageReceipt(adapter?.receipts),...(hint?{memory_hint:{...hint,enabled:hint.enabled&&configured}}:{})}
  }
  // Backward-compatible readback for an existing v1 Codex installation.
  if(profile?.version===1&&profile.codex_hooks){try{const doc=readHookDocument(profile.codex_hooks);states.codex={configured:EVENTS.every(event=>doc.hooks?.[event]?.some(group=>group.hooks?.some(hook=>hook.statusMessage===LABELS.codex))),can_manage:false,available:true,configuration_changed:false,...messageReceipt(profile.codex_receipts)}}catch{}}
  return states
 }
-export async function controlCapture(profile,action,agent='grok') {
+export async function controlCapture(profile,action,agent='grok',{memoryHint=false}={}) {
  const adapter=adapterFor(profile,agent)
  if(!adapter||!['enable','disable'].includes(action)||!CAPTURE_AGENTS.includes(agent))throw Error('capture_control_unavailable')
- const key=agent+':'+adapter.home
+ if(memoryHint&&!MEMORY_HINT_AGENTS.includes(agent))throw Error('memory_hint_unavailable')
+ // One queue per Agent home: capture and hint both rewrite the same files.
+ const key=agent+':'+adapter.home,operationName=(memoryHint?'memory-hint:':'')+action
  const running=inflight.get(key)
  if(running){
-  if(running.action===action)return running.promise
-  await running.promise.catch(()=>{});return controlCapture(profile,action,agent)
+  if(running.action===operationName)return running.promise
+  await running.promise.catch(()=>{});return controlCapture(profile,action,agent,{memoryHint})
  }
  const operation=(async()=>{
   let status='failed'
   const audit=openSync(profile.control_receipts,constants.O_WRONLY|constants.O_CREAT|constants.O_APPEND|constants.O_NOFOLLOW,0o600)
   try{const stat=fstatSync(audit);if(!stat.isFile()||stat.uid!==process.getuid()||stat.mode&0o077)throw Error('unsafe_control_receipts')}finally{closeSync(audit)}
   try{
-   const args=['-I','-B',adapter.installer,'--device-binding',adapter.device_binding,'--receipts',adapter.receipts,'--'+agent+'-home',adapter.home,...(agent==='codex'?[]:['--launcher',adapter.launcher]),'--confirm-user-scope',...(action==='disable'?['--disable']:[])]
+   const args=['-I','-B',adapter.installer,'--device-binding',adapter.device_binding,'--receipts',adapter.receipts,'--'+agent+'-home',adapter.home,...(agent==='codex'?[]:['--launcher',adapter.launcher]),'--confirm-user-scope',...(memoryHint?['--memory-hint',action]:action==='disable'?['--disable']:[])]
    const reply=await execute(adapter.python,args,{timeout:15000,maxBuffer:8192,env:{PATH:'/usr/bin:/bin',HOME:process.env.HOME??''}})
-   const result=JSON.parse(reply.stdout);if(!['installed','unchanged','disabled'].includes(result.status))throw Error('invalid_installer_result')
+   const result=JSON.parse(reply.stdout),allowed=memoryHint?['memory_hint_enabled','memory_hint_disabled','unchanged']:['installed','unchanged','disabled']
+   if(!allowed.includes(result.status))throw Error('invalid_installer_result')
    status=result.status;return {status}
   }finally{
    const fd=openSync(profile.control_receipts,constants.O_WRONLY|constants.O_CREAT|constants.O_APPEND|constants.O_NOFOLLOW,0o600)
-   try {const stat=fstatSync(fd);if(!stat.isFile()||stat.uid!==process.getuid()||stat.mode&0o077)throw Error('unsafe_control_receipts');writeSync(fd,JSON.stringify({agent,action,status,checked_at:new Date().toISOString()})+'\n')}finally{closeSync(fd)}
+   try {const stat=fstatSync(fd);if(!stat.isFile()||stat.uid!==process.getuid()||stat.mode&0o077)throw Error('unsafe_control_receipts');writeSync(fd,JSON.stringify({agent,action:operationName,status,checked_at:new Date().toISOString()})+'\n')}finally{closeSync(fd)}
   }
  })()
- inflight.set(key,{action,promise:operation})
+ inflight.set(key,{action:operationName,promise:operation})
  try{return await operation}finally{inflight.delete(key)}
 }

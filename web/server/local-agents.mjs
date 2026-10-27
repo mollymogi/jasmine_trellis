@@ -1,7 +1,7 @@
 /** Discovery is read-only. A separate POST may enable/disable the fixed native
  * adapters only under a private operator profile and a pinned management key. */
 import http from 'node:http'
-import { loadCaptureProfile, captureStates, canManageCapture, controlCapture } from './agent-capture-control.mjs'
+import { loadCaptureProfile, captureStates, canManageCapture, controlCapture, MEMORY_HINT_AGENTS } from './agent-capture-control.mjs'
 import { statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
@@ -40,8 +40,9 @@ export async function serveLocalAgents(req, res, origin, discover = discoverAgen
     send(res, 403, { error: 'local_origin_required' }); return
   }
   const path=new URL(req.url,'http://local.invalid').pathname
-  const match=path.match(/^\/_local\/agents\/(codex|claude|grok)\/capture$/)
-  const write=!!match,agent=match?.[1]
+  const match=path.match(/^\/_local\/agents\/(codex|claude|grok)\/(capture|memory-hint)$/)
+  const write=!!match,agent=match?.[1],memoryHint=match?.[2]==='memory-hint'
+  if(memoryHint&&!MEMORY_HINT_AGENTS.includes(agent)){send(res,404,{error:'memory_hint_unavailable'});return}
   if(req.method!==(write?'POST':'GET')) {send(res,405,{error:'method_not_allowed'});return}
   if(write&&req.headers.origin!==`http://${req.headers.host}`){send(res,403,{error:'same_origin_required'});return}
   const token = req.headers.authorization
@@ -60,7 +61,7 @@ export async function serveLocalAgents(req, res, origin, discover = discoverAgen
     try {
       let body='';for await(const chunk of req){body+=chunk;if(Buffer.byteLength(body)>1024){send(res,413,{error:'request_too_large'});return}}
       const value=JSON.parse(body);if(!value||Object.keys(value).length!==1||!['enable','disable'].includes(value.action)){send(res,400,{error:'invalid_capture_action'});return}
-      const result=await controlCapture(profile,value.action,agent);send(res,200,{...result,capture:captureStates(profile,token)[agent]});return
+      const result=await controlCapture(profile,value.action,agent,{memoryHint});send(res,200,{...result,capture:captureStates(profile,token)[agent]});return
     }catch{send(res,502,{error:'capture_install_failed'});return}
   }
   const states=captureStates(profile,token)

@@ -68,6 +68,9 @@ class MemoryServices:
         self.access = scope_module.ProjectAccess(self.conn, mode=self.mode)
         self._transport = None
         self._probed = False
+        from .hint import SessionLedger
+
+        self.hint_ledger = SessionLedger()
         # An `acl` deployment with no grants is a misconfiguration, not a
         # permissive default; refuse the first Memory request rather than serve
         # the whole database to whoever holds any key.
@@ -353,6 +356,44 @@ def reflect(request: Request, core: "Core", principal: auth.Principal,
     return _respond(200, outcome.as_dict(), core.actor_kind(principal.actor_id))
 
 
+def hint(request: Request, core: "Core", principal: auth.Principal,
+         match: re.Match[str]) -> Response:
+    """Prompt-time Memory hint for a capture hook (ADR 0036).
+
+    Read-only. Requires `memory:recall`, which the hook's dedicated key holds
+    alone. The engine is given at most `hint.ENGINE_SECONDS`; any engine
+    trouble is a `degraded` answer with no text, so the hook adds nothing.
+    """
+    from . import hint as hint_module
+
+    svc = services(core)
+    body = _body(request, {"project_id", "native_session_id", "session_id", "task_id", "prompt"})
+    project_id = body.get("project_id")
+    if not ids.is_id(project_id, "prj"):
+        raise errors.InvalidRequest("project_id must be a prj_ id", field="project_id")
+    native = body.get("native_session_id")
+    if not isinstance(native, str) or not 1 <= len(native) <= 256:
+        raise errors.InvalidRequest("native_session_id must be text of 1..256 characters",
+                                    field="native_session_id")
+    for name, prefix in (("session_id", "ses"), ("task_id", "tsk")):
+        if body.get(name) is not None and not ids.is_id(body[name], prefix):
+            raise errors.InvalidRequest(f"{name} must be a {prefix}_ id", field=name)
+    prompt = body.get("prompt")
+    if not isinstance(prompt, str) or len(prompt) > hint_module.MAX_PROMPT_CHARS:
+        raise errors.InvalidRequest("prompt must be text of at most 65536 characters", field="prompt")
+    svc.access.require(project_id=project_id, actor_id=principal.actor_id)
+    transport = svc.transport
+    if transport is not None and hasattr(transport, "with_timeout"):
+        transport = transport.with_timeout(hint_module.ENGINE_SECONDS)
+    adapter = MemoryAdapter(svc.conn, svc.store, transport, mode=svc.mode,
+                            schema_version=svc.schema_version)
+    result = hint_module.build(adapter, svc.store, svc.hint_ledger, actor_id=principal.actor_id,
+                               project_id=project_id, native_session_id=native, prompt=prompt,
+                               session_id=body.get("session_id"), task_id=body.get("task_id"))
+    return _respond(200, {**result, "non_authoritative": True},
+                    core.actor_kind(principal.actor_id))
+
+
 # -- helpers ------------------------------------------------------------------
 
 
@@ -474,4 +515,5 @@ def routes(route_cls) -> tuple:
         route_cls("GET", re.compile(r"^/v1/memory/traces/([^/]+)$"), get_trace, "memory:read"),
         route_cls("GET", re.compile(r"^/v1/memory/health$"), memory_health, "memory:read"),
         route_cls("POST", re.compile(r"^/v1/memory/reflect$"), reflect, "memory:reflect"),
+        route_cls("POST", re.compile(r"^/v1/memory/hint$"), hint, "memory:recall"),
     )
