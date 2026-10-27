@@ -805,6 +805,7 @@ main {
 .agent-capture-action { display: flex; flex-direction: column; align-items: end; gap: 6px; max-width: 235px; text-align: right; font-size: 10px; color: var(--muted-foreground); }
 .agent-capture-buttons { display: flex; flex-wrap: wrap; gap: 5px; }
 .agent-capture-action small { overflow-wrap: anywhere; }
+.agent-memory-hint { display: flex; flex-direction: column; align-items: inherit; gap: 6px; width: 100%; padding-top: 6px; border-top: 1px solid var(--border); }
 
 /* Brand recognition colors stay legible in both themes. Monochrome brands
    use white marks on distinct colored badges, rather than disappearing in ink. */

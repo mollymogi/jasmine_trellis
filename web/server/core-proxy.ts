@@ -270,7 +270,7 @@ export function coreProxyPlugin(origin: URL): Plugin {
       return
     }
     if (target.pathname === '/_local/interpreter' && flagEnabled('P6_ENABLE_CONVERSATION_PROCESSING')) { void serveLocalInterpreter(req, res, origin); return }
-    if ((target.pathname === '/_local/agents' || /^\/_local\/agents\/(codex|claude|grok)\/capture$/.test(target.pathname))) { void serveLocalAgents(req, res, origin); return }
+    if ((target.pathname === '/_local/agents' || /^\/_local\/agents\/(codex|claude|grok)\/(capture|memory-hint)$/.test(target.pathname))) { void serveLocalAgents(req, res, origin); return }
     if (target.kind === 'static') {
       next()
       return

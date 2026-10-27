@@ -11,6 +11,28 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'src'))
 from jasmine_core import auth,db,ids,registry
 from jasmine_core.hosthook.install import _backup,_write
 
+#: ADR 0036 phase A delivers the prompt-time Memory hint to these Agents.
+MEMORY_HINT_AGENTS=('codex','claude')
+
+def _memory_key(runtime,agent,binding,credentials):
+    """Give an existing device binding its `memory:recall`-only key, once.
+
+    The key belongs to the Agent's capture system actor and can do nothing but
+    ask for a hint. Recording it does not enable the hint; the Agent page does.
+    """
+    document=json.loads(binding.read_text())
+    if document.get('memory_key_file'):return
+    path=credentials/f'{agent}-conversation-memory.key'
+    metadata=credentials/f'{agent}-conversation-keys.json';meta=json.loads(metadata.read_text())
+    if not path.exists():
+        conn=db.connect(runtime['database'])
+        try:key=auth.Auth(conn).issue_key(actor_id=meta['system_actor_id'],label=agent+' native Memory hint',scopes=['memory:recall'])
+        finally:conn.close()
+        with path.open('x') as stream:stream.write(key['token']+'\n')
+        path.chmod(0o600)
+        _backup(metadata,metadata.read_bytes());_write(metadata,{**meta,'memory':{k:v for k,v in key.items() if k not in ('token','warning')}});metadata.chmod(0o600)
+    _backup(binding,binding.read_bytes());_write(binding,{**document,'memory_key_file':str(path)});binding.chmod(0o600)
+
 def prepare(base,confirmed=False):
     if not confirmed:raise ValueError('explicit user-scope management opt-in required')
     os.umask(0o077);base=base.resolve(strict=True);config=base/'config/runtime.json'
@@ -39,6 +61,7 @@ def prepare(base,confirmed=False):
                 _write(metadata,{'system_actor_id':actor,'human_actor_id':browser['actor_id'],'system':{k:v for k,v in system.items() if k not in ('token','warning')},'human':{k:v for k,v in human.items() if k not in ('token','warning')}});metadata.chmod(0o600)
                 _write(binding,{'version':1,'core_url':runtime['core_origin'],'host_id':reference['host_id'],'api_key_file':paths['system'],'human_api_key_file':paths['human'],'inject_context':False,'on_unavailable':'allow','spool_dir':str(base/'data'/f'{agent}-capture-spool')});binding.chmod(0o600)
             finally:conn.close()
+        if agent in MEMORY_HINT_AGENTS:_memory_key(runtime,agent,binding,credentials)
         adapter={'python':runtime['python'],'installer':str(release/'scripts/deployment'/f'{agent}-capture-install.py'),'device_binding':str(binding),'receipts':str(base/'logs'/f'{agent}-conversation-receipts.jsonl'),'home':str(Path.home()/('.'+agent))}
         if agent!='codex':adapter['launcher']=str(release/'scripts/deployment'/f'{agent}-capture.py')
         adapters[agent]=adapter

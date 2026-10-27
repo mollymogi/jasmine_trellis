@@ -20,6 +20,7 @@ from ..api.client import CoreClient
 from ..canonical import canonical_json
 from ..evidence import _deterministic_event_id
 from ..hosthook.binding import Binding, load_binding, load_device, read_key
+from . import memory_hint
 
 SOURCE = "codex-native-conversation-v1"
 EVENTS = {"SessionStart": "session.started", "UserPromptSubmit": "user.prompt",
@@ -184,6 +185,8 @@ def main() -> int:
     os.umask(0o077)
     receipt: dict[str, Any] = {"status": "failed"}
     native: dict[str, Any] = {}
+    binding: Binding | None = None
+    hint: str | None = None
     try:
         parsed = json.load(sys.stdin)
         if not isinstance(parsed, dict):
@@ -192,14 +195,23 @@ def main() -> int:
         # An explicit isolated directory boundary prevents inherited hooks from
         # capturing sessions from a different project. Symlinks resolve first.
         if args.device_binding:
-            receipt = capture_device(native, load_device(args.device_binding))
+            binding = load_device(args.device_binding)
+            receipt = capture_device(native, binding)
         else:
             root = args.project_root.resolve(strict=True)
             cwd = Path(str(native.get("cwd", "")))
             if not cwd.is_absolute() or not cwd.resolve().is_relative_to(root) or args.exact_root and cwd.resolve() != root:
                 receipt = {"status": "ignored", "reason": "outside_project"}
             else:
-                receipt = capture(native, load_binding(args.binding))
+                binding = load_binding(args.binding)
+                receipt = capture(native, binding)
+        # ADR 0036: only a prompt Core has just accepted as the user's may get a
+        # Memory hint, and only when this device opted in. Never raises.
+        if (binding is not None and binding.memory_hint and receipt.get("status") == "accepted"
+                and receipt.get("event_type") == "user.prompt"):
+            hint, receipt["memory_hint"] = memory_hint.request(
+                binding, project_id=receipt["project_id"], native_session_id=receipt["native_session_id"],
+                session_id=receipt["session_id"], prompt=native["prompt"])
     except Exception as exc:  # no bearer, message text or raw HTTP body in stderr
         receipt = {"status": "failed", "error_type": type(exc).__name__,
                    "native_hook_event": native.get("hook_event_name"),
@@ -209,6 +221,8 @@ def main() -> int:
     # Stop must never request a continuation; capture failure remains visible.
     if native.get("hook_event_name") == "Stop":
         print("{}")
+    elif hint is not None:
+        print(memory_hint.envelope(hint))
     return 1 if receipt["status"] == "failed" else 0
 
 

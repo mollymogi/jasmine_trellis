@@ -59,3 +59,33 @@ it('routes each v2 client to its pinned installer and validates every adapter pa
  expect(captureStates(multi,'Bearer manager').claude).toMatchObject({can_manage:true,available:true,configured:false})
  multi.adapters.claude!.installer='relative-path';writeFileSync(file,JSON.stringify(multi));expect(loadCaptureProfile(file)).toBeNull()
 })
+
+it('toggles the Memory hint only through the pinned installer and reads it back from the device binding',async()=>{
+ const {root,profile}=fixture()
+ const helper=join(root,'hint-installer.py')
+ writeFileSync(helper,`import sys,json,pathlib\npathlib.Path(${JSON.stringify(join(root,'argv.json'))}).write_text(json.dumps(sys.argv[1:]))\nprint(json.dumps({'status':'memory_hint_enabled' if 'enable' in sys.argv else 'memory_hint_disabled'}))\n`)
+ const adapters=Object.fromEntries(['claude','codex','grok'].map(agent=>[agent,{...profile,installer:helper,home:join(root,agent)}]))
+ const multi={...profile,version:2,adapters}
+ const core=await listen((req,res)=>{res.writeHead(req.headers.authorization==='Bearer manager'||req.headers.authorization==='Bearer reader'?200:403);res.end('{}')})
+ const host=await listen((req,res)=>{void serveLocalAgents(req,res,core,discoverAgents,multi)})
+ const post=(agent:string,token:string,body:unknown)=>fetch(new URL(`/_local/agents/${agent}/memory-hint`,host),{method:'POST',headers:{Authorization:'Bearer '+token,Origin:host.origin},body:JSON.stringify(body)})
+ expect((await post('grok','manager',{action:'enable'})).status).toBe(404)
+ expect((await post('codex','reader',{action:'enable'})).status).toBe(403)
+ expect((await post('codex','manager',{action:'enable',key:'x'})).status).toBe(400)
+ expect(existsSync(join(root,'argv.json'))).toBe(false)
+ const reply=await post('codex','manager',{action:'enable'});expect(reply.status).toBe(200);expect((await reply.json()).status).toBe('memory_hint_enabled')
+ const argv=JSON.parse(readFileSync(join(root,'argv.json'),'utf8')) as string[]
+ expect(argv.slice(-2)).toEqual(['--memory-hint','enable']);expect(argv).not.toContain('--disable')
+ expect(readFileSync(profile.control_receipts,'utf8')).toContain('"action":"memory-hint:enable"')
+ // Readback: unavailable without a hint key, and never "enabled" while capture is not configured.
+ expect(captureStates(multi,'Bearer manager').codex?.memory_hint).toEqual({available:false,enabled:false})
+ expect(captureStates(multi,'Bearer manager').grok?.memory_hint).toBeUndefined()
+ writeFileSync(profile.device_binding,JSON.stringify({memory_key_file:join(root,'memory.key'),memory_hint:true}),{mode:0o600})
+ expect(captureStates(multi,'Bearer manager').codex?.memory_hint).toEqual({available:true,enabled:false})
+ const command=['/usr/bin/python3','-I','-B','-m','jasmine_core.capture.codex_session','--device-binding',profile.device_binding,'--receipts',profile.receipts].join(' ')
+ const {mkdirSync}=await import('node:fs');mkdirSync(join(root,'codex'))
+ writeFileSync(join(root,'codex','hooks.json'),JSON.stringify({hooks:Object.fromEntries(['SessionStart','UserPromptSubmit','Stop','SessionEnd'].map(event=>[event,[{hooks:[{type:'command',command,statusMessage:'Jasmine daily conversation capture'}]}]]))}),{mode:0o600})
+ expect(captureStates(multi,'Bearer manager').codex).toMatchObject({configured:true,memory_hint:{available:true,enabled:true}})
+ chmodSync(profile.device_binding,0o644)
+ expect(captureStates(multi,'Bearer manager').codex?.memory_hint).toEqual({available:false,enabled:false})
+})

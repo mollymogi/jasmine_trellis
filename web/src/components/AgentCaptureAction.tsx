@@ -11,6 +11,35 @@ export function captureLabel(agent: DetectedAgent) {
  if(agent.capture.last_error)return '最近一次采集失败'
  return agent.capture.last_event_id?'已启用 · 已收到消息':'已启用 · 等待首条消息'
 }
+export function memoryHintLabel(agent: DetectedAgent) {
+ const hint=agent.capture?.memory_hint
+ if(!hint)return null
+ if(!hint.available)return 'Memory 提示：本机尚未准备提示凭证'
+ return hint.enabled?'Memory 提示：已开启':'Memory 提示：未开启'
+}
+function MemoryHintAction({agent,onChanged,refreshing}:{agent:DetectedAgent;onChanged:()=>void;refreshing:boolean}) {
+ const {token}=useSession()
+ const [busy,setBusy]=useState(false),[notice,setNotice]=useState(''),[error,setError]=useState('')
+ const hint=agent.capture?.memory_hint
+ if(!hint)return null
+ async function change(action:'enable'|'disable') {
+  setBusy(true);setError('');setNotice('')
+  try{
+   const response=await fetch(`/_local/agents/${agent.id}/memory-hint`,{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},body:JSON.stringify({action})})
+   if(!response.ok)throw Error(response.status===403?'当前凭证没有接入管理权限。':'未能切换 Memory 提示，请检查本机配置后重试。')
+   setNotice(action==='enable'?`已开启，新的 ${agent.name} 提问会附带相关的历史记忆（非权威）。`:'已关闭，不再附带历史记忆。');onChanged()
+  }catch(error){setError(error instanceof Error?error.message:'Memory 提示操作失败。')}finally{setBusy(false)}
+ }
+ return <div className="agent-memory-hint">
+  <span>{memoryHintLabel(agent)}</span>
+  {hint.available&&agent.capture?.configured?<Button size="sm" variant={hint.enabled?'ghost':'outline'} disabled={busy||refreshing||!agent.capture.can_manage} onClick={()=>void change(hint.enabled?'disable':'enable')}>
+   {busy?'正在处理…':hint.enabled?'关闭 Memory 提示':'开启 Memory 提示'}
+  </Button>:null}
+  {hint.available&&!agent.capture?.configured?<small>先启用对话采集，才能开启 Memory 提示。</small>:null}
+  <small>每次提问时最多附带 5 条相关历史记忆，标注为非权威；超时或出错时不附带，不会阻塞提问。</small>
+  {notice?<small role="status">{notice}</small>:null}{error?<small role="alert">{error}</small>:null}
+ </div>
+}
 export function AgentCaptureAction({agent,onChanged,refreshing}:{agent:DetectedAgent;onChanged:()=>void;refreshing:boolean}) {
  const {token}=useSession()
  const [busy,setBusy]=useState(false),[notice,setNotice]=useState(''),[error,setError]=useState('')
@@ -38,5 +67,6 @@ export function AgentCaptureAction({agent,onChanged,refreshing}:{agent:DetectedA
   {agent.capture?.client_hooks_disabled?<small>请先在 Claude 设置中恢复 Hook；不会替你覆盖全局禁用选项。</small>:null}
   {agent.capture?.last_message_at?<small>最近消息 {new Date(agent.capture.last_message_at).toLocaleString('zh-CN')}</small>:null}
   {notice?<small role="status">{notice}</small>:null}{error?<small role="alert">{error}</small>:null}
+  <MemoryHintAction agent={agent} onChanged={onChanged} refreshing={refreshing}/>
  </div>
 }

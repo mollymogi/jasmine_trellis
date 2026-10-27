@@ -13,6 +13,7 @@ from ..hosthook.binding import load_device,_private_bytes
 from ..hosthook.install import _write
 from .codex_session import append_receipt
 from .grok_session import EVENTS,valid_id,bind_workspace,_publish
+from . import memory_hint
 SOURCE='claude-native-conversation-v1'
 # Observed native entrypoint/source pairs. Desktop Code uses the SDK transport
 # even for a human submission; a generic SDK invocation is not human evidence.
@@ -132,10 +133,46 @@ def capture_device(native,device,claude_home):
         return receipt
     finally:os.close(fd)
 
+#: The synchronous hint handler waits this long for the transcript to show the
+#: turn is typed human input. Unverified turns get no hint (ADR 0036 section 4).
+HINT_ORIGIN_WAIT=.5
+
+def memory_hint_device(native,device,claude_home,*,now=time.monotonic):
+    """Return `(text, receipt)` for the separate synchronous hint handler.
+
+    Separate from capture because capture's UserPromptSubmit handler is async and
+    Claude discards an async handler's output. This handler records nothing.
+    """
+    deadline=now()+memory_hint.BUDGET_SECONDS
+    if not device.memory_hint:return None,{'status':'disabled'}
+    n=_native(native,claude_home)
+    if n is None or n['event']!='UserPromptSubmit':return None,{'status':'ignored','reason':'unsupported_or_unverified_main_session'}
+    origin=_prompt_origin(n);wait=now()+HINT_ORIGIN_WAIT
+    while origin is None and now()<wait:
+        time.sleep(.05);origin=_prompt_origin(n)
+    if origin is None:return None,{'status':'ignored','reason':'no_current_typed_input_evidence','native_session_id':n['sid']}
+    binding=bind_workspace(n,device,source=SOURCE)
+    text,receipt=memory_hint.request(binding,project_id=binding.project_id,native_session_id=n['sid'],prompt=n['text'],deadline=deadline)
+    return text,{**receipt,'native_session_id':n['sid']}
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ['device-binding','receipts','claude-home']:p.add_argument('--'+name,required=True,type=Path)
+    p.add_argument('--memory-hint',action='store_true',help='synchronous UserPromptSubmit Memory hint (ADR 0036); records nothing')
     a=p.parse_args();os.umask(0o077);native={}
+    if a.memory_hint:
+        text=None
+        try:
+            native=json.load(sys.stdin)
+            if not isinstance(native,dict):raise ValueError('native event must be an object')
+            text,receipt=memory_hint_device(native,load_device(a.device_binding),a.claude_home)
+        except Exception as exc:
+            receipt={'status':'failed','error_type':type(exc).__name__}
+        receipt={'status':'memory_hint','agent':'claude','memory_hint':receipt,'checked_at':datetime.now(timezone.utc).isoformat()}
+        try:append_receipt(a.receipts,receipt)
+        except OSError:pass
+        # Always exit 0 with valid output: a hint must never block a prompt.
+        print(memory_hint.envelope(text) if text else '{}');return 0
     try:
         native=json.load(sys.stdin)
         if not isinstance(native,dict):raise ValueError('native event must be an object')

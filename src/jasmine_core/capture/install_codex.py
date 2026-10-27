@@ -15,6 +15,7 @@ import sys
 from ..hosthook.binding import load_device, read_key
 from ..hosthook.install import _backup, _write, InstallError
 from .codex_session import EVENTS
+from . import memory_hint
 
 LABEL = "Jasmine daily conversation capture"
 
@@ -64,12 +65,32 @@ def install(home: Path, binding: Path, receipts: Path, *, python: str = sys.exec
                                "timeout": 3 if event == "SessionEnd" else 10,
                                "statusMessage": LABEL}]})
         document["hooks"][event] = kept
+    if disable:
+        memory_hint.set_enabled(binding, False)  # the hint never outlives capture
     if original == (json.dumps(document, ensure_ascii=False, indent=2) + "\n").encode():
         return {"status": "disabled" if disable else "unchanged", "config": str(target)}
     backup = _backup(target, original)
     _write(target, document)
     return {"status": "disabled" if disable else "installed", "config": str(target), "backup": str(backup) if backup else None,
             "events": list(EVENTS), "trust": "review the four hooks in Codex /hooks"}
+
+
+def set_memory_hint(home: Path, binding: Path, *, enabled: bool, confirmed: bool = False) -> dict:
+    """ADR 0036. Codex's hook command bytes stay unchanged (so Codex's own hook
+    trust is kept); the opt-in lives in the device binding the hook reads."""
+    if not confirmed:
+        raise InstallError("Memory hint requires explicit opt-in")
+    if enabled:
+        target = home / "hooks.json"
+        document = json.loads(target.read_bytes()) if target.exists() and not target.is_symlink() else {}
+        handlers = [h for g in document.get("hooks", {}).get("UserPromptSubmit", []) if isinstance(g, dict)
+                    for h in g.get("hooks", []) if isinstance(h, dict) and h.get("statusMessage") == LABEL]
+        if not handlers:
+            raise InstallError("enable conversation capture before the Memory hint")
+    changed = memory_hint.set_enabled(binding, enabled)
+    if not changed:
+        return {"status": "unchanged"}
+    return {"status": "memory_hint_enabled" if enabled else "memory_hint_disabled"}
 
 
 def main() -> None:
@@ -79,8 +100,13 @@ def main() -> None:
     parser.add_argument("--confirm-user-scope", action="store_true")
     parser.add_argument("--disable", action="store_true")
     parser.add_argument("--codex-home", type=Path)
+    parser.add_argument("--memory-hint", choices=["enable", "disable"])
     args = parser.parse_args()
     home = args.codex_home or Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+    if args.memory_hint:
+        print(json.dumps(set_memory_hint(home, args.device_binding, enabled=args.memory_hint == "enable",
+                                         confirmed=args.confirm_user_scope), ensure_ascii=False))
+        return
     print(json.dumps(install(home, args.device_binding, args.receipts,
                              confirmed=args.confirm_user_scope, disable=args.disable), ensure_ascii=False))
 
