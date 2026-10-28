@@ -100,6 +100,22 @@ class ClaudeCapture(ConversationCapture):
         _,events=self.call('GET','/v1/events?session_id='+first['session_id'],token=self.admin_token)
         self.assertEqual([e['payload']['text'] for e in events['events']],['你好','你好！'])
 
+    def test_subdirectory_is_the_same_workspace_and_a_sibling_is_not(self):
+        sub=self.native_root/'sub'/'deeper';sub.mkdir(parents=True)
+        sibling=self.native_root.parent/(self.native_root.name+'-sibling');sibling.mkdir()
+        self.assertEqual(capture_device(self.packet('SessionStart',source='startup'),self.device,self.home)['status'],'pending')
+        root_text='在项目根目录发的一条';self.typed(root_text)
+        root=capture_device(self.packet('UserPromptSubmit',prompt=root_text),self.device,self.home)
+        self.assertEqual(root['status'],'accepted',root)
+        # `cd` into a subdirectory: same session and project, not a new one.
+        self.turn=str(uuid.uuid4());sub_text='在子目录里发的一条';self.typed(sub_text,cwd=str(sub))
+        inside=capture_device(self.packet('UserPromptSubmit',prompt=sub_text,cwd=str(sub)),self.device,self.home)
+        self.assertEqual(inside['status'],'accepted',inside)
+        self.assertEqual(inside['session_id'],root['session_id'])
+        # A directory beside the starting one is still a different workspace.
+        outside=capture_device(self.packet('UserPromptSubmit',prompt='other',cwd=str(sibling)),self.device,self.home)
+        self.assertEqual((outside['status'],outside['reason']),('ignored','native_workspace_changed'))
+
     def test_installer_preserves_settings_and_foreign_handlers_enable_disable(self):
         target=self.home/'settings.json';foreign={'type':'command','command':'echo foreign'}
         initial={'model':'keep','hooks':{'Stop':[{'hooks':[foreign]}]}};target.write_text(json.dumps(initial))

@@ -265,6 +265,19 @@ class MemoryHintHooks(ClaudeCapture):
         bind.assert_not_called()
         asked.assert_not_called()
 
+    def test_claude_hint_from_a_subdirectory_uses_the_starting_project(self):
+        device = self.enable()
+        self.verify_first_turn()
+        sub = self.native_root / "sub"
+        sub.mkdir()
+        self.turn = str(__import__("uuid").uuid4())
+        packet = self.packet("UserPromptSubmit", prompt="第二轮：开头用哪个视频版本？", cwd=str(sub))
+        with patch.object(claude_session, "bind_workspace", return_value=device) as bind, \
+                patch.object(memory_hint, "request", return_value=(HINT, {"status": "ok"})):
+            text, _ = claude_session.memory_hint_device(packet, device, self.home)
+        self.assertEqual(text, HINT)
+        self.assertEqual(bind.call_args.args[0]["cwd"], str(self.native_root.resolve()))
+
     def test_claude_hint_main_always_exits_zero_with_valid_json(self):
         argv = ["claude-capture.py", "--device-binding", str(self.binding_path), "--receipts", str(self.receipts),
                 "--claude-home", str(self.home), "--memory-hint"]
