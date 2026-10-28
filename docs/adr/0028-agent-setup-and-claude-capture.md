@@ -79,3 +79,9 @@ brands receive a white mark on a colored background. They remain distinct and
 legible in both themes without runtime CDN assets.
 
 Native reference: [Claude Code Hooks](https://code.claude.com/docs/en/hooks).
+
+## Amendment (2026-10-28): subdirectories of the starting directory
+
+A Claude session that changes into a subdirectory (`cd sub/deeper`) is still the same workspace. The starting directory recorded at session start defines the workspace and project; a turn whose working directory is that directory or anywhere below it is captured into the same session and project. A directory outside the starting directory (including a sibling with the same name prefix) is still refused as `native_workspace_changed`. The Memory hint uses the same rule, so Claude turns made in a subdirectory get the starting project's memories.
+
+Observed live on local-item6 before this change: 48 of 62 turns in one long video session ran in subdirectories and were refused, and the Memory hint was refused with them. Those turns were not captured at all, so they were neither recorded nor hinted.

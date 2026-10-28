@@ -20,11 +20,19 @@ class NativeClientTests(unittest.TestCase):
     return client
  def test_correlated_response_preserves_requests_and_notifications(self):
     receipts=[]
-    c=self.client("""import sys,json,os,time,traceback
+    c=self.client("""import sys,json,os,time,traceback,atexit,signal
 def diagnostic(stage):
  with open('correlated-child.log','a') as log:
   log.write(json.dumps({'stage':stage,'pid':os.getpid(),'pgid':os.getpgrp(),'sid':os.getsid(0),'monotonic':time.monotonic(),'stack':traceback.format_stack(limit=4) if stage=='answered_and_exiting' else []})+'\\n')
 diagnostic('started')
+# Self-observation only: never signal a PID that may already have exited.
+with open('correlated-startup.log','w') as log:
+ log.write(json.dumps({'pid':os.getpid(),'ppid':os.getppid(),'uid':os.getuid(),'euid':os.geteuid(),'sigterm_default':signal.getsignal(signal.SIGTERM)==signal.SIG_DFL}))
+def exit_diagnostic():
+ diagnostic('atexit')
+ with open('correlated-exit-stack.log','w') as log:
+  log.write(''.join(traceback.format_stack(limit=4)))
+atexit.register(exit_diagnostic)
 r=json.loads(sys.stdin.readline())
 for m in [{'method':'note','params':{}},{'id':'server-1','method':'tool','params':{}},{'id':r['id'],'result':{'ok':True}}]: print(json.dumps(m),flush=True)
 a=json.loads(sys.stdin.readline()); print(json.dumps({'method':'answered','params':a}),flush=True)
@@ -55,6 +63,13 @@ diagnostic('answered_and_exiting')
         raise
       finally:
         entry.update(finished=time.monotonic(),returncode_after=c.proc.returncode)
+        # Probe after the real wait, preserving the first signal/exit race.
+        # Record exceptions rather than interpreting EPERM as absence.
+        try:
+          os.killpg(c.proc.pid,0)
+          entry['post_wait_group_probe']={'result':'exists'}
+        except OSError as exc:
+          entry['post_wait_group_probe']={'error':type(exc).__name__,'errno':exc.errno}
     killpg=os.killpg
     def observed_killpg(pgid,sig):
       entry={'signal':int(sig),'monotonic':time.monotonic(),
@@ -84,6 +99,10 @@ diagnostic('answered_and_exiting')
           'signals':observations,'waits':waits,'returncode':c.proc.returncode,
           'stderr':bytes(c.stderr[:2048]).decode('utf-8',errors='replace'),
           'child_log':child_log.read_text()[:2048] if child_log.exists() else 'missing',
+          'parent_identity':{'pid':os.getpid(),'uid':os.getuid(),'euid':os.geteuid()},
+          'child_lifecycle':{
+              name:(self.root/name).read_text()[:2048] if (self.root/name).exists() else 'missing'
+              for name in ('correlated-startup.log','correlated-exit-stack.log')},
           'stack_dump':'bounded self-dump in child exit log; no signal sent to a possibly exited child',
       }),file=sys.stderr,flush=True)
     self.assertEqual(cleanup['cleanup'],'complete',cleanup)

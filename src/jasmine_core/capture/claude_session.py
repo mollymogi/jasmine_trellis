@@ -84,7 +84,7 @@ def capture_device(native,device,claude_home):
         fcntl.flock(fd,fcntl.LOCK_EX)
         state=json.loads(_private_bytes(path,'Claude capture state')) if path.exists() else {'cwd':n['cwd'],'turns':{}}
         state['turns']={turn:stamp for turn,stamp in state['turns'].items() if isinstance(stamp,dict) and stamp.get('origin',{}).get('check')=='native_current_turn_typed_human_metadata'}
-        if state['cwd']!=n['cwd']:return {'status':'ignored','reason':'native_workspace_changed'}
+        if not _within(n['cwd'],state.get('cwd')):return {'status':'ignored','reason':'native_workspace_changed'}
         now=datetime.now(timezone.utc).isoformat()
         if n['event']=='SessionStart':
             # A fresh main session may not yet have any persisted typed input.
@@ -120,7 +120,8 @@ def capture_device(native,device,claude_home):
             if not state['turns']:return {'status':'ignored','reason':'no_verified_user_session'}
             stamp=list(state['turns'].values())[-1]
         origin=stamp['origin'];n['timestamp']=origin['native_prompt_timestamp'];n['timestamp_source']='native_typed_prompt'
-        binding=bind_workspace(n,device,source=SOURCE)
+        # The project is the session's starting directory, not the current one.
+        binding=bind_workspace({**n,'cwd':state['cwd']},device,source=SOURCE)
         if 'start' in state:
             _publish(state['start'],binding,origin,source=SOURCE,agent='claude')
             del state['start'];_write(path,state);path.chmod(0o600)
@@ -140,6 +141,15 @@ def capture_device(native,device,claude_home):
 #: first turn of a session gets no hint (ADR 0036 amendment).
 VERIFIED_CHECK='native_current_turn_typed_human_metadata'
 
+def _within(cwd,root):
+    """Whether `cwd` is the session's starting directory or below it.
+
+    A session that `cd`s into a subdirectory is still one workspace (live
+    2026-10-28: most turns of one long session were refused for this reason).
+    Anything outside the starting directory is a different workspace.
+    """
+    return isinstance(cwd,str) and isinstance(root,str) and Path(cwd).is_relative_to(root)
+
 def _session_verified(device,n):
     """The newest capture-verified typed turn of this session, or None.
 
@@ -151,12 +161,12 @@ def _session_verified(device,n):
     try:
         if path.is_symlink() or not path.is_file():return None
         state=json.loads(_private_bytes(path,'Claude capture state'))
-        if not isinstance(state,dict) or state.get('cwd')!=n['cwd'] or not isinstance(state.get('turns'),dict):return None
+        if not isinstance(state,dict) or not _within(n['cwd'],state.get('cwd')) or not isinstance(state.get('turns'),dict):return None
         verified=[turn for turn,stamp in state['turns'].items()
                   if isinstance(stamp,dict) and isinstance(stamp.get('origin'),dict) and stamp['origin'].get('check')==VERIFIED_CHECK]
     except Exception:  # unreadable state is "not verified", never an error
         return None
-    return verified[-1] if verified else None
+    return (verified[-1],state['cwd']) if verified else None
 
 def memory_hint_device(native,device,claude_home,*,now=time.monotonic):
     """Return `(text, receipt)` for the separate synchronous hint handler.
@@ -170,11 +180,12 @@ def memory_hint_device(native,device,claude_home,*,now=time.monotonic):
     if n is None or n['event']!='UserPromptSubmit':return None,{'status':'ignored','reason':'unsupported_or_unverified_main_session'}
     verified=_session_verified(device,n)
     if verified is None:return None,{'status':'ignored','reason':'no_verified_turn_in_session','native_session_id':n['sid']}
+    verified_turn,root=verified
     remaining=deadline-now()
     if remaining<=0.05:return None,{'status':'skipped','reason':'no_time_left','native_session_id':n['sid']}
-    binding=bind_workspace(n,device,source=SOURCE,timeout=remaining)
+    binding=bind_workspace({**n,'cwd':root},device,source=SOURCE,timeout=remaining)
     text,receipt=memory_hint.request(binding,project_id=binding.project_id,native_session_id=n['sid'],prompt=n['text'],deadline=deadline)
-    return text,{**receipt,'native_session_id':n['sid'],'verified_turn':verified}
+    return text,{**receipt,'native_session_id':n['sid'],'verified_turn':verified_turn}
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
