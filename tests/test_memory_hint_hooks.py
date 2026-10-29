@@ -278,6 +278,49 @@ class MemoryHintHooks(ClaudeCapture):
         self.assertEqual(text, HINT)
         self.assertEqual(bind.call_args.args[0]["cwd"], str(self.native_root.resolve()))
 
+    def oversized_state(self):
+        """A state like the live one on 2026-10-28: many verified turns, over 64 KiB."""
+        self.verify_first_turn()
+        path = load_device(self.binding_path).spool_dir / "claude-sessions" / (self.sid + ".json")
+        state = json.loads(path.read_text())
+        (stamp,) = state["turns"].values()
+        padded = {**stamp, "origin": {**stamp["origin"], "padding": "x" * 400}}
+        state["turns"] = {str(__import__("uuid").uuid4()): padded for _ in range(200)}
+        path.write_text(json.dumps(state))
+        path.chmod(0o600)
+        self.assertGreater(path.stat().st_size, 64 * 1024)
+        return path
+
+    def test_capture_recovers_from_an_oversized_session_state_and_trims_it(self):
+        path = self.oversized_state()
+        packet = self.next_turn("长会话里的新一轮")
+        self.typed("长会话里的新一轮")
+        receipt = claude_session.capture_device(packet, load_device(self.binding_path), self.home)
+        self.assertEqual(receipt["status"], "accepted", receipt)
+        state = json.loads(path.read_text())
+        self.assertEqual(len(state["turns"]), claude_session.KEEP_TURNS)
+        self.assertEqual(list(state["turns"])[-1], self.turn)
+        self.assertLess(path.stat().st_size, 64 * 1024)
+
+    def test_claude_hint_reads_an_oversized_session_state(self):
+        device = self.enable()
+        self.oversized_state()
+        packet = self.next_turn()
+        with patch.object(memory_hint, "request", return_value=(HINT, {"status": "ok"})):
+            text, receipt = claude_session.memory_hint_device(packet, device, self.home)
+        self.assertEqual(text, HINT, receipt)
+
+    def test_save_state_keeps_the_newest_entries(self):
+        path = self.native_root / "state.json"
+        state = {"cwd": "/x", "turns": {str(i): {} for i in range(100)},
+                 "pending_stops": {str(i): {} for i in range(30)}}
+        claude_session._save_state(path, state)
+        saved = json.loads(path.read_text())
+        self.assertEqual(list(saved["turns"]), [str(i) for i in range(100 - claude_session.KEEP_TURNS, 100)])
+        self.assertEqual(list(saved["pending_stops"]),
+                         [str(i) for i in range(30 - claude_session.KEEP_PENDING_STOPS, 30)])
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
     def test_claude_hint_main_always_exits_zero_with_valid_json(self):
         argv = ["claude-capture.py", "--device-binding", str(self.binding_path), "--receipts", str(self.receipts),
                 "--claude-home", str(self.home), "--memory-hint"]

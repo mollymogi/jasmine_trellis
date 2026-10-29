@@ -18,6 +18,23 @@ SOURCE='claude-native-conversation-v1'
 # Observed native entrypoint/source pairs. Desktop Code uses the SDK transport
 # even for a human submission; a generic SDK invocation is not human evidence.
 HUMAN_INPUT_SOURCES={('cli','typed'),('claude-desktop','sdk')}
+#: Session state keeps only the newest verified turns and pending Stops: capture
+#: and the Memory hint only ever need recent ones. Unbounded, one long session
+#: reached 128 turns and 65,859 bytes (local-item6, 2026-10-28), past the 64 KiB
+#: private-file limit, and every later capture of it failed. Reads accept up to
+#: 1 MiB so a state written before this bound still loads and is trimmed.
+KEEP_TURNS=64
+KEEP_PENDING_STOPS=16
+STATE_READ_LIMIT=1024*1024
+
+def _read_state(path):
+    return json.loads(_private_bytes(path,'Claude capture state',limit=STATE_READ_LIMIT))
+
+def _save_state(path,state):
+    for key,keep in (('turns',KEEP_TURNS),('pending_stops',KEEP_PENDING_STOPS)):
+        items=state.get(key)
+        if isinstance(items,dict) and len(items)>keep:state[key]=dict(list(items.items())[-keep:])
+    _write(path,state);path.chmod(0o600)
 
 def _prompt_origin(n):
     """Read current-turn metadata only, never import earlier message bodies."""
@@ -82,14 +99,14 @@ def capture_device(native,device,claude_home):
     fd=os.open(lock_path,os.O_WRONLY|os.O_CREAT|os.O_NOFOLLOW,0o600)
     try:
         fcntl.flock(fd,fcntl.LOCK_EX)
-        state=json.loads(_private_bytes(path,'Claude capture state')) if path.exists() else {'cwd':n['cwd'],'turns':{}}
+        state=_read_state(path) if path.exists() else {'cwd':n['cwd'],'turns':{}}
         state['turns']={turn:stamp for turn,stamp in state['turns'].items() if isinstance(stamp,dict) and stamp.get('origin',{}).get('check')=='native_current_turn_typed_human_metadata'}
         if not _within(n['cwd'],state.get('cwd')):return {'status':'ignored','reason':'native_workspace_changed'}
         now=datetime.now(timezone.utc).isoformat()
         if n['event']=='SessionStart':
             # A fresh main session may not yet have any persisted typed input.
             n['timestamp']=now;n['timestamp_source']='hook_observation';state['start']=n
-            _write(path,state);path.chmod(0o600)
+            _save_state(path,state)
             return {'status':'pending','reason':'awaiting_native_user_input','native_session_id':n['sid']}
         if n['event']=='UserPromptSubmit':
             stamp=state['turns'].get(n['turn'])
@@ -105,7 +122,7 @@ def capture_device(native,device,claude_home):
                 if origin is None:return {'status':'ignored','reason':'no_current_typed_input_evidence','native_session_id':n['sid']}
                 stamp={'origin':origin,'text_sha256':hashlib.sha256(n['text'].encode()).hexdigest()}
                 state['turns'][n['turn']]=stamp
-                _write(path,state);path.chmod(0o600)
+                _save_state(path,state)
             if stamp['text_sha256']!=hashlib.sha256(n['text'].encode()).hexdigest():return {'status':'ignored','reason':'native_turn_text_changed'}
         elif n['event']=='Stop':
             stamp=state['turns'].get(n['turn'])
@@ -114,7 +131,7 @@ def capture_device(native,device,claude_home):
                 # A very fast reply may beat the async prompt handler. Keep its
                 # native text privately until that prompt has actually committed.
                 state.setdefault('pending_stops',{})[n['turn']]=n
-                _write(path,state);path.chmod(0o600)
+                _save_state(path,state)
                 return {'status':'pending','reason':'awaiting_prompt_commit'}
         else:
             if not state['turns']:return {'status':'ignored','reason':'no_verified_user_session'}
@@ -124,13 +141,13 @@ def capture_device(native,device,claude_home):
         binding=bind_workspace({**n,'cwd':state['cwd']},device,source=SOURCE)
         if 'start' in state:
             _publish(state['start'],binding,origin,source=SOURCE,agent='claude')
-            del state['start'];_write(path,state);path.chmod(0o600)
+            del state['start'];_save_state(path,state)
         receipt=_publish(n,binding,origin,source=SOURCE,agent='claude')
         pending=state.get('pending_stops',{}).get(n['turn']) if n['event']=='UserPromptSubmit' else None
         if pending:
             pending['timestamp']=n['timestamp'];pending['timestamp_source']='native_typed_prompt'
             _publish(pending,binding,origin,source=SOURCE,agent='claude')
-            del state['pending_stops'][n['turn']];_write(path,state);path.chmod(0o600)
+            del state['pending_stops'][n['turn']];_save_state(path,state)
         return receipt
     finally:os.close(fd)
 
@@ -160,7 +177,7 @@ def _session_verified(device,n):
     path=device.spool_dir/'claude-sessions'/(n['sid']+'.json')
     try:
         if path.is_symlink() or not path.is_file():return None
-        state=json.loads(_private_bytes(path,'Claude capture state'))
+        state=_read_state(path)
         if not isinstance(state,dict) or not _within(n['cwd'],state.get('cwd')) or not isinstance(state.get('turns'),dict):return None
         verified=[turn for turn,stamp in state['turns'].items()
                   if isinstance(stamp,dict) and isinstance(stamp.get('origin'),dict) and stamp['origin'].get('check')==VERIFIED_CHECK]
