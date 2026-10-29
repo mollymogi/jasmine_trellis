@@ -83,7 +83,7 @@ def find_binding(explicit: str | os.PathLike | None, environ: dict[str, str], cw
     return None
 
 
-def _private_bytes(path: Path, what: str) -> bytes:
+def _private_bytes(path: Path, what: str, *, limit: int = MAX_FILE_BYTES) -> bytes:
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError as exc:
@@ -92,10 +92,10 @@ def _private_bytes(path: Path, what: str) -> bytes:
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
             raise BindingError(f"{what} must be a regular file owned by this user with mode 0600")
-        if info.st_size > MAX_FILE_BYTES:
+        if info.st_size > limit:
             raise BindingError(f"{what} is too large")
         with os.fdopen(descriptor, "rb", closefd=False) as stream:
-            return stream.read(MAX_FILE_BYTES + 1)
+            return stream.read(limit + 1)
     finally:
         os.close(descriptor)
 

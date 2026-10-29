@@ -85,3 +85,9 @@ Native reference: [Claude Code Hooks](https://code.claude.com/docs/en/hooks).
 A Claude session that changes into a subdirectory (`cd sub/deeper`) is still the same workspace. The starting directory recorded at session start defines the workspace and project; a turn whose working directory is that directory or anywhere below it is captured into the same session and project. A directory outside the starting directory (including a sibling with the same name prefix) is still refused as `native_workspace_changed`. The Memory hint uses the same rule, so Claude turns made in a subdirectory get the starting project's memories.
 
 Observed live on local-item6 before this change: 48 of 62 turns in one long video session ran in subdirectories and were refused, and the Memory hint was refused with them. Those turns were not captured at all, so they were neither recorded nor hinted.
+
+## Amendment (2026-10-29): bounded session state
+
+Capture's private per-session state kept every verified turn for the life of the session. One long Claude session on local-item6 reached 128 turns and 65,859 bytes, past the 64 KiB limit for private files; from 2026-10-28 02:56 UTC every capture of that session failed (`BindingError`, 201 times in about a day and a half) and its Memory hint was refused with it. Those turns were not recorded and cannot be recovered from the hook.
+
+The state now keeps only the newest 64 verified turns and the newest 16 pending Stops; capture and the hint only need recent turns. The state is read with a 1 MiB limit (other private files keep 64 KiB), so a state written before this bound still loads and is trimmed on its next write. The privacy checks on the file are unchanged.
