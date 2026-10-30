@@ -80,7 +80,7 @@ def _prompt_origin(n):
 #: make it typed input; a task notification is never human.
 HUMAN_ENTRYPOINTS=frozenset(entry for entry,_ in HUMAN_INPUT_SOURCES)
 
-def _queued_origin(n):
+def _queued_origin(n,original_message_id=None):
     """`(True, origin)` for a typed queued message, `(False, None)` for other
     queued input such as a task notification, None when no queued row matches.
 
@@ -90,6 +90,8 @@ def _queued_origin(n):
     digest=hashlib.sha256(n['text'].encode()).hexdigest()
     try:
         for row in _tail_rows(n):
+            # Attachments from before this turn cannot identify its Hook packet.
+            if row.get('uuid')==original_message_id:break
             item=row.get('attachment')
             if row.get('type')!='attachment' or not isinstance(item,dict) or item.get('type')!='queued_command':continue
             if (row.get('sessionId')!=n['sid'] or not isinstance(item.get('prompt'),str)
@@ -166,9 +168,12 @@ def capture_device(native,device,claude_home):
                 stamp={'origin':origin,'text_sha256':digest}
                 state['turns'][n['turn']]=stamp
                 _save_state(path,state)
-            if stamp['text_sha256']!=digest:
-                queued=_wait(lambda:_queued_origin(n))
-                if queued is None:return {'status':'ignored','reason':'native_turn_text_changed'}
+            # Identical text can still be a new queued human submission. Resolve
+            # attachment identity before falling back to the original turn replay.
+            queued=_wait(lambda:_queued_origin(n,stamp['origin']['native_message_id']))
+            if queued is None and stamp['text_sha256']!=digest:
+                return {'status':'ignored','reason':'native_turn_text_changed'}
+            if queued is not None:
                 human,origin=queued
                 if not human:return {'status':'ignored','reason':'non_human_queued_input','native_session_id':n['sid']}
                 key=n['turn']+'#'+origin['native_message_id']

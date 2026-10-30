@@ -134,6 +134,39 @@ class ClaudeCapture(ConversationCapture):
         self.assertEqual([e['actor_kind'] for e in prompts],['human','human'])
         self.assertEqual(events['events'][-1]['payload']['text'],'好的')
 
+    def test_identical_queued_text_has_attachment_identity_and_replays_once(self):
+        self.typed('继续')
+        packet=self.packet('UserPromptSubmit',prompt='继续')
+        first=capture_device(packet,self.device,self.home)
+        original_replay=capture_device(packet,self.device,self.home)
+        self.assertEqual((original_replay['event_id'],original_replay['replayed']),(first['event_id'],True))
+        for _ in range(2):
+            row=self.queued('继续')
+            queued=capture_device(packet,self.device,self.home)
+            self.assertEqual(queued['status'],'accepted',queued)
+            self.assertNotEqual(queued['event_id'],first['event_id'])
+            self.assertEqual(queued['origin']['native_message_id'],row['uuid'])
+            self.assertEqual(queued['origin']['native_prompt_timestamp'],row['timestamp'])
+            replay=capture_device(packet,self.device,self.home)
+            self.assertEqual((replay['event_id'],replay['replayed']),(queued['event_id'],True))
+        reply=capture_device(self.packet('Stop',last_assistant_message='好的'),self.device,self.home)
+        self.assertEqual(reply['origin'],first['origin'])
+        _,events=self.call('GET','/v1/events?session_id='+first['session_id'],token=self.admin_token)
+        prompts=[e for e in events['events'] if e['event_type']=='user.prompt']
+        self.assertEqual([e['payload']['text'] for e in prompts],['继续']*3)
+
+    def test_identical_queue_from_before_current_turn_is_not_reused(self):
+        self.queued('继续')
+        self.typed('继续')
+        packet=self.packet('UserPromptSubmit',prompt='继续')
+        first=capture_device(packet,self.device,self.home)
+        self.assertEqual(first['origin']['check'],'native_current_turn_typed_human_metadata')
+        replay=capture_device(packet,self.device,self.home)
+        self.assertEqual((replay['event_id'],replay['replayed']),(first['event_id'],True))
+        self.queued('继续',origin={'kind':'agent'})
+        ignored=capture_device(packet,self.device,self.home)
+        self.assertEqual((ignored['status'],ignored['reason']),('ignored','non_human_queued_input'))
+
     def test_queued_input_without_typed_markers_is_never_human(self):
         self.typed('你好');self.assertEqual(capture_device(self.packet('UserPromptSubmit',prompt='你好'),self.device,self.home)['status'],'accepted')
         notice='<task-notification><task-id>b1</task-id></task-notification>'
