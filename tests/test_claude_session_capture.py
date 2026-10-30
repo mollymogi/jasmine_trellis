@@ -100,6 +100,93 @@ class ClaudeCapture(ConversationCapture):
         _,events=self.call('GET','/v1/events?session_id='+first['session_id'],token=self.admin_token)
         self.assertEqual([e['payload']['text'] for e in events['events']],['你好','你好！'])
 
+    def queued(self,text,origin=None,**kwargs):
+        """The attachment row Claude writes when a queued message joins the running turn."""
+        item={'type':'queued_command','prompt':text,'source_uuid':str(uuid.uuid4()),'delivery_id':str(uuid.uuid4()),
+              'commandMode':'prompt','origin':origin or {'kind':'human'},'timestamp':datetime.now(timezone.utc).isoformat(),'humanTurn':True}
+        row={'type':'attachment','sessionId':self.sid,'cwd':str(self.native_root),'timestamp':item['timestamp'],'uuid':str(uuid.uuid4()),
+             'isSidechain':False,'userType':'external','entrypoint':'claude-desktop','attachment':item}
+        for key,value in kwargs.items():(item if key in item else row)[key]=value
+        with self.transcript.open('a') as stream:stream.write(json.dumps(row)+'\n')
+        return row
+
+    def test_a_message_typed_while_claude_works_is_its_own_prompt(self):
+        """Live 2026-10-29: queued messages reuse the running turn's prompt_id and
+        were all refused as `native_turn_text_changed`."""
+        capture_device(self.packet('SessionStart'),self.device,self.home)
+        self.typed('先把第四段做完',entrypoint='claude-desktop',promptSource='sdk')
+        first=capture_device(self.packet('UserPromptSubmit',prompt='先把第四段做完'),self.device,self.home)
+        self.assertEqual(first['status'],'accepted',first)
+        row=self.queued('跑完以后帮我关机')
+        p=self.packet('UserPromptSubmit',prompt='跑完以后帮我关机')
+        later=capture_device(p,self.device,self.home);replay=capture_device(p,self.device,self.home)
+        self.assertEqual(later['status'],'accepted',later)
+        self.assertEqual(later['session_id'],first['session_id']);self.assertNotEqual(later['event_id'],first['event_id'])
+        self.assertEqual((replay['event_id'],replay['replayed']),(later['event_id'],True))
+        self.assertEqual(later['origin']['check'],'native_queued_typed_human_metadata')
+        self.assertEqual((later['origin']['native_prompt_id'],later['origin']['native_message_id']),(self.turn,row['uuid']))
+        self.assertEqual(later['origin']['native_prompt_timestamp'],row['timestamp'])
+        reply=capture_device(self.packet('Stop',last_assistant_message='好的'),self.device,self.home)
+        self.assertEqual(reply['status'],'accepted',reply)
+        _,events=self.call('GET','/v1/events?session_id='+first['session_id'],token=self.admin_token)
+        prompts=[e for e in events['events'] if e['event_type']=='user.prompt']
+        self.assertEqual([e['payload']['text'] for e in prompts],['先把第四段做完','跑完以后帮我关机'])
+        self.assertEqual([e['actor_kind'] for e in prompts],['human','human'])
+        self.assertEqual(events['events'][-1]['payload']['text'],'好的')
+
+    def test_identical_queued_text_has_attachment_identity_and_replays_once(self):
+        self.typed('继续')
+        packet=self.packet('UserPromptSubmit',prompt='继续')
+        first=capture_device(packet,self.device,self.home)
+        original_replay=capture_device(packet,self.device,self.home)
+        self.assertEqual((original_replay['event_id'],original_replay['replayed']),(first['event_id'],True))
+        for _ in range(2):
+            row=self.queued('继续')
+            queued=capture_device(packet,self.device,self.home)
+            self.assertEqual(queued['status'],'accepted',queued)
+            self.assertNotEqual(queued['event_id'],first['event_id'])
+            self.assertEqual(queued['origin']['native_message_id'],row['uuid'])
+            self.assertEqual(queued['origin']['native_prompt_timestamp'],row['timestamp'])
+            replay=capture_device(packet,self.device,self.home)
+            self.assertEqual((replay['event_id'],replay['replayed']),(queued['event_id'],True))
+        reply=capture_device(self.packet('Stop',last_assistant_message='好的'),self.device,self.home)
+        self.assertEqual(reply['origin'],first['origin'])
+        _,events=self.call('GET','/v1/events?session_id='+first['session_id'],token=self.admin_token)
+        prompts=[e for e in events['events'] if e['event_type']=='user.prompt']
+        self.assertEqual([e['payload']['text'] for e in prompts],['继续']*3)
+
+    def test_identical_queue_from_before_current_turn_is_not_reused(self):
+        self.queued('继续')
+        self.typed('继续')
+        packet=self.packet('UserPromptSubmit',prompt='继续')
+        first=capture_device(packet,self.device,self.home)
+        self.assertEqual(first['origin']['check'],'native_current_turn_typed_human_metadata')
+        replay=capture_device(packet,self.device,self.home)
+        self.assertEqual((replay['event_id'],replay['replayed']),(first['event_id'],True))
+        self.queued('继续',origin={'kind':'agent'})
+        ignored=capture_device(packet,self.device,self.home)
+        self.assertEqual((ignored['status'],ignored['reason']),('ignored','non_human_queued_input'))
+
+    def test_queued_input_without_typed_markers_is_never_human(self):
+        self.typed('你好');self.assertEqual(capture_device(self.packet('UserPromptSubmit',prompt='你好'),self.device,self.home)['status'],'accepted')
+        notice='<task-notification><task-id>b1</task-id></task-notification>'
+        for index,extra in enumerate([
+            {'origin':{'kind':'task-notification','producer':'session-task'},'commandMode':'task-notification','humanTurn':None},
+            {'humanTurn':None},{'commandMode':'bash'},{'origin':{'kind':'agent'}},
+            {'isSidechain':True},{'entrypoint':'sdk'},{'userType':'internal'},{'cwd':'/elsewhere'},
+        ]):
+            with self.subTest(extra=extra):
+                text=f'{notice} {index}';self.queued(text,**extra)
+                got=capture_device(self.packet('UserPromptSubmit',prompt=text),self.device,self.home)
+                self.assertEqual((got['status'],got['reason']),('ignored','non_human_queued_input'))
+        # Changed text with no queued row at all keeps the old refusal.
+        got=capture_device(self.packet('UserPromptSubmit',prompt='altered'),self.device,self.home)
+        self.assertEqual((got['status'],got['reason']),('ignored','native_turn_text_changed'))
+        # A row of another session, or with other text, is not a match.
+        self.queued('同一句话',sessionId=str(uuid.uuid4()));self.queued('另一句话')
+        got=capture_device(self.packet('UserPromptSubmit',prompt='同一句话'),self.device,self.home)
+        self.assertEqual(got['reason'],'native_turn_text_changed')
+
     def test_subdirectory_is_the_same_workspace_and_a_sibling_is_not(self):
         sub=self.native_root/'sub'/'deeper';sub.mkdir(parents=True)
         sibling=self.native_root.parent/(self.native_root.name+'-sibling');sibling.mkdir()

@@ -3,7 +3,8 @@
 Only current Hook packets are posted. A bounded current-transcript metadata read proves
 that this exact native turn is typed human input; auto-wakes/teammate inputs cannot
 acquire a human attribution merely by firing UserPromptSubmit. No old messages
-are imported, no message body is used from the transcript, and no context/decision is returned.
+are imported, no message body is taken from the transcript (a queued message is
+matched by hash only; the text published is the Hook's), and no context/decision is returned.
 """
 from __future__ import annotations
 import argparse,fcntl,hashlib,json,os,stat,sys,time
@@ -24,6 +25,7 @@ HUMAN_INPUT_SOURCES={('cli','typed'),('claude-desktop','sdk')}
 #: private-file limit, and every later capture of it failed. Reads accept up to
 #: 1 MiB so a state written before this bound still loads and is trimmed.
 KEEP_TURNS=64
+KEEP_QUEUED=64
 KEEP_PENDING_STOPS=16
 STATE_READ_LIMIT=1024*1024
 
@@ -31,39 +33,88 @@ def _read_state(path):
     return json.loads(_private_bytes(path,'Claude capture state',limit=STATE_READ_LIMIT))
 
 def _save_state(path,state):
-    for key,keep in (('turns',KEEP_TURNS),('pending_stops',KEEP_PENDING_STOPS)):
+    for key,keep in (('turns',KEEP_TURNS),('queued',KEEP_QUEUED),('pending_stops',KEEP_PENDING_STOPS)):
         items=state.get(key)
         if isinstance(items,dict) and len(items)>keep:state[key]=dict(list(items.items())[-keep:])
     _write(path,state);path.chmod(0o600)
 
+def _tail_rows(n):
+    """The newest transcript rows first, from a bounded read of its tail."""
+    fd=os.open(n['transcript_path'],os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    try:
+        st=os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid!=os.getuid() or st.st_mode&0o077:return
+        size=min(st.st_size,1024*1024);os.lseek(fd,st.st_size-size,os.SEEK_SET)
+        data=os.read(fd,size).splitlines()
+    finally:os.close(fd)
+    if st.st_size>size:data=data[1:]
+    for line in reversed(data):
+        try:row=json.loads(line)
+        except ValueError:continue
+        if isinstance(row,dict):yield row
+
 def _prompt_origin(n):
     """Read current-turn metadata only, never import earlier message bodies."""
     try:
-        fd=os.open(n['transcript_path'],os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
-        try:
-            st=os.fstat(fd)
-            if not stat.S_ISREG(st.st_mode) or st.st_uid!=os.getuid() or st.st_mode&0o077:return None
-            size=min(st.st_size,1024*1024);os.lseek(fd,st.st_size-size,os.SEEK_SET)
-            data=os.read(fd,size).splitlines()
-            if st.st_size>size:data=data[1:]
-            for line in reversed(data):
-                try:row=json.loads(line)
-                except ValueError:continue
-                if not isinstance(row,dict) or row.get('promptId')!=n['turn'] or row.get('type')!='user':continue
-                if (row.get('sessionId')!=n['sid'] or row.get('isSidechain') is not False
-                    or row.get('origin')!={'kind':'human'}
-                    or row.get('turnOrigin')!='human' or row.get('userType')!='external'
-                    or (row.get('entrypoint'),row.get('promptSource')) not in HUMAN_INPUT_SOURCES
-                    or row.get('sourceToolAssistantUUID') or row.get('isMeta')
-                    or not isinstance(row.get('cwd'),str)
-                    or Path(row['cwd']).resolve()!=Path(n['cwd'])):continue
-                stamp=row.get('timestamp');uid=row.get('uuid')
-                if not valid_id(uid) or not isinstance(stamp,str) or datetime.fromisoformat(stamp.replace('Z','+00:00')).tzinfo is None:continue
-                return {'check':'native_current_turn_typed_human_metadata','native_prompt_id':n['turn'],'native_message_id':uid,'native_prompt_timestamp':stamp,
-                        'native_entrypoint':row['entrypoint'],'native_prompt_source':row['promptSource']}
-        finally:os.close(fd)
+        for row in _tail_rows(n):
+            if row.get('promptId')!=n['turn'] or row.get('type')!='user':continue
+            if (row.get('sessionId')!=n['sid'] or row.get('isSidechain') is not False
+                or row.get('origin')!={'kind':'human'}
+                or row.get('turnOrigin')!='human' or row.get('userType')!='external'
+                or (row.get('entrypoint'),row.get('promptSource')) not in HUMAN_INPUT_SOURCES
+                or row.get('sourceToolAssistantUUID') or row.get('isMeta')
+                or not isinstance(row.get('cwd'),str)
+                or Path(row['cwd']).resolve()!=Path(n['cwd'])):continue
+            stamp=row.get('timestamp');uid=row.get('uuid')
+            if not valid_id(uid) or not isinstance(stamp,str) or datetime.fromisoformat(stamp.replace('Z','+00:00')).tzinfo is None:continue
+            return {'check':'native_current_turn_typed_human_metadata','native_prompt_id':n['turn'],'native_message_id':uid,'native_prompt_timestamp':stamp,
+                    'native_entrypoint':row['entrypoint'],'native_prompt_source':row['promptSource']}
     except (OSError,ValueError,TypeError):pass
     return None
+
+#: A message sent while Claude is still working is queued and then folded into
+#: the running turn: UserPromptSubmit fires again with that turn's `prompt_id`
+#: and the new text, and the transcript gets a `queued_command` attachment row
+#: instead of a user row (local-item6, 2026-10-29: 6 typed messages and 11 task
+#: notifications in one evening). Only Claude's own human markers on that row
+#: make it typed input; a task notification is never human.
+HUMAN_ENTRYPOINTS=frozenset(entry for entry,_ in HUMAN_INPUT_SOURCES)
+
+def _queued_origin(n,original_message_id=None):
+    """`(True, origin)` for a typed queued message, `(False, None)` for other
+    queued input such as a task notification, None when no queued row matches.
+
+    The row is matched to this Hook packet by the hash of its text, since it
+    carries no `promptId`; its text is never used otherwise.
+    """
+    digest=hashlib.sha256(n['text'].encode()).hexdigest()
+    try:
+        for row in _tail_rows(n):
+            # Attachments from before this turn cannot identify its Hook packet.
+            if row.get('uuid')==original_message_id:break
+            item=row.get('attachment')
+            if row.get('type')!='attachment' or not isinstance(item,dict) or item.get('type')!='queued_command':continue
+            if (row.get('sessionId')!=n['sid'] or not isinstance(item.get('prompt'),str)
+                or hashlib.sha256(item['prompt'].encode()).hexdigest()!=digest):continue
+            if (row.get('isSidechain') is not False or item.get('origin')!={'kind':'human'}
+                or item.get('commandMode')!='prompt' or item.get('humanTurn') is not True
+                or row.get('userType')!='external' or row.get('entrypoint') not in HUMAN_ENTRYPOINTS
+                or not isinstance(row.get('cwd'),str) or Path(row['cwd']).resolve()!=Path(n['cwd'])):return False,None
+            uid=row.get('uuid');stamp=row.get('timestamp')
+            if not valid_id(uid) or not isinstance(stamp,str) or datetime.fromisoformat(stamp.replace('Z','+00:00')).tzinfo is None:return False,None
+            return True,{'check':'native_queued_typed_human_metadata','native_prompt_id':n['turn'],'native_message_id':uid,
+                         'native_prompt_timestamp':stamp,'native_entrypoint':row['entrypoint'],'native_command_mode':'prompt'}
+    except (OSError,ValueError,TypeError):pass
+    return None
+
+def _wait(probe):
+    """Native transcript writes can lag Hook dispatch. The configured
+    UserPromptSubmit is async, so this wait cannot stall the prompt."""
+    deadline=time.monotonic()+1.5
+    while True:
+        found=probe()
+        if found is not None or time.monotonic()>=deadline:return found
+        time.sleep(.05)
 
 def _native(native,home):
     event=native.get('hook_event_name')
@@ -109,21 +160,28 @@ def capture_device(native,device,claude_home):
             _save_state(path,state)
             return {'status':'pending','reason':'awaiting_native_user_input','native_session_id':n['sid']}
         if n['event']=='UserPromptSubmit':
+            digest=hashlib.sha256(n['text'].encode()).hexdigest()
             stamp=state['turns'].get(n['turn'])
             if stamp is None:
-                origin=None
-                # Native transcript writes can lag Hook dispatch. The configured
-                # UserPromptSubmit is async, so this wait cannot stall the prompt.
-                deadline=time.monotonic()+1.5
-                while origin is None:
-                    origin=_prompt_origin(n)
-                    if origin or time.monotonic()>=deadline:break
-                    time.sleep(.05)
+                origin=_wait(lambda:_prompt_origin(n))
                 if origin is None:return {'status':'ignored','reason':'no_current_typed_input_evidence','native_session_id':n['sid']}
-                stamp={'origin':origin,'text_sha256':hashlib.sha256(n['text'].encode()).hexdigest()}
+                stamp={'origin':origin,'text_sha256':digest}
                 state['turns'][n['turn']]=stamp
                 _save_state(path,state)
-            if stamp['text_sha256']!=hashlib.sha256(n['text'].encode()).hexdigest():return {'status':'ignored','reason':'native_turn_text_changed'}
+            # Identical text can still be a new queued human submission. Resolve
+            # attachment identity before falling back to the original turn replay.
+            queued=_wait(lambda:_queued_origin(n,stamp['origin']['native_message_id']))
+            if queued is None and stamp['text_sha256']!=digest:
+                return {'status':'ignored','reason':'native_turn_text_changed'}
+            if queued is not None:
+                human,origin=queued
+                if not human:return {'status':'ignored','reason':'non_human_queued_input','native_session_id':n['sid']}
+                key=n['turn']+'#'+origin['native_message_id']
+                stamp=state.setdefault('queued',{}).get(key)
+                if stamp is None or stamp.get('text_sha256')!=digest:
+                    stamp={'origin':origin,'text_sha256':digest}
+                    state['queued'][key]=stamp
+                    _save_state(path,state)
         elif n['event']=='Stop':
             stamp=state['turns'].get(n['turn'])
             if stamp is None:
