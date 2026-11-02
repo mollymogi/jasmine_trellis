@@ -334,6 +334,54 @@ def cmd_hooks(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_digest(args: argparse.Namespace) -> int:
+    """Digest long output for an agent to read (ADR 0038). No database, no model."""
+    import subprocess
+
+    from . import digest as digest_module
+
+    out_dir = Path(args.out_dir).expanduser() if args.out_dir else None
+    options = {"kind": args.kind, "budget": args.budget, "out_dir": out_dir, "spill": not args.no_spill}
+    results = []
+    status = 0
+    if args.run:
+        if not args.inputs:
+            _log("error: digest --run needs a command after --")
+            return 2
+        try:
+            proc = subprocess.run(args.inputs, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                  stdin=subprocess.DEVNULL, timeout=args.timeout)
+            data, status = proc.stdout, proc.returncode
+        except FileNotFoundError:
+            _log(f"error: command not found: {args.inputs[0]}")
+            return 127
+        except subprocess.TimeoutExpired as exc:
+            data, status = exc.stdout or b"", 124
+            data += f"\n[digest] command timed out after {args.timeout}s\n".encode()
+        kind = "log" if args.kind == "auto" else args.kind
+        results.append(digest_module.digest(data, name=" ".join(args.inputs), exit_code=status,
+                                            **{**options, "kind": kind}))
+    elif args.inputs:
+        for name in args.inputs:
+            path = Path(name).expanduser()
+            try:
+                data = path.read_bytes()
+            except OSError as exc:
+                _log(f"error: cannot read {name}: {exc.strerror}")
+                return 2
+            results.append(digest_module.digest(data, name=name, **options))
+    else:
+        results.append(digest_module.digest(sys.stdin.buffer.read(), **options))
+
+    if args.json:
+        print(json.dumps([r.as_dict() for r in results] if len(results) > 1 else results[0].as_dict(),
+                         ensure_ascii=False, indent=2))
+    else:
+        print("\n\n".join(r.text for r in results))
+    # With --run the command's own exit code is the answer the caller needs.
+    return status
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="jasmine-core", description="Jasmine Core V1 baseline")
     parser.add_argument("--version", action="version", version=f"jasmine-core {__version__} (schema v{SCHEMA_VERSION})")
@@ -459,6 +507,25 @@ def build_parser() -> argparse.ArgumentParser:
     hooks_parser.add_argument("--binding", help="host binding file (required for install; optional filter for uninstall)")
     hooks_parser.add_argument("--command", help="executable written into the hook command (default: jasmine-core on PATH)")
     hooks_parser.set_defaults(func=cmd_hooks)
+
+    from .digest import DEFAULT_BUDGET, DIGEST_DIR_ENV, KINDS as DIGEST_KINDS
+
+    digest_parser = sub.add_parser(
+        "digest", help="digest a long log, document or JSON for an agent; the raw text is kept on disk",
+        description="Files, stdin, or `--run -- CMD ...` (output of CMD). Input within the budget is "
+                    "printed whole; longer input is digested and kept in full under the digest directory.")
+    digest_parser.add_argument("inputs", nargs="*", help="files to digest, or the command with --run")
+    digest_parser.add_argument("--run", action="store_true",
+                               help="run the command after -- and digest its stdout+stderr; exits with its code")
+    digest_parser.add_argument("--kind", choices=["auto", *DIGEST_KINDS], default="auto")
+    digest_parser.add_argument("--budget", type=int, default=DEFAULT_BUDGET,
+                               help=f"characters of digest to print (default {DEFAULT_BUDGET})")
+    digest_parser.add_argument("--out-dir", help=f"where raw input is kept (else {DIGEST_DIR_ENV}, "
+                                                  "else ~/.local/share/jasmine-core/digests)")
+    digest_parser.add_argument("--no-spill", action="store_true", help="do not keep the raw input")
+    digest_parser.add_argument("--timeout", type=int, default=600, help="--run only: seconds before the command is stopped")
+    digest_parser.add_argument("--json", action="store_true", help="print the digest and its metadata as JSON")
+    digest_parser.set_defaults(func=cmd_digest)
     return parser
 
 
