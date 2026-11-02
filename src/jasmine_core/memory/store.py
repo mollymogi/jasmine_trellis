@@ -295,7 +295,7 @@ class MemoryStore:
             "items_obsolete": self.count_items(status="OBSOLETE"),
             "items_deleted": self.count_items(status="DELETED"),
         }
-        for state in ("RETAIN_FAILED", "DELETE_PENDING", "DELETE_FAILED"):
+        for state in ("RETAIN_FAILED", "NOT_RECALLABLE", "DELETE_PENDING", "DELETE_FAILED"):
             row = self._conn.execute(
                 "SELECT COUNT(*) AS n FROM memory_items WHERE engine_state=?", (state,)
             ).fetchone()
@@ -338,6 +338,16 @@ class MemoryStore:
             "UPDATE memory_engine_status SET last_success_at=?, last_error_code=NULL,"
             " safe_error_summary=NULL, updated_at=? WHERE engine_id=?",
             (at, at, ENGINE_ID),
+        )
+
+    def clear_engine_error(self, *, error_code: str, at: str) -> None:
+        """Reconcile an accepted outcome without claiming a retained memory."""
+        from . import ENGINE_ID
+
+        self._conn.execute(
+            "UPDATE memory_engine_status SET last_error_code=NULL, safe_error_summary=NULL,"
+            " updated_at=? WHERE engine_id=? AND last_error_code=?",
+            (at, ENGINE_ID, error_code),
         )
 
     def note_engine_failure(self, *, error_code: str, safe_error_summary: str,

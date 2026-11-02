@@ -430,6 +430,42 @@ class P4sWorkerSpeaksP3sSlotProtocol(EndToEndOverTheWire):
             document_id=item["document_id"])
         self.assertEqual(units, [])
 
+    def test_a_text_the_engine_never_extracts_ends_not_recallable(self) -> None:
+        """Spent attempts on an extraction-empty document are final, not a failure.
+
+        The engine stores the document and extracts no unit from it, so a retry
+        cannot change the outcome. Once the attempt budget is spent each job is DONE
+        with a receipt saying so, and each item is NOT_RECALLABLE. Nothing is left in
+        FAILED or RETAIN_FAILED for health to count as a broken pipeline.
+        """
+        self.server.httpd.extract_nothing = True
+        self._retain_lesson()
+        for _ in range(max(int(job["max_attempts"]) for job in self.job_store().jobs())):
+            # Make the next attempts due now instead of waiting out the backoff.
+            self.conn.execute("UPDATE memory_jobs SET next_attempt_at='1970-01-01T00:00:00+00:00'"
+                              " WHERE status='PENDING'")
+            self.worker(transport=self.wire).run(max_ticks=5)
+        jobs = self.job_store().jobs()
+        self.assertTrue(jobs)
+        for job in jobs:
+            self.assertEqual(job["status"], "DONE", job)
+            self.assertIsNone(job["last_error_code"])
+        receipts = [row[0] for row in self.conn.execute("SELECT receipt_json FROM memory_jobs")]
+        self.assertTrue(all(receipt and "not_recallable" in receipt for receipt in receipts), receipts)
+        items = self.store.items()
+        self.assertTrue(items)
+        for item in items:
+            self.assertEqual(item["engine_state"], "NOT_RECALLABLE")
+            self.assertEqual(item["last_error_code"], "engine_extracted_no_units")
+
+        from jasmine_core.memory.health import report
+
+        health = report(self.conn, self.store, self.wire, self.job_store())
+        self.assertIn(health["status"], ("ok", "idle"), health)
+        self.assertFalse(health["degraded"], health)
+        self.assertEqual(health["core_impact"], "none")
+        self.assertIsNone(health["last_error_code"])
+
     def test_a_bank_reports_its_own_failure_not_another_banks(self) -> None:
         """A bank that answered is not stamped with a neighbour's error code.
 

@@ -93,7 +93,7 @@ class MigrationFromEmptyDatabase(DbTestCase):
          "m0006_codex_exec_observations", "m0007_interpretations",
          "m0008_resolutions", "m0009_continuity", "m0010_context",
          "m0011_memory", "m0012_web_confirmations", "m0013_host_hooks", "m0014_conversation_processing",
-         "m0015_observed_memory"])
+         "m0015_observed_memory", "m0016_not_recallable"])
         self.assertEqual(_tables(self.conn), EXPECTED_TABLES)
         self.assertEqual(current_version(self.conn), expected_version())
         self.assertEqual(current_version(self.conn), SCHEMA_VERSION)

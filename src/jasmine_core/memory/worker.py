@@ -282,7 +282,8 @@ class MemoryWorker:
             # Retryable on purpose: extraction is a model call and a real deployment
             # was observed extracting nothing from a document it had just accepted,
             # so the same content can succeed on a later attempt. What must not
-            # happen is the job reaching DONE, because then nothing ever looks again.
+            # happen is the job reaching DONE with nothing said. Once the attempts
+            # are spent, `fail` completes it as NOT_RECALLABLE, which says so.
             status = self._jobs.fail(
                 claimed, error_code="engine_extracted_no_units",
                 safe_error_summary=("the engine accepted the document but stored no "

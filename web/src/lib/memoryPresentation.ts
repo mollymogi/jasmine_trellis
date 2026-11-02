@@ -9,6 +9,7 @@ export const MEMORY_TYPES: Record<string, string> = {
 export const MEMORY_STATES: Record<string, string> = { ACTIVE: '保留中', OBSOLETE: '已过期', DELETED: '已删除' }
 export const MEMORY_ENGINE_STATES: Record<string, string> = {
   RETAINED: '已保存至引擎', PENDING_RETAIN: '等待写入', RETAIN_FAILED: '写入失败',
+  NOT_RECALLABLE: '不可保存（引擎未抽取出内容）',
   DELETE_PENDING: '等待从引擎删除', DELETED: '已从引擎删除', DELETE_FAILED: '删除失败',
 }
 export function memoryPreview(item: MemoryItem) {

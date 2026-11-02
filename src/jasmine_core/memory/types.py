@@ -93,7 +93,7 @@ JOB_KINDS: tuple[str, ...] = ("retain", "delete", "invalidate")
 # -- memory item lifecycle (design §9) ----------------------------------------
 ITEM_STATUSES: tuple[str, ...] = ("ACTIVE", "OBSOLETE", "DELETED")
 ENGINE_STATES: tuple[str, ...] = (
-    "PENDING_RETAIN", "RETAINED", "RETAIN_FAILED",
+    "PENDING_RETAIN", "RETAINED", "RETAIN_FAILED", "NOT_RECALLABLE",
     "DELETE_PENDING", "DELETED", "DELETE_FAILED",
 )
 

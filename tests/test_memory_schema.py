@@ -39,6 +39,47 @@ def _write(conn, sql: str, params=()) -> None:
 
 
 class SchemaShape(MemoryTestCase):
+    def test_not_recallable_migration_preserves_retry_backoff(self) -> None:
+        from jasmine_core.migrations import m0016_not_recallable
+
+        project_id = self.project()
+        self.active_decision(project_id=project_id)
+        self.scan()
+        jobs = self.job_store()
+        claimed = jobs.claim_due(owner="migration-test")
+        self.assertIsNotNone(claimed)
+        self.assertEqual(jobs.fail(claimed, error_code="engine_extracted_no_units",
+                                   safe_error_summary="No extracted units"), "PENDING")
+        before = jobs.jobs()[0]
+        # Rebuild and convert a database containing the pre-16 retry state.
+        with db.transaction(self.conn):
+            for statement in m0016_not_recallable.STATEMENTS:
+                self.conn.execute(statement)
+        self.assertEqual(jobs.jobs()[0], before)
+        self.assertEqual(self.store.items()[0]["engine_state"], "RETAIN_FAILED")
+        self.conn.execute("UPDATE memory_jobs SET next_attempt_at='1970-01-01T00:00:00+00:00'")
+        claimed = jobs.claim_due(owner="after-migration")
+        self.assertIsNotNone(claimed)
+        jobs.complete(claimed, receipt={"success": True})
+        self.assertEqual(jobs.jobs()[0]["status"], "DONE")
+        self.assertEqual(self.store.items()[0]["engine_state"], "RETAINED")
+
+    def test_not_recallable_migration_converts_only_exhausted_failures(self) -> None:
+        from jasmine_core.migrations import m0016_not_recallable
+
+        project_id = self.project()
+        self.active_decision(project_id=project_id)
+        self.scan()
+        with db.transaction(self.conn):
+            self.conn.execute("UPDATE memory_items SET engine_state='RETAIN_FAILED',"
+                              " last_error_code='engine_extracted_no_units'")
+            self.conn.execute("UPDATE memory_jobs SET status='FAILED', retry_count=max_attempts,"
+                              " last_error_code='engine_extracted_no_units'")
+            for statement in m0016_not_recallable.STATEMENTS:
+                self.conn.execute(statement)
+        self.assertEqual(self.store.items()[0]["engine_state"], "NOT_RECALLABLE")
+        self.assertEqual(self.job_store().jobs()[0]["status"], "DONE")
+
     def test_the_migration_is_recorded_with_a_checksum(self) -> None:
         records = {row["name"]: row for row in applied_migrations(self.conn)}
         self.assertIn("m0011_memory", records)
@@ -285,7 +326,7 @@ class MigrationFromP1(MemoryTestCase):
         self.assertEqual(applied, ["m0008_resolutions", "m0009_continuity",
                                    "m0010_context", "m0011_memory", "m0012_web_confirmations",
                                    "m0013_host_hooks", "m0014_conversation_processing",
-                               "m0015_observed_memory"])
+                               "m0015_observed_memory", "m0016_not_recallable"])
         self.assertEqual(current_version(self.conn), SCHEMA_VERSION)
         self.assertEqual(
             self.conn.execute("SELECT display_name FROM hosts WHERE host_id=?",
