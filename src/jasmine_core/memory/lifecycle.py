@@ -443,4 +443,6 @@ def describe_engine_claim(item: dict[str, Any], *, invalidated: bool = False) ->
         return "retained in the engine; logical lifecycle state is local"
     if state == "RETAIN_FAILED":
         return "never confirmed as retained by the engine"
+    if state == "NOT_RECALLABLE":
+        return "the engine extracted no memory from this text, so it cannot be recalled"
     return "not yet sent to the engine"

@@ -295,7 +295,7 @@ class MemoryStore:
             "items_obsolete": self.count_items(status="OBSOLETE"),
             "items_deleted": self.count_items(status="DELETED"),
         }
-        for state in ("RETAIN_FAILED", "DELETE_PENDING", "DELETE_FAILED"):
+        for state in ("RETAIN_FAILED", "NOT_RECALLABLE", "DELETE_PENDING", "DELETE_FAILED"):
             row = self._conn.execute(
                 "SELECT COUNT(*) AS n FROM memory_items WHERE engine_state=?", (state,)
             ).fetchone()

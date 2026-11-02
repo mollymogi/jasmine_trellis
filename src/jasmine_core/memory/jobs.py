@@ -74,6 +74,12 @@ MAX_BACKOFF_SECONDS = 3600
 #: retry the same batch in lockstep after an outage.
 JITTER = 0.25
 
+#: Retain errors that end as NOT_RECALLABLE once the attempt budget is spent,
+#: rather than FAILED. The engine accepted the document and extracted no memory
+#: unit from it (ADR 0037). Retrying the same text does not change that, so the
+#: outcome is final, but it is not a failure of the pipeline.
+NOT_RECALLABLE_CODES = frozenset({"engine_extracted_no_units"})
+
 #: Failure classes. Split on whether trying again could plausibly change the
 #: answer, not on the HTTP status, because the worker's decision is "retry or
 #: give up", and a 500 from a saturated engine is worth another attempt while a
@@ -86,8 +92,8 @@ RETRYABLE_CODES = frozenset({
     # is a model call, and a real 0.10.2 deployment was observed returning an empty
     # extraction from a document it had just accepted with `items_count: 1`, so the
     # same content can succeed on a later attempt. `max_attempts` still bounds it:
-    # content the model will never extract ends FAILED and visible, which is the
-    # outcome that was missing when the receipt alone completed the job.
+    # once spent, the item becomes NOT_RECALLABLE (see NOT_RECALLABLE_CODES), which
+    # is recorded, not silently completed.
     "engine_extracted_no_units",
 })
 PERMANENT_CODES = frozenset({
@@ -555,12 +561,18 @@ class JobStore:
         attempts = int(job.job["retry_count"])
         budget = int(job.job["max_attempts"])
         retry = is_retryable(error_code) and attempts < budget
-        status = "PENDING" if retry else "FAILED"
+        # A retain the engine extracted nothing from, with its budget spent, is
+        # final and not a failure: the job completes and the item says why.
+        not_recallable = (not retry and job.job["kind"] == "retain"
+                          and error_code in NOT_RECALLABLE_CODES)
+        status = "PENDING" if retry else ("DONE" if not_recallable else "FAILED")
         next_at = _next_attempt_at(backoff_seconds(attempts, rng=rng), at=stamp) if retry else stamp
         # A soft retire failing changes nothing about what the engine holds, so
         # the item's engine state stays whatever it already was.
         target_state = {"retain": "RETAIN_FAILED", "delete": "DELETE_FAILED"}.get(
             job.job["kind"])
+        if not_recallable:
+            target_state = "NOT_RECALLABLE"
         if error_code == "document_deleted_locally":
             # The item was obsoleted or deleted between the scan and the claim.
             # There is nothing to send and nothing to retry, and the item's
@@ -580,12 +592,19 @@ class JobStore:
                     expected=failure_predecessors(job.job["kind"]),
                     error_code=error_code, safe_error_summary=summary, at=stamp,
                 )
+            # A DONE job carries its reason as a receipt, not as an error, so the
+            # job reads as completed and the item keeps the error it failed with.
             cursor = self._conn.execute(
                 "UPDATE memory_jobs SET status=?, lease_owner=NULL, lease_expires_at=NULL,"
-                " last_error_code=?, safe_error_summary=?, next_attempt_at=?, completed_at=?,"
-                " updated_at=? WHERE job_id=? AND status='RUNNING' AND lease_owner=?"
+                " last_error_code=?, safe_error_summary=?, receipt_json=COALESCE(?, receipt_json),"
+                " next_attempt_at=?,"
+                " completed_at=?, updated_at=? WHERE job_id=? AND status='RUNNING' AND lease_owner=?"
                 " AND claim_generation=?",
-                (status, error_code, summary, next_at, None if retry else stamp, stamp,
+                (status, None if not_recallable else error_code,
+                 None if not_recallable else summary,
+                 canonical_json({"status": "not_recallable", "reason": error_code})
+                 if not_recallable else None,
+                 next_at, None if retry else stamp, stamp,
                  job.job["job_id"], job.job["lease_owner"],
                  int(job.job.get("claim_generation") or 0)),
             )
@@ -901,7 +920,7 @@ class JobStore:
                 # calls deleted, and the retry must be able to record the same
                 # state again rather than fail on a transition it just caused.
                 expected=("DELETE_PENDING", "DELETE_FAILED", "RETAINED", "PENDING_RETAIN",
-                          "RETAIN_FAILED", "DELETED"),
+                          "RETAIN_FAILED", "NOT_RECALLABLE", "DELETED"),
                 receipt=receipt, remote_deleted=True, at=stamp)
             self._finish(job, receipt=receipt, at=stamp)
             self._attempt(job.job["job_id"], self._attempt_number_for(job.job), "DELETED", "SUCCESS",
