@@ -17,6 +17,7 @@ import json
 import os
 import re
 import struct
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -55,7 +56,7 @@ _UUID_RE = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 _HEX_RE = re.compile(r"\b(?:0x[0-9a-f]+|[0-9a-f]{8,})\b", re.I)
 _NUM_RE = re.compile(r"\d+")
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
-_FENCE_RE = re.compile(r"^\s*(```|~~~)")
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 _LINK_RE = re.compile(r"\[[^\]]*\]\([^)]+\)|https?://\S+")
 _TABLE_RE = re.compile(r"^\s*\|.*\|\s*$")
 
@@ -213,34 +214,41 @@ def _fit(header: list[str], sections: list[_Section], budget: int) -> str:
     room. A section that loses lines says how many, so a short digest never
     reads as a complete one.
     """
-    remaining = budget - sum(len(line) + 1 for line in header)
-    for section in sorted(sections, key=lambda s: s.priority):
-        if not section.lines:
-            continue
-        cost = len(section.title) + 4
-        if remaining < cost + 40:
-            continue
-        remaining -= cost
-        for line in (reversed(section.lines) if section.from_end else section.lines):
-            if len(line) + 1 > remaining - 40:
-                break
-            section.kept.append(line)
-            remaining -= len(line) + 1
-        if section.from_end:
-            section.kept.reverse()
-    out = list(header)
-    for section in sections:
-        if not section.kept:
-            if section.lines:
+    def render() -> str:
+        out = list(header)
+        for section in sections:
+            if not section.lines:
+                continue
+            if not section.kept:
                 out.append(f"-- {section.title}: {len(section.lines)} line(s) omitted, {section.omitted_note}")
-            continue
-        out.append(f"-- {section.title}")
-        out.extend(section.kept)
-        missing = len(section.lines) - len(section.kept)
-        if missing:
+                continue
+            out.append(f"-- {section.title}")
+            missing = len(section.lines) - len(section.kept)
             note = f"   … {missing} {'earlier' if section.from_end else 'more'}, {section.omitted_note}"
-            out.insert(len(out) - len(section.kept), note) if section.from_end else out.append(note)
-    return "\n".join(out)
+            if missing and section.from_end:
+                out.append(note)
+            out.extend(section.kept)
+            if missing and not section.from_end:
+                out.append(note)
+        return canonical.redact_text("\n".join(out))
+
+    for section in sections:
+        section.kept.clear()
+    rendered = render()
+    if len(rendered) > budget:
+        raise ValueError(f"digest budget too small for metadata and omission notices (need {len(rendered)} characters)")
+    for section in sorted(sections, key=lambda s: s.priority):
+        for line in (reversed(section.lines) if section.from_end else section.lines):
+            if section.from_end:
+                section.kept.insert(0, line)
+            else:
+                section.kept.append(line)
+            candidate = render()
+            if len(candidate) > budget:
+                section.kept.pop(0 if section.from_end else -1)
+                break
+            rendered = candidate
+    return rendered
 
 
 # -- per kind ----------------------------------------------------------------
@@ -306,15 +314,19 @@ def _log_sections(lines: list[str]) -> tuple[list[str], list[_Section]]:
 
 def _markdown_sections(lines: list[str]) -> tuple[list[str], list[_Section]]:
     outline, lead = [], ""
-    in_fence = False
+    fence_char, fence_length = "", 0
     fences = links = tables = 0
     pending: tuple[int, str] | None = None  # heading still waiting for its first sentence
     for number, line in enumerate(lines, 1):
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
-            fences += 0 if in_fence else 1
+        fence = _FENCE_RE.match(line)
+        if fence_char:
+            if (fence and fence.group(1)[0] == fence_char
+                    and len(fence.group(1)) >= fence_length and not fence.group(2).strip()):
+                fence_char, fence_length = "", 0
+                fences += 1
             continue
-        if in_fence:
+        if fence and not (fence.group(1)[0] == "`" and "`" in fence.group(2)):
+            fence_char, fence_length = fence.group(1)[0], len(fence.group(1))
             continue
         links += len(_LINK_RE.findall(line))
         tables += 1 if _TABLE_RE.match(line) else 0
@@ -421,17 +433,22 @@ def _spill(data: bytes, sha: str, kind: str, out_dir: Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = out_dir / f"{sha[:16]}{_EXTENSIONS[kind]}"
     if not path.exists():
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(data)
-        os.replace(tmp, path)
+        fd, temporary = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=out_dir)
+        tmp = Path(temporary)
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
+            os.replace(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
     return path
 
 
 def digest(data: bytes, *, name: str | None = None, kind: str = "auto", budget: int = DEFAULT_BUDGET,
            out_dir: Path | None = None, spill: bool = True, exit_code: int | None = None) -> Digest:
     """Digest one input. Input within the budget is returned whole."""
+    if budget < 1:
+        raise ValueError("digest budget must be positive")
     sha = hashlib.sha256(data).hexdigest()
     mime = _binary_type(data)
     text = None
@@ -448,12 +465,15 @@ def digest(data: bytes, *, name: str | None = None, kind: str = "auto", budget: 
                 f"sha256={sha[:16]}\n(binary content is described, not read)")
         if raw:
             body += f"\n[raw] {raw}"
+        body = canonical.redact_text(body)
+        if len(body) > budget:
+            raise ValueError(f"digest budget too small for binary metadata (need {len(body)} characters)")
         return Digest("binary", len(data), 0, sha, False, body, str(raw) if raw else None, exit_code, name)
 
     assert text is not None
     lines = text.splitlines()
     chosen = detect_kind(text, name) if kind == "auto" else kind
-    if len(text) <= budget:
+    if len(text) <= budget and len(canonical.redact_text(text)) <= budget:
         return Digest(chosen, len(data), len(lines), sha, True, canonical.redact_text(text),
                       None, exit_code, name)
 
@@ -473,5 +493,5 @@ def digest(data: bytes, *, name: str | None = None, kind: str = "auto", budget: 
     if raw:
         lead.append(f"[raw] {raw}  (full text; open it by line number for anything cut here)")
     rendered = _fit(lead + header, sections, budget)
-    return Digest(chosen, len(data), len(lines), sha, False, canonical.redact_text(rendered),
+    return Digest(chosen, len(data), len(lines), sha, False, rendered,
                   str(raw) if raw else None, exit_code, name)

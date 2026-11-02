@@ -532,6 +532,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "digest":
+            try:
+                return int(args.func(args))
+            except ValueError as exc:
+                _log(f"error: {exc}")
+                return 2
         return int(args.func(args))
     except errors.CoreError as exc:
         # Refusals are a normal outcome, not a crash: one clean line, no traceback.
