@@ -135,10 +135,20 @@ STATEMENTS = (
     # Convert only what the rule matches. The item goes first, so the job update
     # below selects exactly the items it has just changed.
     "UPDATE memory_items SET engine_state='NOT_RECALLABLE'"
-    " WHERE engine_state='RETAIN_FAILED' AND last_error_code='engine_extracted_no_units'",
+    " WHERE engine_state='RETAIN_FAILED' AND last_error_code='engine_extracted_no_units'"
+    " AND EXISTS (SELECT 1 FROM memory_jobs j WHERE j.memory_id=memory_items.memory_id"
+    " AND j.kind='retain' AND j.status='FAILED' AND j.retry_count>=j.max_attempts"
+    " AND j.last_error_code='engine_extracted_no_units')",
     "UPDATE memory_jobs SET status='DONE', last_error_code=NULL, safe_error_summary=NULL,"
     " receipt_json='{\"status\":\"not_recallable\",\"reason\":\"engine_extracted_no_units\"}',"
     " completed_at=updated_at"
-    " WHERE kind='retain' AND status='FAILED' AND last_error_code='engine_extracted_no_units'"
+    " WHERE kind='retain' AND status='FAILED' AND retry_count>=max_attempts"
+    " AND last_error_code='engine_extracted_no_units'"
     " AND memory_id IN (SELECT memory_id FROM memory_items WHERE engine_state='NOT_RECALLABLE')",
+    # Empty extraction is an accepted engine response, not an outage. Preserve
+    # unrelated errors and the timestamps of actual retain/recall successes.
+    "UPDATE memory_engine_status SET last_error_code=NULL, safe_error_summary=NULL"
+    " WHERE last_error_code='engine_extracted_no_units'"
+    " AND NOT EXISTS (SELECT 1 FROM memory_items WHERE engine_state='RETAIN_FAILED'"
+    " AND last_error_code='engine_extracted_no_units')",
 )

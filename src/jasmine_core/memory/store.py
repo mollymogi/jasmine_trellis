@@ -340,6 +340,16 @@ class MemoryStore:
             (at, at, ENGINE_ID),
         )
 
+    def clear_engine_error(self, *, error_code: str, at: str) -> None:
+        """Reconcile an accepted outcome without claiming a retained memory."""
+        from . import ENGINE_ID
+
+        self._conn.execute(
+            "UPDATE memory_engine_status SET last_error_code=NULL, safe_error_summary=NULL,"
+            " updated_at=? WHERE engine_id=? AND last_error_code=?",
+            (at, ENGINE_ID, error_code),
+        )
+
     def note_engine_failure(self, *, error_code: str, safe_error_summary: str,
                             at: str) -> None:
         from . import ENGINE_ID

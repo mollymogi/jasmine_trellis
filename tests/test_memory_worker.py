@@ -458,6 +458,14 @@ class P4sWorkerSpeaksP3sSlotProtocol(EndToEndOverTheWire):
             self.assertEqual(item["engine_state"], "NOT_RECALLABLE")
             self.assertEqual(item["last_error_code"], "engine_extracted_no_units")
 
+        from jasmine_core.memory.health import report
+
+        health = report(self.conn, self.store, self.wire, self.job_store())
+        self.assertIn(health["status"], ("ok", "idle"), health)
+        self.assertFalse(health["degraded"], health)
+        self.assertEqual(health["core_impact"], "none")
+        self.assertIsNone(health["last_error_code"])
+
     def test_a_bank_reports_its_own_failure_not_another_banks(self) -> None:
         """A bank that answered is not stamped with a neighbour's error code.
 

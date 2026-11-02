@@ -617,8 +617,11 @@ class JobStore:
                           "RETRY" if retry else "FAILED",
                           owner=job.job["lease_owner"] or "", at=stamp,
                           error_code=error_code, safe_error_summary=summary)
-            self._store.note_engine_failure(error_code=error_code, safe_error_summary=summary,
-                                            at=stamp)
+            if not_recallable:
+                self._store.clear_engine_error(error_code=error_code, at=stamp)
+            else:
+                self._store.note_engine_failure(error_code=error_code, safe_error_summary=summary,
+                                                at=stamp)
         return status
 
     # -- manual retry ------------------------------------------------------
