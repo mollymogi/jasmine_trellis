@@ -88,6 +88,15 @@ PYTHONPATH=src python3 -m jasmine_core.cli schema
 ./scripts/run-tests.sh          # PYTHON=/path/to/python3 to pick an interpreter
 ```
 
+Long logs, documents and JSON can be digested before an agent reads them
+([ADR 0038](docs/adr/0038-output-digest.md)). No database and no model; the
+full input is kept under `~/.local/share/jasmine-core/digests/`:
+
+```bash
+PYTHONPATH=src python3 -m jasmine_core.cli digest build.log design.md
+PYTHONPATH=src python3 -m jasmine_core.cli digest --run -- ./scripts/run-tests.sh
+```
+
 P1 component acceptance uses a new scratch workspace and database per case:
 
 ```bash
