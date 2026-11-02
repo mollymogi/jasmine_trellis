@@ -112,24 +112,39 @@ def looks_like_credential(text: str) -> bool:
     return isinstance(text, str) and any(p.search(text) for p in _LITERAL_CREDENTIAL_RES)
 
 
-def redact_text(value: str) -> str:
+def redact_text(value: str, *, preserve_lines: bool = False) -> str:
     """Mask credential-shaped substrings in free text destined for logs.
 
     This is the last line of defence, not the first: callers should pass
     metadata rather than raw text. It must nevertheless catch the shapes that
     actually reach a log file, including quoted values inside JSON.
+    `preserve_lines` retains line boundaries for references into an original file.
     """
     if not isinstance(value, str):
         return value
-    value = _PEM_RE.sub(REDACTED, value)
-    value = _BEARER_RE.sub("Bearer " + REDACTED, value)
-    value = _BASIC_RE.sub("Basic " + REDACTED, value)
-    value = _JWT_RE.sub(REDACTED, value)
+    def substitute(pattern, replacement, text):
+        if not preserve_lines:
+            return pattern.sub(replacement, text)
+
+        def mask(match):
+            masked = replacement(match) if callable(replacement) else replacement
+            # Keep every original line boundary, even when a credential spans
+            # many lines. Digest line references must still address the raw file.
+            breaks = r"\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]"
+            return re.sub(breaks, "", masked) + "".join(
+                boundary + REDACTED for boundary in re.findall(breaks, match.group()))
+
+        return pattern.sub(mask, text)
+
+    value = substitute(_PEM_RE, REDACTED, value)
+    value = substitute(_BEARER_RE, "Bearer " + REDACTED, value)
+    value = substitute(_BASIC_RE, "Basic " + REDACTED, value)
+    value = substitute(_JWT_RE, REDACTED, value)
     for pattern in _PROVIDER_TOKEN_RES:
-        value = pattern.sub(REDACTED, value)
-    value = _SK_RE.sub(REDACTED, value)
-    value = _QUOTED_ASSIGNMENT_RE.sub(_mask_assignment, value)
-    value = _BARE_ASSIGNMENT_RE.sub(_mask_assignment, value)
+        value = substitute(pattern, REDACTED, value)
+    value = substitute(_SK_RE, REDACTED, value)
+    value = substitute(_QUOTED_ASSIGNMENT_RE, _mask_assignment, value)
+    value = substitute(_BARE_ASSIGNMENT_RE, _mask_assignment, value)
     return value
 
 

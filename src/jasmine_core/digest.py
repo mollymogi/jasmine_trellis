@@ -471,10 +471,14 @@ def digest(data: bytes, *, name: str | None = None, kind: str = "auto", budget: 
         return Digest("binary", len(data), 0, sha, False, body, str(raw) if raw else None, exit_code, name)
 
     assert text is not None
-    lines = text.splitlines()
+    original_length = len(text)
     chosen = detect_kind(text, name) if kind == "auto" else kind
-    if len(text) <= budget and len(canonical.redact_text(text)) <= budget:
-        return Digest(chosen, len(data), len(lines), sha, True, canonical.redact_text(text),
+    # Mask complete credentials before clipping or inserting section delimiters.
+    # Preserve boundaries so every L-number still refers to the unredacted raw file.
+    text = canonical.redact_text(text, preserve_lines=True)
+    lines = text.splitlines()
+    if original_length <= budget and len(text) <= budget:
+        return Digest(chosen, len(data), len(lines), sha, True, text,
                       None, exit_code, name)
 
     raw = _spill(data, sha, chosen, out_dir or default_dir()) if spill else None

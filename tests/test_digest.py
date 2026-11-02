@@ -108,6 +108,39 @@ class DigestTests(unittest.TestCase):
         self.assertIn(canonical.REDACTED, result.text)
         self.assertIn(token, Path(result.raw_path).read_text())
 
+    def test_multiline_credentials_are_masked_before_sections_and_clipping(self) -> None:
+        material = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo="
+        credentials = [
+            "-----BEGIN PRIVATE KEY-----\n" + (material + "\n") * 150
+            + "-----END PRIVATE KEY-----",
+            'password="\n' + (material + "\n") * 150 + '"',
+        ]
+        for credential in credentials:
+            for kind in ("text", "log", "markdown"):
+                with self.subTest(kind=kind, credential=credential[:30]):
+                    text = credential + "\n\n# After credential\nERROR: public sentinel\n"
+                    result = self._digest(text, kind=kind)
+                    self.assertFalse(result.passthrough)
+                    self.assertNotIn(material[:16], result.text)
+                    self.assertIn(canonical.REDACTED, result.text)
+                    self.assertEqual(Path(result.raw_path).read_text(), text)
+                    self.assertEqual(result.lines, len(text.splitlines()))
+                    if kind == "log":
+                        number = text.splitlines().index("ERROR: public sentinel") + 1
+                        self.assertIn(f"L{number}  ERROR: public sentinel", result.text)
+                    elif kind == "markdown":
+                        number = text.splitlines().index("# After credential") + 1
+                        self.assertIn(f"L{number} # After credential", result.text)
+
+    def test_line_preserving_redaction_keeps_boundaries_at_eof(self) -> None:
+        for separator in ("\n", "\r\n"):
+            text = separator.join(["-----BEGIN PRIVATE KEY-----", "QUJDREVGR0g=",
+                                   "-----END PRIVATE KEY-----"])
+            masked = canonical.redact_text(text, preserve_lines=True)
+            self.assertEqual(len(masked.splitlines()), len(text.splitlines()))
+            self.assertEqual(masked.count(separator), text.count(separator))
+            self.assertNotIn("QUJDREVGR0g=", masked)
+
     def test_a_document_becomes_an_outline_with_line_numbers(self) -> None:
         body = "Filler sentence about nothing in particular. " * 6
         doc = ["# Trellis", "", "Truth store for agent sessions. More text follows.", ""]
