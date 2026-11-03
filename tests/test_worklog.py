@@ -6,6 +6,7 @@ its system key, the hint handler reads the block with its `memory:recall` key.
 import io
 import json
 import shlex
+import subprocess
 import tempfile
 import unittest
 import uuid
@@ -139,6 +140,26 @@ class WorklogHooks(ClaudeCapture):
         self.assertEqual([(r["reason"], r["native_session_id"]) for r in rows], [("RECOVERED", quiet)])
         with patch.object(worklog, "IDLE", timedelta(0)):
             self.assertEqual(self.capture("SessionStart", source="startup")["worklog"]["recovered"], 0)
+
+    def test_recovery_reaches_past_ten_covered_sessions_and_keeps_batch_limit(self):
+        quiet = set()
+        for _ in range(6):
+            self.capture("SessionStart", source="startup")
+            self.turn_of("继续导出预览", "预览已导出。")
+            quiet.add(self.sid)
+            self.new_session()
+        for _ in range(10):
+            self.finished_session()
+            self.new_session()
+        with patch.object(worklog, "IDLE", timedelta(0)):
+            first = self.capture("SessionStart", source="startup")
+            self.assertEqual(first["worklog"]["recovered"], 5, first)
+            second = self.capture("SessionStart", source="startup")
+            self.assertEqual(second["worklog"]["recovered"], 1, second)
+            third = self.capture("SessionStart", source="startup")
+            self.assertEqual(third["worklog"]["recovered"], 0, third)
+        recovered = {r["native_session_id"] for r in self.checkpoints() if r["reason"] == "RECOVERED"}
+        self.assertEqual(recovered, quiet)
 
     # -- B: the resume block -----------------------------------------------------------
 
@@ -286,13 +307,26 @@ class WorklogPieces(unittest.TestCase):
 
     def test_workspace_change_is_described(self):
         then = {"git": True, "branch": "main", "head": "a" * 40, "dirty": ["a.py"], "dirty_count": 1, "complete": True}
-        self.assertEqual(worklog.compare_states(then, dict(then)), "未变")
+        self.assertEqual(worklog.compare_states(then, dict(then)), "已观察的 Git 元数据一致（未比较文件内容）")
         now = {**then, "head": "b" * 40, "dirty": ["a.py", "b.md"], "dirty_count": 2}
         change = worklog.compare_states(then, now)
         self.assertIn("HEAD aaaaaaa → bbbbbbb", change)
         self.assertIn("新增 b.md", change)
         self.assertIsNone(worklog.compare_states(None, now))
         self.assertIn("未能确认", worklog.compare_states(then, {**now, "complete": False}))
+
+    def test_workspace_state_marks_truncated_paths_incomplete(self):
+        for paths in ([f"file-{i}" for i in range(51)], ["x" * 1025]):
+            with self.subTest(paths=len(paths)):
+                output = "# branch.head main\n# branch.oid " + "a" * 40 + "\n"
+                output += "".join(f"? {path}\n" for path in paths)
+                proc = subprocess.CompletedProcess([], 0, stdout=output.encode())
+                with patch.object(worklog_client.subprocess, "run", return_value=proc):
+                    state = worklog_client.workspace_state("/workspace")
+                self.assertFalse(state["complete"])
+                self.assertEqual(state["dirty_count"], len(paths))
+                self.assertLessEqual(len(state["dirty"]), 50)
+                self.assertTrue(all(len(path) <= 1024 for path in state["dirty"]))
 
     def test_prompts_lose_tags_and_pastes(self):
         text = worklog._clean("<pasted_content id=\"1\">长文</pasted_content>看一下&#x20;<ui-state>x</ui-state>", 160)

@@ -66,6 +66,7 @@ def workspace_state(root: str | Path, *, timeout: float = GIT_SECONDS) -> dict[s
     branch = head = None
     dirty: list[str] = []
     count = 0
+    complete = True
     for line in proc.stdout.decode("utf-8", errors="replace").splitlines():
         if line.startswith("# branch.head "):
             branch = line[len("# branch.head "):]
@@ -78,8 +79,12 @@ def workspace_state(root: str | Path, *, timeout: float = GIT_SECONDS) -> dict[s
             count += 1
             if path and len(dirty) < MAX_DIRTY:
                 dirty.append(path[:1024])
+                if len(path) > 1024:
+                    complete = False
+            else:
+                complete = False
     return {"git": True, "branch": branch, "head": head, "dirty": sorted(dirty), "dirty_count": count,
-            "complete": True}
+            "complete": complete}
 
 
 def _system(binding: Binding, timeout: float) -> CoreClient:

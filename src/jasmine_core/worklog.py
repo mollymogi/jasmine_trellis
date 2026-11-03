@@ -139,7 +139,7 @@ def compare_states(then: dict[str, Any] | None, now: dict[str, Any] | None) -> s
         if gone:
             change += f"（不再改动 {', '.join(gone)}）"
         parts.append(change)
-    return "；".join(parts) if parts else "未变"
+    return "；".join(parts) if parts else "已观察的 Git 元数据一致（未比较文件内容）"
 
 
 # -- session records -------------------------------------------------------------
@@ -278,7 +278,9 @@ class WorklogStore:
         now = now or clock.now()
         written = []
         with db.transaction(self.conn):
-            for candidate in self._candidates(family, host_id, now, limit=RECOVER_LIMIT * 2):
+            # Covered, active or excluded sessions must not hide older eligible
+            # sessions. Only successful recoveries count toward RECOVER_LIMIT.
+            for candidate in self._candidates(family, host_id, now, limit=None):
                 if len(written) >= RECOVER_LIMIT:
                     break
                 last = _parse(candidate["last_at"])
@@ -349,7 +351,7 @@ class WorklogStore:
                     found[row["project_id"]] = root
         return found
 
-    def _candidates(self, family: str, host_id: str, now: datetime, *, limit: int,
+    def _candidates(self, family: str, host_id: str, now: datetime, *, limit: int | None,
                     may_read: Callable[[str], bool] | None = None) -> list[dict[str, Any]]:
         projects = self._family_projects(family, may_read)
         if not projects:
@@ -362,7 +364,7 @@ class WorklogStore:
             f" AND e.event_type IN ('user.prompt','assistant.message')"
             f" WHERE s.project_id IN ({marks}) AND s.host_id=?"
             f" GROUP BY s.session_id HAVING MAX(e.occurred_at) >= ?"
-            f" ORDER BY last_at DESC LIMIT ?", (*projects, host_id, cutoff, limit)).fetchall()
+            f" ORDER BY last_at DESC LIMIT ?", (*projects, host_id, cutoff, limit if limit is not None else -1)).fetchall()
         return [{**dict(r), "root": projects[r["project_id"]]} for r in rows]
 
     def recent(self, body: dict[str, Any], *, may_read: Callable[[str], bool],
