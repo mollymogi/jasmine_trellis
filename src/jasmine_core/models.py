@@ -76,6 +76,8 @@ EVENT_TYPES = frozenset({
     "memory.job.retried",
     # ADR 0017: Host Hook Protocol lifecycle reports (source of Task-scoped Checkpoints).
     "host.turn_stopped", "host.compaction_reported",
+    # ADR 0039: written only by Core, beside its `session_checkpoints` row.
+    "session.checkpointed",
 })
 
 WEB_EVENT_TYPES = frozenset({"human.confirmation_prepared", "human.confirmation_submitted"})
@@ -171,6 +173,8 @@ class NewEvent:
         source_system = require(body, "source_system")
         if event_type.startswith("adapter.") or source_system=="core-native-adapter":
             raise errors.InvalidRequest("adapter command namespace is reserved for internal capability endpoints")
+        if event_type == "session.checkpointed":
+            raise errors.InvalidRequest("session.checkpointed is written only by POST /v1/session-checkpoints")
         if (event_type in WEB_EVENT_TYPES or source_system == WEB_SOURCE_SYSTEM or
                 isinstance(body.get("payload"), dict) and
                 body["payload"].get("confirmation_source_kind") == "WEB_STRUCTURED_V1"):

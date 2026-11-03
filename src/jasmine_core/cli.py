@@ -382,6 +382,47 @@ def cmd_digest(args: argparse.Namespace) -> int:
     return status
 
 
+def cmd_worklog(args: argparse.Namespace) -> int:
+    """Print the work record: one session Checkpoint per line, newest first (ADR 0039)."""
+    import re as re_module
+    from datetime import timedelta
+
+    from . import clock
+    from .worklog import AGENT_NAMES, WorklogStore, _when, family_root
+
+    match = re_module.fullmatch(r"([0-9]+)([dh])", args.since)
+    if not match:
+        _log("error: --since takes a count of days or hours, e.g. 7d or 12h")
+        return 2
+    amount = int(match.group(1))
+    since = clock.now() - (timedelta(days=amount) if match.group(2) == "d" else timedelta(hours=amount))
+    family = family_root(str(Path(args.workspace).expanduser().resolve())) if args.workspace else None
+    path = _resolve_db(args.db)
+    conn = db.connect(path)
+    try:
+        check_version(conn)
+        rows = WorklogStore(conn, schema_version=current_version(conn)).list(
+            family=family, since=since, limit=args.limit)
+    finally:
+        conn.close()
+    if args.json:
+        print(json.dumps({"session_checkpoints": rows, "count": len(rows)}, ensure_ascii=False, indent=2))
+        return 0
+    if not rows:
+        print("no work record in this period")
+        return 0
+    for row in rows:
+        record = row["record"]
+        prompts = record.get("prompts") or []
+        print(f"{_when(row['last_activity_at'])}  {AGENT_NAMES.get(row['agent'], row['agent']):6}  "
+              f"{row['reason']:11}  {row['turns']} 轮  {row['workspace_root']}")
+        if prompts:
+            print(f"    最后：{prompts[-1]['text']}")
+        if record.get("tasks"):
+            print("    任务：" + "；".join(record["tasks"][:5]))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="jasmine-core", description="Jasmine Core V1 baseline")
     parser.add_argument("--version", action="version", version=f"jasmine-core {__version__} (schema v{SCHEMA_VERSION})")
@@ -526,6 +567,15 @@ def build_parser() -> argparse.ArgumentParser:
     digest_parser.add_argument("--timeout", type=int, default=600, help="--run only: seconds before the command is stopped")
     digest_parser.add_argument("--json", action="store_true", help="print the digest and its metadata as JSON")
     digest_parser.set_defaults(func=cmd_digest)
+
+    worklog_parser = sub.add_parser(
+        "worklog", help="the work record: what each captured session did, newest first (ADR 0039)")
+    worklog_parser.add_argument("--db", help="path to core.db (or set JASMINE_CORE_DB)")
+    worklog_parser.add_argument("--workspace", help="only this workspace (a worktree counts as its repository)")
+    worklog_parser.add_argument("--since", default="7d", help="how far back: 7d, 12h (default 7d)")
+    worklog_parser.add_argument("--limit", type=int, default=50)
+    worklog_parser.add_argument("--json", action="store_true")
+    worklog_parser.set_defaults(func=cmd_worklog)
     return parser
 
 

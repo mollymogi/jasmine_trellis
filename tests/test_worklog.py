@@ -1,0 +1,315 @@
+"""ADR 0039: the work record (session Checkpoints) and the resume block.
+
+Over a real Core (the Claude capture harness): capture writes the record with
+its system key, the hint handler reads the block with its `memory:recall` key.
+"""
+import io
+import json
+import shlex
+import tempfile
+import unittest
+import uuid
+from contextlib import redirect_stdout
+from datetime import timedelta
+from pathlib import Path
+from unittest.mock import patch
+
+from test_claude_session_capture import ClaudeCapture
+from jasmine_core import auth, clock, cli, db, worklog
+from jasmine_core.capture import claude_session, codex_session, install_claude, memory_hint, worklog_client
+from jasmine_core.hosthook.binding import load_device
+
+
+class WorklogHooks(ClaudeCapture):
+    def setUp(self):
+        super().setUp()
+        conn = db.connect(self.db_path)
+        system = conn.execute("SELECT actor_id FROM api_keys WHERE label='capture'").fetchone()[0]
+        key = auth.Auth(conn).issue_key(actor_id=system, label="memory hint", scopes=["memory:recall"])["token"]
+        conn.close()
+        self.memory_key = self.native_root / "memory.key"
+        self.memory_key.write_text(key)
+        self.memory_key.chmod(0o600)
+        body = json.loads(self.binding_path.read_text())
+        body["memory_key_file"] = str(self.memory_key)
+        self.binding_path.write_text(json.dumps(body))
+        self.binding_path.chmod(0o600)
+        memory_hint.set_enabled(self.binding_path, True)
+        self.device = load_device(self.binding_path)
+
+    # -- helpers ---------------------------------------------------------------
+
+    def capture(self, event, **kwargs):
+        return claude_session.capture_device(self.packet(event, **kwargs), self.device, self.home)
+
+    def turn_of(self, text, reply):
+        self.turn = str(uuid.uuid4())
+        self.typed(text)
+        accepted = self.capture("UserPromptSubmit", prompt=text)
+        self.assertEqual(accepted["status"], "accepted", accepted)
+        self.capture("Stop", last_assistant_message=reply)
+        return accepted
+
+    def new_session(self):
+        """A second Claude session in the same directory."""
+        self.sid = str(uuid.uuid4())
+        self.turn = str(uuid.uuid4())
+        self.transcript = self.folder / (self.sid + ".jsonl")
+        self.transcript.write_text("")
+        self.transcript.chmod(0o600)
+
+    def checkpoints(self):
+        code, page = self.call("GET", "/v1/session-checkpoints", token=self.admin_token)
+        self.assertEqual(code, 200, page)
+        return page["session_checkpoints"]
+
+    def hint(self, event, **kwargs):
+        return claude_session.memory_hint_device(self.packet(event, **kwargs), self.device, self.home)
+
+    def finished_session(self):
+        self.capture("SessionStart", source="startup")
+        self.turn_of("把第四段的转场改成硬切", "已改成硬切，导出在 out/4.mp4。")
+        self.turn_of("再把字幕调大一号", "字幕已调到 48 号。")
+        return self.capture("SessionEnd", reason="other")
+
+    # -- A: the work record ------------------------------------------------------
+
+    def test_session_end_writes_one_checkpoint_of_what_the_session_did(self):
+        ended = self.finished_session()
+        self.assertEqual(ended["worklog"]["status"], "recorded", ended)
+        rows = self.checkpoints()
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual((row["reason"], row["agent"], row["turns"]), ("SESSION_END", "claude", 2))
+        self.assertTrue(row["session_checkpoint_id"].startswith("sck_"))
+        self.assertEqual([p["text"] for p in row["record"]["prompts"]], ["把第四段的转场改成硬切", "再把字幕调大一号"])
+        self.assertEqual(row["record"]["last_reply"], "字幕已调到 48 号。")
+        self.assertEqual(row["record"]["workspace_state"], {"git": False})
+        self.assertEqual(row["family_root"], row["workspace_root"])
+        # Delivered again: the same record, not a second one.
+        again = self.capture("SessionEnd", reason="other")
+        self.assertTrue(again["worklog"]["replayed"])
+        self.assertEqual(len(self.checkpoints()), 1)
+        # Its Event is in the session, written by Core.
+        _, events = self.call("GET", "/v1/events?session_id=" + ended["session_id"], token=self.admin_token)
+        made = [e for e in events["events"] if e["event_type"] == "session.checkpointed"]
+        self.assertEqual(len(made), 1)
+        self.assertEqual(made[0]["payload"]["session_checkpoint_id"], row["session_checkpoint_id"])
+
+    def test_precompact_writes_a_checkpoint_and_no_conversation_event(self):
+        self.capture("SessionStart", source="startup")
+        first = self.turn_of("跑一遍渲染", "渲染完成。")
+        compacted = self.capture("PreCompact", trigger="auto")
+        self.assertEqual(compacted["worklog"]["status"], "recorded", compacted)
+        self.assertEqual([r["reason"] for r in self.checkpoints()], ["PRE_COMPACT"])
+        _, events = self.call("GET", "/v1/events?session_id=" + first["session_id"], token=self.admin_token)
+        self.assertEqual([e["event_type"] for e in events["events"]],
+                         ["session.started", "user.prompt", "assistant.message", "session.checkpointed"])
+
+    def test_a_raw_event_cannot_pose_as_a_checkpoint(self):
+        token = self.key(["events:write"])
+        code, body = self.call("POST", "/v1/events", {
+            "event_type": "session.checkpointed", "source_system": "anything", "host_id": self.device.host_id,
+            "payload": {"text": ""}}, token=token)
+        self.assertEqual(code, 400, body)
+
+    def test_checkpoint_rows_are_append_only(self):
+        self.finished_session()
+        conn = db.connect(self.db_path)
+        try:
+            for statement in ("UPDATE session_checkpoints SET turns=0", "DELETE FROM session_checkpoints"):
+                with self.assertRaises(Exception):
+                    with db.transaction(conn):
+                        conn.execute(statement)
+        finally:
+            conn.close()
+
+    def test_the_next_session_recovers_a_session_that_never_ended(self):
+        self.capture("SessionStart", source="startup")
+        self.turn_of("先导出 480p 预览", "预览已导出。")
+        quiet = self.sid
+        self.new_session()
+        # Not yet idle: it may still be running, so nothing is recovered.
+        started = self.capture("SessionStart", source="startup")
+        self.assertEqual(started["worklog"], {**started["worklog"], "status": "ok", "recovered": 0})
+        with patch.object(worklog, "IDLE", timedelta(0)):
+            started = self.capture("SessionStart", source="startup")
+        self.assertEqual(started["worklog"]["recovered"], 1, started)
+        rows = self.checkpoints()
+        self.assertEqual([(r["reason"], r["native_session_id"]) for r in rows], [("RECOVERED", quiet)])
+        with patch.object(worklog, "IDLE", timedelta(0)):
+            self.assertEqual(self.capture("SessionStart", source="startup")["worklog"]["recovered"], 0)
+
+    # -- B: the resume block -----------------------------------------------------------
+
+    def test_a_new_session_starts_with_what_the_last_one_did(self):
+        self.finished_session()
+        self.new_session()
+        text, receipt = self.hint("SessionStart", source="startup")
+        self.assertEqual((receipt["status"], receipt["trigger"]), ("ok", "session_start"), receipt)
+        self.assertIn("[JASMINE RECENT WORK - NON AUTHORITATIVE]", text)
+        self.assertIn("再把字幕调大一号", text)
+        self.assertIn("字幕已调到 48 号。", text)
+        self.assertIn("已结束", text)
+        self.assertLessEqual(len(text), worklog.BUDGET)
+        # Once per session.
+        text, receipt = self.hint("SessionStart", source="clear")
+        self.assertIsNone(text)
+        self.assertEqual(receipt["reason"], "already_injected")
+
+    def test_resume_and_compact_starts_get_nothing(self):
+        self.finished_session()
+        self.new_session()
+        for source in ("resume", "compact"):
+            with patch.object(worklog_client, "recent") as asked:
+                text, receipt = self.hint("SessionStart", source=source)
+            self.assertIsNone(text)
+            self.assertEqual(receipt["reason"], "not_a_new_session")
+            asked.assert_not_called()
+
+    def test_the_first_prompt_asking_what_was_done_gets_the_block(self):
+        self.finished_session()
+        self.new_session()
+        self.typed("记不记得我刚才在做什么")
+        text, receipt = self.hint("UserPromptSubmit", prompt="记不记得我刚才在做什么")
+        # No verified turn yet, so no Memory hint, but the resume block comes.
+        self.assertEqual(receipt["reason"], "no_verified_turn_in_session")
+        self.assertEqual(receipt["recent_activity"]["trigger"], "prompt")
+        self.assertIn("把第四段的转场改成硬切", text)
+
+    def test_an_ordinary_prompt_gets_no_block(self):
+        self.finished_session()
+        self.new_session()
+        with patch.object(worklog_client, "recent") as asked:
+            text, receipt = self.hint("UserPromptSubmit", prompt="这首歌这次发布到哪个账号？")
+        asked.assert_not_called()
+        self.assertIsNone(text)
+        self.assertNotIn("recent_activity", receipt)
+
+    def test_the_current_session_is_never_its_own_previous_work(self):
+        self.capture("SessionStart", source="startup")
+        self.turn_of("先导出 480p 预览", "预览已导出。")
+        text, receipt = self.hint("SessionStart", source="startup")
+        self.assertIsNone(text)
+        self.assertEqual(receipt["status"], "empty")
+
+    def test_codex_work_in_the_same_directory_is_shown_to_claude(self):
+        codex = self.native_root / "codex.jsonl"
+        codex.write_text(json.dumps({"type": "session_meta", "payload": {
+            "id": "codex-1", "cwd": str(self.native_root), "source": "vscode"}}) + "\n")
+
+        def native(event, **extra):
+            return {"hook_event_name": event, "session_id": "codex-1", "turn_id": "turn-1",
+                    "cwd": str(self.native_root), "transcript_path": str(codex), **extra}
+
+        for packet in (native("SessionStart", source="startup"),
+                       native("UserPromptSubmit", prompt="用 ComfyUI 跑 10 秒的测试"),
+                       native("Stop", last_assistant_message="10 秒测试已提交。")):
+            self.assertEqual(codex_session.capture_device(packet, self.device)["status"], "accepted")
+        text, receipt = self.hint("SessionStart", source="startup")
+        self.assertIn("上一次：Codex", text)
+        self.assertIn("用 ComfyUI 跑 10 秒的测试", text)
+
+    def test_the_hint_main_prints_a_session_start_envelope(self):
+        self.finished_session()
+        self.new_session()
+        receipts = self.native_root / "receipts.jsonl"
+        argv = ["claude-capture", "--device-binding", str(self.binding_path), "--receipts", str(receipts),
+                "--claude-home", str(self.home), "--memory-hint"]
+        out = io.StringIO()
+        with patch("sys.argv", argv), patch("sys.stdin", io.StringIO(json.dumps(self.packet("SessionStart", source="startup")))), \
+                redirect_stdout(out):
+            self.assertEqual(claude_session.main(), 0)
+        printed = json.loads(out.getvalue())["hookSpecificOutput"]
+        self.assertEqual(printed["hookEventName"], "SessionStart")
+        self.assertIn("再把字幕调大一号", printed["additionalContext"])
+        row = json.loads(receipts.read_text().splitlines()[-1])
+        self.assertEqual(row["status"], "recent_activity")
+        self.assertNotIn("再把字幕调大一号", json.dumps(row, ensure_ascii=False))
+
+    def test_installer_registers_precompact_capture_and_the_session_start_hint(self):
+        target = self.home / "settings.json"
+        launcher = self.native_root / "claude-capture.py"
+        launcher.write_text("pass")
+        receipts = self.native_root / "receipts.jsonl"
+        options = {"python": "/usr/bin/python3", "launcher": launcher, "confirmed": True}
+        install_claude.install(self.home, self.binding_path, receipts, **options)
+        install_claude.set_memory_hint(self.home, self.binding_path, receipts, enabled=True, **options)
+        hooks = json.loads(target.read_text())["hooks"]
+        self.assertIn("PreCompact", hooks)
+        start = [h for g in hooks["SessionStart"] for h in g["hooks"]]
+        hint = [h for h in start if h.get("statusMessage") == install_claude.HINT_LABEL]
+        self.assertEqual(len(hint), 1)
+        self.assertNotIn("async", hint[0])
+        self.assertEqual(shlex.split(hint[0]["command"])[-1], "--memory-hint")
+        # Disabling the hint removes it from both events; capture stays.
+        install_claude.set_memory_hint(self.home, self.binding_path, receipts, enabled=False, **options)
+        hooks = json.loads(target.read_text())["hooks"]
+        for event in ("SessionStart", "UserPromptSubmit"):
+            self.assertFalse(any(h.get("statusMessage") == install_claude.HINT_LABEL
+                                 for g in hooks[event] for h in g["hooks"]))
+        install_claude.install(self.home, self.binding_path, receipts, disable=True, **options)
+        self.assertNotIn("hooks", json.loads(target.read_text()))
+
+    def test_worklog_command_lists_the_records(self):
+        self.finished_session()
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(cli.main(["worklog", "--db", str(self.db_path), "--since", "1d",
+                                       "--workspace", str(self.native_root)]), 0)
+        printed = out.getvalue()
+        self.assertIn("SESSION_END", printed)
+        self.assertIn("最后：再把字幕调大一号", printed)
+
+
+class WorklogPieces(unittest.TestCase):
+    def test_a_worktree_belongs_to_its_repository(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, tree, plain = Path(tmp) / "repo", Path(tmp) / "trees" / "x", Path(tmp) / "plain"
+            (repo / ".git" / "worktrees" / "x").mkdir(parents=True)
+            tree.mkdir(parents=True)
+            plain.mkdir()
+            (tree / ".git").write_text(f"gitdir: {repo}/.git/worktrees/x\n")
+            self.assertEqual(worklog.family_root(str(tree)), str(repo))
+            self.assertEqual(worklog.family_root(str(repo)), str(repo))
+            self.assertEqual(worklog.family_root(str(plain)), str(plain))
+
+    def test_intent_matches_questions_about_recent_work_only(self):
+        asks = ["记不记得我刚才在做什么", "我们上次做到哪了", "继续上次的", "刚刚在改什么来着", "进度怎么样",
+                "What was I working on?", "where did we leave off"]
+        not_asks = ["这首歌这次发布到哪个账号？", "/compact", "把进度条改成蓝色，并且在每个阶段结束时显示一次总耗时和剩余时间估计",
+                    "<pasted_content>刚才在做什么</pasted_content>", "刚" * 201, ""]
+        for text in asks:
+            self.assertTrue(worklog_client.asks_about_recent_work(text), text)
+        for text in not_asks:
+            self.assertFalse(worklog_client.asks_about_recent_work(text), text)
+
+    def test_workspace_change_is_described(self):
+        then = {"git": True, "branch": "main", "head": "a" * 40, "dirty": ["a.py"], "dirty_count": 1, "complete": True}
+        self.assertEqual(worklog.compare_states(then, dict(then)), "未变")
+        now = {**then, "head": "b" * 40, "dirty": ["a.py", "b.md"], "dirty_count": 2}
+        change = worklog.compare_states(then, now)
+        self.assertIn("HEAD aaaaaaa → bbbbbbb", change)
+        self.assertIn("新增 b.md", change)
+        self.assertIsNone(worklog.compare_states(None, now))
+        self.assertIn("未能确认", worklog.compare_states(then, {**now, "complete": False}))
+
+    def test_prompts_lose_tags_and_pastes(self):
+        text = worklog._clean("<pasted_content id=\"1\">长文</pasted_content>看一下&#x20;<ui-state>x</ui-state>", 160)
+        self.assertEqual(text, "[粘贴内容] 看一下 [附加内容]")
+
+    def test_the_block_fits_its_budget(self):
+        now = clock.now()
+        at = clock.to_rfc3339(now - timedelta(minutes=5))
+        record = {"session_id": "ses_x", "agent": "codex", "turns": 400, "last_activity_at": at,
+                  "prompts": [{"at": at, "text": "很长的一句话" * 30}] * 8, "tasks": ["任务" * 40] * 8,
+                  "last_reply": "回复" * 400}
+        text = worklog.render([record, record, record], family="/w", now=now)
+        self.assertLessEqual(len(text), worklog.BUDGET)
+        self.assertTrue(text.endswith("[/JASMINE RECENT WORK]"))
+
+
+def load_tests(loader, tests, pattern):
+    suite = unittest.TestSuite(WorklogHooks(name) for name in WorklogHooks.__dict__ if name.startswith("test_"))
+    suite.addTests(loader.loadTestsFromTestCase(WorklogPieces))
+    return suite

@@ -20,7 +20,7 @@ from ..api.client import CoreClient
 from ..canonical import canonical_json
 from ..evidence import _deterministic_event_id
 from ..hosthook.binding import Binding, load_binding, load_device, read_key
-from . import memory_hint
+from . import memory_hint, worklog_client
 
 SOURCE = "codex-native-conversation-v1"
 EVENTS = {"SessionStart": "session.started", "UserPromptSubmit": "user.prompt",
@@ -205,6 +205,18 @@ def main() -> int:
             else:
                 binding = load_binding(args.binding)
                 receipt = capture(native, binding)
+        # ADR 0039: the work record. SessionEnd closes this session's; SessionStart
+        # records the workspace's earlier sessions that never sent one.
+        if (binding is not None and args.device_binding and receipt.get("status") == "accepted"
+                and receipt.get("event_type") in ("session.ended", "session.started")):
+            root = workspace_root(native["cwd"])
+            if receipt["event_type"] == "session.ended":
+                receipt["worklog"] = worklog_client.record(
+                    binding, project_id=receipt["project_id"], native_session_id=receipt["native_session_id"],
+                    reason="SESSION_END", workspace_root=root)
+            else:
+                receipt["worklog"] = worklog_client.recover(
+                    binding, workspace_root=root, native_session_id=receipt["native_session_id"])
         # ADR 0036: only a prompt Core has just accepted as the user's may get a
         # Memory hint, and only when this device opted in. Never raises.
         if (binding is not None and binding.memory_hint and receipt.get("status") == "accepted"

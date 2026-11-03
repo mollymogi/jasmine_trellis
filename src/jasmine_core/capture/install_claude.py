@@ -1,14 +1,22 @@
-"""Install/remove only Jasmine's four user-level Claude Code handlers."""
+"""Install/remove only Jasmine's own user-level Claude Code handlers.
+
+Capture: SessionStart, UserPromptSubmit (async), Stop, SessionEnd and PreCompact.
+The Memory hint, when opted in, is one more synchronous handler registered on
+UserPromptSubmit and SessionStart (ADR 0036, 0039).
+"""
 from __future__ import annotations
 import argparse,fcntl,json,os,shlex,sys
 from pathlib import Path
 from ..hosthook.binding import load_device,read_key,_private_bytes
 from ..hosthook.install import InstallError,_backup,_write
-from .grok_session import EVENTS
+from .claude_session import CLAUDE_EVENTS
 from . import memory_hint
 LABEL='Jasmine daily Claude conversation capture'
 #: ADR 0036: a separate synchronous handler; capture's own stays async.
 HINT_LABEL='Jasmine Memory hint for Claude'
+#: The hint handler answers a prompt (Memory hint, resume block on request) and a
+#: new session (resume block). Both are synchronous; Claude drops async output.
+HINT_EVENTS=('UserPromptSubmit','SessionStart')
 
 def _owned_hint(h):
     if not isinstance(h,dict) or h.get('statusMessage')!=HINT_LABEL:return False
@@ -28,24 +36,28 @@ def set_memory_hint(home,binding,receipts,*,python,launcher,enabled,confirmed=Fa
         original=target.read_bytes() if target.exists() else None
         doc=json.loads(original) if original else {}
         if not isinstance(doc,dict) or not isinstance(doc.get('hooks',{}),dict):raise InstallError('invalid Claude settings')
-        hooks=doc.setdefault('hooks',{});groups=hooks.get('UserPromptSubmit',[])
-        if not isinstance(groups,list):raise InstallError('invalid Claude hook groups')
-        if enabled and not any(isinstance(g,dict) and any(isinstance(h,dict) and h.get('statusMessage')==LABEL for h in g.get('hooks',[])) for g in groups):
+        hooks=doc.setdefault('hooks',{})
+        prompt_groups=hooks.get('UserPromptSubmit',[])
+        if not isinstance(prompt_groups,list):raise InstallError('invalid Claude hook groups')
+        if enabled and not any(isinstance(g,dict) and any(isinstance(h,dict) and h.get('statusMessage')==LABEL for h in g.get('hooks',[])) for g in prompt_groups):
             raise InstallError('enable conversation capture before the Memory hint')
         handler={'type':'command','command':shlex.join([python,'-I','-B',str(launcher.resolve(strict=True)),'--device-binding',str(binding.resolve(strict=True)),
             '--receipts',str(receipts.absolute()),'--claude-home',str(home.resolve(strict=True)),'--memory-hint']),'timeout':3,'statusMessage':HINT_LABEL}
-        current=[h for g in groups if isinstance(g,dict) and isinstance(g.get('hooks'),list) for h in g['hooks'] if _owned_hint(h)]
-        if enabled and current==[handler]:
-            kept=groups  # already exactly as wanted; keep its position
-        else:
-            kept=[]
-            for group in groups:
-                if not isinstance(group,dict) or not isinstance(group.get('hooks'),list):raise InstallError('invalid Claude hook handlers')
-                remaining=[h for h in group['hooks'] if not _owned_hint(h)]
-                if remaining:kept.append({**group,'hooks':remaining})
-            if enabled:kept.append({'hooks':[handler]})
-        if kept:hooks['UserPromptSubmit']=kept
-        else:hooks.pop('UserPromptSubmit',None)
+        for event in HINT_EVENTS:
+            groups=hooks.get(event,[])
+            if not isinstance(groups,list):raise InstallError('invalid Claude hook groups')
+            current=[h for g in groups if isinstance(g,dict) and isinstance(g.get('hooks'),list) for h in g['hooks'] if _owned_hint(h)]
+            if enabled and current==[handler]:
+                kept=groups  # already exactly as wanted; keep its position
+            else:
+                kept=[]
+                for group in groups:
+                    if not isinstance(group,dict) or not isinstance(group.get('hooks'),list):raise InstallError('invalid Claude hook handlers')
+                    remaining=[h for h in group['hooks'] if not _owned_hint(h)]
+                    if remaining:kept.append({**group,'hooks':remaining})
+                if enabled:kept.append({'hooks':[handler]})
+            if kept:hooks[event]=kept
+            else:hooks.pop(event,None)
         if not hooks:doc.pop('hooks',None)
         # Turn the opt-in on only after the handler exists, and off before removing it.
         flag=memory_hint.set_enabled(binding,False) if not enabled else False
@@ -74,7 +86,7 @@ def install(home,binding,receipts,*,python,launcher,confirmed=False,disable=Fals
         hooks=doc.setdefault('hooks',{})
         command=shlex.join([python,'-I','-B',str(launcher.resolve(strict=True)),'--device-binding',str(binding.resolve(strict=True)),
             '--receipts',str(receipts.absolute()),'--claude-home',str(home.resolve(strict=True))])
-        for event in EVENTS:
+        for event in CLAUDE_EVENTS:
             groups=hooks.get(event,[])
             if not isinstance(groups,list):raise InstallError('invalid Claude hook groups')
             kept=[]
