@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
 from typing import Any
 
 from ..api.client import CoreClient
@@ -27,6 +28,8 @@ EVENTS = {"SessionStart": "session.started", "UserPromptSubmit": "user.prompt",
           "Stop": "assistant.message", "SessionEnd": "session.ended"}
 
 PROJECT_SOURCE = SOURCE + "-workspace"
+#: Of the hint budget, the most the resume block may take on a prompt that asks for it.
+RECENT_SECONDS = 0.8
 
 
 def workspace_root(cwd: str) -> Path:
@@ -217,6 +220,29 @@ def main() -> int:
             else:
                 receipt["worklog"] = worklog_client.recover(
                     binding, workspace_root=root, native_session_id=receipt["native_session_id"])
+        # ADR 0039 B: the resume block. A new Codex session in the same workspace
+        # learns what was last done there, by Codex or any other agent; so does a
+        # prompt that asks about recent work. Same opt-in and key as the hint.
+        recent = None
+        if (binding is not None and args.device_binding and binding.memory_hint
+                and receipt.get("status") == "accepted"):
+            trigger = None
+            if receipt.get("event_type") == "session.started" and native.get("source") in ("startup", "clear"):
+                trigger, seconds = "session_start", memory_hint.BUDGET_SECONDS
+            elif (receipt.get("event_type") == "user.prompt"
+                  and worklog_client.asks_about_recent_work(native.get("prompt"))):
+                trigger, seconds = "prompt", RECENT_SECONDS
+            if trigger:
+                sid = receipt["native_session_id"]
+                if worklog_client.injected_recently(binding.spool_dir, sid):
+                    receipt["recent_activity"] = {"status": "skipped", "reason": "already_injected", "trigger": trigger}
+                else:
+                    recent, answer = worklog_client.recent(
+                        binding, workspace_root=workspace_root(native["cwd"]), native_session_id=sid,
+                        deadline=time.monotonic() + seconds)
+                    receipt["recent_activity"] = {**answer, "trigger": trigger}
+                    if recent:
+                        worklog_client.mark_injected(binding.spool_dir, sid, trigger)
         # ADR 0036: only a prompt Core has just accepted as the user's may get a
         # Memory hint, and only when this device opted in. Never raises.
         if (binding is not None and binding.memory_hint and receipt.get("status") == "accepted"
@@ -224,6 +250,7 @@ def main() -> int:
             hint, receipt["memory_hint"] = memory_hint.request(
                 binding, project_id=receipt["project_id"], native_session_id=receipt["native_session_id"],
                 session_id=receipt["session_id"], prompt=native["prompt"])
+        hint = "\n\n".join(t for t in (recent, hint) if t) or None
     except Exception as exc:  # no bearer, message text or raw HTTP body in stderr
         receipt = {"status": "failed", "error_type": type(exc).__name__,
                    "native_hook_event": native.get("hook_event_name"),
@@ -234,7 +261,8 @@ def main() -> int:
     if native.get("hook_event_name") == "Stop":
         print("{}")
     elif hint is not None:
-        print(memory_hint.envelope(hint))
+        event = "SessionStart" if native.get("hook_event_name") == "SessionStart" else "UserPromptSubmit"
+        print(worklog_client.envelope(event, hint))
     return 1 if receipt["status"] == "failed" else 0
 
 

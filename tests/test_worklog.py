@@ -231,6 +231,60 @@ class WorklogHooks(ClaudeCapture):
         self.assertIn("上一次：Codex", text)
         self.assertIn("用 ComfyUI 跑 10 秒的测试", text)
 
+    def codex_main(self, event, cwd=None, **extra):
+        """Codex's real capture entry point, as its synchronous hook runs it."""
+        cwd = Path(cwd or self.native_root)
+        transcript = cwd / "codex-session.jsonl"
+        if not transcript.exists():
+            transcript.write_text(json.dumps({"type": "session_meta", "payload": {
+                "id": "codex-1", "cwd": str(cwd), "source": "vscode"}}) + "\n")
+        native = {"hook_event_name": event, "session_id": "codex-1", "turn_id": str(uuid.uuid4()),
+                  "cwd": str(cwd), "transcript_path": str(transcript), **extra}
+        receipts = self.native_root / "codex-receipts.jsonl"
+        argv = ["capture", "--device-binding", str(self.binding_path), "--receipts", str(receipts)]
+        out = io.StringIO()
+        with patch("sys.argv", argv), patch("sys.stdin", io.StringIO(json.dumps(native))), redirect_stdout(out):
+            code = codex_session.main()
+        row = json.loads(receipts.read_text().splitlines()[-1])
+        return code, out.getvalue(), row
+
+    def test_a_new_codex_session_learns_what_this_claude_session_did(self):
+        self.finished_session()
+        code, out, row = self.codex_main("SessionStart", source="startup")
+        self.assertEqual(code, 0, row)
+        printed = json.loads(out)["hookSpecificOutput"]
+        self.assertEqual(printed["hookEventName"], "SessionStart")
+        self.assertIn("上一次：Claude", printed["additionalContext"])
+        self.assertIn("再把字幕调大一号", printed["additionalContext"])
+        self.assertEqual(row["recent_activity"]["trigger"], "session_start")
+        self.assertNotIn("再把字幕调大一号", json.dumps(row, ensure_ascii=False))
+        # A resumed Codex session gets nothing.
+        _, out, row = self.codex_main("SessionStart", source="resume")
+        self.assertEqual(out, "")
+        self.assertNotIn("recent_activity", row)
+
+    def test_a_codex_prompt_asking_what_was_done_gets_the_block(self):
+        self.finished_session()
+        self.codex_main("SessionStart", source="resume")
+        _, out, row = self.codex_main("UserPromptSubmit", prompt="我刚才在做什么")
+        context = json.loads(out)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("把第四段的转场改成硬切", context)
+        self.assertEqual(row["recent_activity"]["trigger"], "prompt")
+        # An ordinary prompt gets no block.
+        with patch.object(worklog_client, "recent") as asked:
+            self.codex_main("UserPromptSubmit", prompt="这首歌这次发布到哪个账号？")
+        asked.assert_not_called()
+
+    def test_a_repository_inside_the_workspace_sees_the_workspace_session(self):
+        """Claude started in a plain folder; Codex opens the git repository inside it."""
+        self.finished_session()
+        repo = self.native_root / "repo"
+        (repo / ".git").mkdir(parents=True)
+        _, out, row = self.codex_main("SessionStart", cwd=repo, source="startup")
+        context = json.loads(out)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("再把字幕调大一号", context)
+        self.assertIn(f"上一次的会话在 {self.native_root.resolve()}", context)
+
     def test_the_hint_main_prints_a_session_start_envelope(self):
         self.finished_session()
         self.new_session()
@@ -294,6 +348,20 @@ class WorklogPieces(unittest.TestCase):
             self.assertEqual(worklog.family_root(str(tree)), str(repo))
             self.assertEqual(worklog.family_root(str(repo)), str(repo))
             self.assertEqual(worklog.family_root(str(plain)), str(plain))
+
+    def test_nearby_folders_share_the_block_within_two_levels(self):
+        with tempfile.TemporaryDirectory(dir=Path.home()) as tmp:
+            base = Path(tmp).resolve()
+            for path in (base / "a" / "b" / "c",):
+                path.mkdir(parents=True)
+            self.assertTrue(worklog.related(str(base), str(base / "a")))
+            self.assertTrue(worklog.related(str(base), str(base / "a" / "b")))
+            self.assertFalse(worklog.related(str(base), str(base / "a" / "b" / "c")))
+            self.assertTrue(worklog.related(str(base / "a" / "b"), str(base)))
+            self.assertFalse(worklog.related(str(base / "a"), str(base / "elsewhere")))
+        # A session started in the home directory (or above) is nobody's previous work.
+        self.assertFalse(worklog.related(str(Path.home()), str(Path.home() / "x")))
+        self.assertFalse(worklog.related(str(Path.home().parent), str(Path.home() / "x")))
 
     def test_intent_matches_questions_about_recent_work_only(self):
         asks = ["记不记得我刚才在做什么", "我们上次做到哪了", "继续上次的", "刚刚在改什么来着", "进度怎么样",
