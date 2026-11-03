@@ -387,7 +387,8 @@ def hint(request: Request, core: "Core", principal: auth.Principal,
     svc.access.require(project_id=project_id, actor_id=principal.actor_id)
     transport = svc.transport
     if transport is not None and hasattr(transport, "with_timeout"):
-        transport = transport.with_timeout(hint_module.ENGINE_SECONDS)
+        transport = transport.with_timeout(hint_module.ENGINE_SECONDS,
+                                           recall_budget=hint_module.ENGINE_RECALL_BUDGET)
     adapter = MemoryAdapter(svc.conn, svc.store, transport, mode=svc.mode,
                             schema_version=svc.schema_version)
     result = hint_module.build(adapter, svc.store, svc.hint_ledger, actor_id=principal.actor_id,

@@ -260,6 +260,31 @@ stated plainly:
 * Subagent packets, other workspaces and unreadable or non-private state still
   get nothing.
 
+### Amendment 2026-11-03: the hint asks for a cheaper recall
+
+Measured on local-item6: from 2026-11-02 nearly every Codex hint in the videoMake
+Codex project ended `degraded / engine_timeout` (138 of 154 that day, 15 of 15 the
+next morning), while other projects on the same engine answered. Recall time
+followed bank size: a 10-unit bank answered in 32 ms, a 175-unit bank in about
+510 ms, that 300-unit bank in 1.03–1.24 s. Hindsight's own phase log put
+retrieval at about 7 ms and the cross-encoder rerank (FlashRank
+`ms-marco-MiniLM-L-12-v2`, CPU) at about 6.7 ms per candidate: 158 candidates,
+about 1.06 s, past `ENGINE_SECONDS` (1.0 s) on every prompt. Filters and
+`max_tokens` did not change it.
+
+Hindsight 0.10.2 caps the rerank candidates per recall budget level
+(`HINDSIGHT_API_RERANKER_MAX_CANDIDATES_{LOW,MID,HIGH}`; unset levels share the
+flat cap, default 300). The hint therefore sends `budget: "low"`
+(`hint.ENGINE_RECALL_BUDGET`), and the operator sets
+`HINDSIGHT_API_RERANKER_MAX_CANDIDATES_LOW` (60 on local-item6, about 0.4 s
+estimated). Until the operator sets it, `low` uses the flat cap: recall time is
+then what Hindsight's own `low` level gives, measured at about 0.83 s on that
+bank. Context Pack and Dashboard recalls send no budget and keep the
+engine default.
+
+The reranker model is trained on English; how much its ordering adds for
+Chinese prompts is not measured here.
+
 ## Alternatives considered
 
 * **P3 slot only.** Reaches only Task-bound sessions (fact 2). Kept as phase B.
