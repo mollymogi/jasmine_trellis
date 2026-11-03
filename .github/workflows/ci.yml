@@ -112,7 +112,15 @@ jobs:
       - name: Test suite
         env:
           PYTHON: python
-        run: ./scripts/run-tests.sh
+        run: python scripts/ci-test-diagnostics.py
+
+      - name: Preserve test suite diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-suite-diagnostics-${{ matrix.os }}-py${{ matrix.python }}
+          path: ${{ runner.temp }}/test-suite-diagnostics.log
+          if-no-files-found: warn
 
       - name: The acceptance runner executes and reports BLOCKED, not PASS
         env:

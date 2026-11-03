@@ -13,4 +13,13 @@ if sys.version_info < (3, 11):
 '
 
 cd "$ROOT"
+if [[ "${JASMINE_CI_TEST_DIAGNOSTICS:-}" == "1" ]]; then
+    PYTHONPATH="$ROOT/src:$ROOT/tests" "$PY" -u -c '
+import faulthandler, runpy
+faulthandler.enable()
+faulthandler.dump_traceback_later(60, repeat=True)
+runpy.run_module("unittest", run_name="__main__")
+' discover -s tests -t tests -v "$@"
+    exit $?
+fi
 PYTHONPATH="$ROOT/src:$ROOT/tests" "$PY" -m unittest discover -s tests -t tests -v "$@"
