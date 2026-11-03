@@ -177,6 +177,21 @@ class Wire(unittest.TestCase):
         self.assertEqual(results[0].engine_fact_type, "experience")
         self.assertIsNotNone(results[0].score)
 
+    def test_only_a_hint_transport_asks_for_a_cheaper_recall(self) -> None:
+        recall = {"bank": self.bank, "query": "seeded", "max_tokens": 100,
+                  "fact_types": ("world",), "tags": ()}
+        self.transport.recall(**recall)
+        self.assertNotIn("budget", self.server.httpd.recall_bodies[-1][1])
+        quick = self.transport.with_timeout(0.5, recall_budget="low")
+        quick.recall(**recall)
+        self.assertEqual(self.server.httpd.recall_bodies[-1][1]["budget"], "low")
+        self.assertEqual(quick.config.timeout_seconds, 0.5)
+        # The quicker transport is a copy; the original still asks for nothing.
+        self.transport.recall(**recall)
+        self.assertNotIn("budget", self.server.httpd.recall_bodies[-1][1])
+        with self.assertRaises(ValueError):
+            self.transport.with_timeout(0.5, recall_budget="cheap")
+
     def test_an_oversized_query_is_refused_locally_not_by_the_engine(self) -> None:
         with self.assertRaises(TransportError) as caught:
             self.transport.recall(bank=self.bank, query="x" * (hindsight.MAX_QUERY_CHARS + 1),

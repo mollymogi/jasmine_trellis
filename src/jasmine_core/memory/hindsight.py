@@ -87,6 +87,10 @@ TIMEOUT_ENV_VAR = "JASMINE_HINDSIGHT_TIMEOUT_SECONDS"
 API_PREFIX_ENV_VAR = "JASMINE_HINDSIGHT_API_PREFIX"
 
 DEFAULT_API_PREFIX = "/v1/default"
+#: Hindsight's recall budget levels. Each has its own reranker candidate cap
+#: (`HINDSIGHT_API_RERANKER_MAX_CANDIDATES_<LEVEL>`); unset levels share the
+#: flat cap, so sending a level changes nothing until the operator sets one.
+RECALL_BUDGETS = ("low", "mid", "high")
 DEFAULT_TIMEOUT_SECONDS = 20.0
 
 #: A recall answer larger than this is a remote anomaly, not a memory. Reading
@@ -256,8 +260,11 @@ class HindsightTransport:
 
     engine_id = ENGINE_ID
 
-    def __init__(self, config: HindsightConfig) -> None:
+    def __init__(self, config: HindsightConfig, *, recall_budget: str | None = None) -> None:
+        if recall_budget is not None and recall_budget not in RECALL_BUDGETS:
+            raise ValueError(f"recall_budget must be one of {', '.join(RECALL_BUDGETS)}")
         self._config = config
+        self._recall_budget = recall_budget
         # A dedicated opener so the no-redirect rule and the timeout apply to
         # every engine call and to nothing else in the process.
         self._opener = _strict_opener()
@@ -266,17 +273,20 @@ class HindsightTransport:
     def config(self) -> HindsightConfig:
         return self._config
 
-    def with_timeout(self, seconds: float) -> "HindsightTransport":
+    def with_timeout(self, seconds: float, *, recall_budget: str | None = None) -> "HindsightTransport":
         """A transport to the same engine whose calls give up sooner.
 
         For the prompt-time hint (ADR 0036), which must answer inside the
         Agent's hook budget; never longer than the operator's own timeout.
+        `recall_budget` asks the engine for a cheaper recall as well: Hindsight
+        caps the cross-encoder candidates per budget level, and reranking is
+        where the time goes on a large bank (ADR 0036 amendment, 2026-11-03).
         """
         config = object.__new__(HindsightConfig)
         for name in HindsightConfig.__slots__:
             setattr(config, name, getattr(self._config, name))
         config.timeout_seconds = min(self._config.timeout_seconds, float(seconds))
-        return HindsightTransport(config)
+        return HindsightTransport(config, recall_budget=recall_budget)
 
     # -- low level ---------------------------------------------------------
 
@@ -543,6 +553,8 @@ class HindsightTransport:
         }
         if fact_types:
             body["types"] = list(fact_types)
+        if self._recall_budget is not None:
+            body["budget"] = self._recall_budget
         if tags:
             # `any` includes untagged rows; `any_strict` would drop them. An
             # untagged row is suspicious and is filtered locally as

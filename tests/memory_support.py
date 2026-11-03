@@ -530,8 +530,12 @@ class _StubHandler(BaseHTTPRequestHandler):
         }
 
     def _recall(self, bank: str, body: dict[str, Any]) -> None:
+        self.server.recall_bodies.append((bank, body))
         if bank in getattr(self.server, "failing_banks", ()):  # per-bank outage
             return self._send(503, {"detail": f"bank {bank} unavailable"})
+        # 0.10.2 validates the level; an unknown one is a 422, not a default.
+        if "budget" in body and body["budget"] not in ("low", "mid", "high"):
+            return self._send(422, {"detail": "budget must be low, mid or high"})
         query = body.get("query")
         if not isinstance(query, str) or not query:
             return self._send(422, {"detail": "query is required"})
@@ -584,6 +588,9 @@ class StubHindsightServer:
         self.httpd.documents: dict[tuple[str, str], dict[str, Any]] = {}
         self.httpd.unit_counter = 0
         self.httpd.reflect_calls: list[tuple[str, Any]] = []
+        #: Every recall body, so a test can see what the engine was asked for
+        #: (the budget level decides the reranker's candidate cap).
+        self.httpd.recall_bodies: list[tuple[str, dict[str, Any]]] = []
         self.httpd.unreachable = False
         #: How many memory units one retained document extracts into. Real
         #: Hindsight 0.10.2 extracts *several* facts from one document, every one

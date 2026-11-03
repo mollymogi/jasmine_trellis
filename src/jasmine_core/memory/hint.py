@@ -26,6 +26,12 @@ MAX_ITEMS = 5
 MAX_TOKENS = 400
 MAX_ITEM_CHARS = 300
 ENGINE_SECONDS = 1.0
+#: The hint asks for Hindsight's `low` recall. On local-item6 the cross-encoder
+#: rerank took ~6.7 ms per candidate on CPU, and a 300-unit bank produced 158
+#: candidates (~1.06 s), past ENGINE_SECONDS on every prompt since 2026-11-02.
+#: The operator sets `HINDSIGHT_API_RERANKER_MAX_CANDIDATES_LOW` to bound it;
+#: Context Pack and Dashboard recalls keep the default level.
+ENGINE_RECALL_BUDGET = "low"
 MIN_PROMPT_CHARS = 6
 MAX_QUERY_CHARS = 2000
 MAX_PROMPT_CHARS = 65536

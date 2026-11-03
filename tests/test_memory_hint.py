@@ -246,5 +246,33 @@ class Endpoint(MemoryApiTestCase):
         self.assertEqual(other["status"], "ok", other)
 
 
+    def test_the_hint_asks_the_engine_for_the_low_recall_budget(self):
+        """Reranking dominates recall time on a large bank; the hint asks for
+        Hindsight's `low` level, whose candidate cap the operator sets."""
+        from unittest.mock import PropertyMock, patch
+
+        from memory_support import StubHindsightServer
+
+        from jasmine_core.memory.api import MemoryServices
+        from jasmine_core.memory.hindsight import HindsightConfig, HindsightTransport
+
+        server = StubHindsightServer()
+        self.addCleanup(server.stop)
+        from jasmine_core.memory import scope
+
+        transport = HindsightTransport(HindsightConfig(server.base_url, timeout_seconds=5))
+        # The engine creates a bank on its first retain; recall needs one to exist.
+        transport.retain(bank=scope.project_bank(self.project_id), document_id="seeded",
+                         content="就用 v3 版本。", context="", metadata={}, tags=(),
+                         memory_type="CONFIRMED_DECISION", timestamp=None)
+        with patch.object(MemoryServices, "transport", new_callable=PropertyMock, return_value=transport):
+            status, body = self.call("POST", "/v1/memory/hint", self.body(), token=self.recaller)
+        self.assertEqual(status, 200, body)
+        sent = [b for _, b in server.httpd.recall_bodies]
+        self.assertTrue(sent)
+        self.assertEqual({b.get("budget") for b in sent}, {hint.ENGINE_RECALL_BUDGET})
+        self.assertEqual(hint.ENGINE_RECALL_BUDGET, "low")
+
+
 if __name__ == "__main__":
     unittest.main()
