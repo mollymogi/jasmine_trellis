@@ -12,10 +12,13 @@ from datetime import datetime,timezone
 from pathlib import Path
 from ..hosthook.binding import load_device,_private_bytes
 from ..hosthook.install import _write
-from .codex_session import append_receipt
+from .codex_session import append_receipt,workspace_root
 from .grok_session import EVENTS,valid_id,bind_workspace,_publish
-from . import memory_hint
+from . import memory_hint,worklog_client
 SOURCE='claude-native-conversation-v1'
+#: Capture handles one more native event than it publishes: PreCompact writes a
+#: session Checkpoint (ADR 0039) and no conversation Event.
+CLAUDE_EVENTS={**EVENTS,'PreCompact':None}
 # Observed native entrypoint/source pairs. Desktop Code uses the SDK transport
 # even for a human submission; a generic SDK invocation is not human evidence.
 HUMAN_INPUT_SOURCES={('cli','typed'),('claude-desktop','sdk')}
@@ -118,7 +121,7 @@ def _wait(probe):
 
 def _native(native,home):
     event=native.get('hook_event_name')
-    if event not in EVENTS or any(native.get(k) for k in ('agent_id','agent_type','subagent_id','subagent_type')):return None
+    if event not in CLAUDE_EVENTS or any(native.get(k) for k in ('agent_id','agent_type','subagent_id','subagent_type')):return None
     sid=native.get('session_id');cwd=native.get('cwd');turn=native.get('prompt_id')
     if not valid_id(sid) or not isinstance(cwd,str) or not Path(cwd).is_absolute():raise ValueError('invalid native identity')
     cwd=Path(cwd).resolve(strict=True)
@@ -158,7 +161,11 @@ def capture_device(native,device,claude_home):
             # A fresh main session may not yet have any persisted typed input.
             n['timestamp']=now;n['timestamp_source']='hook_observation';state['start']=n
             _save_state(path,state)
-            return {'status':'pending','reason':'awaiting_native_user_input','native_session_id':n['sid']}
+            receipt={'status':'pending','reason':'awaiting_native_user_input','native_session_id':n['sid']}
+            # ADR 0039: the workspace's earlier sessions that closed without a
+            # SessionEnd are recorded now, by the session that follows them.
+            receipt['worklog']=worklog_client.recover(device,workspace_root=workspace_root(n['cwd']),native_session_id=n['sid'])
+            return receipt
         if n['event']=='UserPromptSubmit':
             digest=hashlib.sha256(n['text'].encode()).hexdigest()
             stamp=state['turns'].get(n['turn'])
@@ -200,7 +207,15 @@ def capture_device(native,device,claude_home):
         if 'start' in state:
             _publish(state['start'],binding,origin,source=SOURCE,agent='claude')
             del state['start'];_save_state(path,state)
+        if n['event']=='PreCompact':
+            return {'status':'accepted','agent':'claude','native_hook_event':'PreCompact','native_session_id':n['sid'],
+                    'project_id':binding.project_id,
+                    'worklog':worklog_client.record(binding,project_id=binding.project_id,native_session_id=n['sid'],
+                                                    reason='PRE_COMPACT',workspace_root=workspace_root(state['cwd']))}
         receipt=_publish(n,binding,origin,source=SOURCE,agent='claude')
+        if n['event']=='SessionEnd':
+            receipt['worklog']=worklog_client.record(binding,project_id=binding.project_id,native_session_id=n['sid'],
+                                                     reason='SESSION_END',workspace_root=workspace_root(state['cwd']))
         pending=state.get('pending_stops',{}).get(n['turn']) if n['event']=='UserPromptSubmit' else None
         if pending:
             pending['timestamp']=n['timestamp'];pending['timestamp_source']='native_typed_prompt'
@@ -243,29 +258,67 @@ def _session_verified(device,n):
         return None
     return (verified[-1],state['cwd']) if verified else None
 
+def _session_root(device,n):
+    """The session's starting directory if capture recorded one, else this event's."""
+    path=device.spool_dir/'claude-sessions'/(n['sid']+'.json')
+    try:
+        if not path.is_symlink() and path.is_file():
+            state=_read_state(path)
+            if isinstance(state,dict) and _within(n['cwd'],state.get('cwd')):return workspace_root(state['cwd'])
+    except Exception:
+        pass
+    return workspace_root(n['cwd'])
+
+#: Of the hint budget, the most the resume block may take on a prompt that asks for it.
+RECENT_SECONDS=0.8
+
+def _recent(n,device,trigger,deadline):
+    """The resume block (ADR 0039 B), at most once per session within its window."""
+    spool=device.spool_dir
+    if worklog_client.injected_recently(spool,n['sid']):return None,{'status':'skipped','reason':'already_injected','trigger':trigger}
+    text,receipt=worklog_client.recent(device,workspace_root=_session_root(device,n),native_session_id=n['sid'],deadline=deadline)
+    if text:worklog_client.mark_injected(spool,n['sid'],trigger)
+    return text,{**receipt,'trigger':trigger}
+
 def memory_hint_device(native,device,claude_home,*,now=time.monotonic):
     """Return `(text, receipt)` for the separate synchronous hint handler.
 
     Separate from capture because capture's UserPromptSubmit handler is async and
-    Claude discards an async handler's output. This handler records nothing.
+    Claude discards an async handler's output. It records no Event; the only file
+    it writes is the private once-per-session marker of the resume block.
+
+    SessionStart (startup/clear) gets the resume block. A prompt gets it when it
+    asks about recent work, including a session's first prompt: the block depends
+    on the workspace and the time, not on the prompt's words (ADR 0039 §4.3). The
+    Memory hint itself still needs a capture-verified earlier turn.
     """
     deadline=now()+memory_hint.BUDGET_SECONDS
     if not device.memory_hint:return None,{'status':'disabled'}
     n=_native(native,claude_home)
-    if n is None or n['event']!='UserPromptSubmit':return None,{'status':'ignored','reason':'unsupported_or_unverified_main_session'}
+    if n is None or n['event'] not in ('UserPromptSubmit','SessionStart'):return None,{'status':'ignored','reason':'unsupported_or_unverified_main_session'}
+    if n['event']=='SessionStart':
+        if native.get('source') not in ('startup','clear'):
+            return None,{'status':'skipped','reason':'not_a_new_session','native_session_id':n['sid']}
+        text,receipt=_recent(n,device,'session_start',deadline)
+        return text,{**receipt,'native_session_id':n['sid']}
+    recent_text=recent=None
+    if worklog_client.asks_about_recent_work(n['text']):
+        recent_text,recent=_recent(n,device,'prompt',min(deadline,now()+RECENT_SECONDS))
+    extra={'recent_activity':recent} if recent else {}
     verified=_session_verified(device,n)
-    if verified is None:return None,{'status':'ignored','reason':'no_verified_turn_in_session','native_session_id':n['sid']}
+    if verified is None:return recent_text,{'status':'ignored','reason':'no_verified_turn_in_session','native_session_id':n['sid'],**extra}
     verified_turn,root=verified
     remaining=deadline-now()
-    if remaining<=0.05:return None,{'status':'skipped','reason':'no_time_left','native_session_id':n['sid']}
+    if remaining<=0.05:return recent_text,{'status':'skipped','reason':'no_time_left','native_session_id':n['sid'],**extra}
     binding=bind_workspace({**n,'cwd':root},device,source=SOURCE,timeout=remaining)
     text,receipt=memory_hint.request(binding,project_id=binding.project_id,native_session_id=n['sid'],prompt=n['text'],deadline=deadline)
-    return text,{**receipt,'native_session_id':n['sid'],'verified_turn':verified_turn}
+    text='\n\n'.join(t for t in (recent_text,text) if t) or None
+    return text,{**receipt,'native_session_id':n['sid'],'verified_turn':verified_turn,**extra}
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ['device-binding','receipts','claude-home']:p.add_argument('--'+name,required=True,type=Path)
-    p.add_argument('--memory-hint',action='store_true',help='synchronous UserPromptSubmit Memory hint (ADR 0036); records nothing')
+    p.add_argument('--memory-hint',action='store_true',help='synchronous Memory hint and resume block (ADR 0036, 0039); records no Event')
     a=p.parse_args();os.umask(0o077);native={}
     if a.memory_hint:
         text=None
@@ -275,11 +328,13 @@ def main():
             text,receipt=memory_hint_device(native,load_device(a.device_binding),a.claude_home)
         except Exception as exc:
             receipt={'status':'failed','error_type':type(exc).__name__}
-        receipt={'status':'memory_hint','agent':'claude','memory_hint':receipt,'checked_at':datetime.now(timezone.utc).isoformat()}
+        starting=isinstance(native,dict) and native.get('hook_event_name')=='SessionStart'
+        kind='recent_activity' if starting else 'memory_hint'
+        receipt={'status':kind,'agent':'claude',kind:receipt,'checked_at':datetime.now(timezone.utc).isoformat()}
         try:append_receipt(a.receipts,receipt)
         except OSError:pass
         # Always exit 0 with valid output: a hint must never block a prompt.
-        print(memory_hint.envelope(text) if text else '{}');return 0
+        print(worklog_client.envelope('SessionStart' if starting else 'UserPromptSubmit',text) if text else '{}');return 0
     try:
         native=json.load(sys.stdin)
         if not isinstance(native,dict):raise ValueError('native event must be an object')

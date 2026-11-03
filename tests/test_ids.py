@@ -19,12 +19,12 @@ class IdFormat(unittest.TestCase):
     def test_every_public_object_prefix_is_reserved(self) -> None:
         # The set is enumerated on purpose: this test is the review gate for
         # adding a public id prefix. P2 registered `int`, `res` and `rvw`; P4
-        # registered `mem`/`mjb`/`mja`/`mtr`/`mqi` (ADR 0014 §2).
+        # registered `mem`/`mjb`/`mja`/`mtr`/`mqi` (ADR 0014 §2); ADR 0039 `sck`.
         self.assertEqual(
             ids.PREFIXES,
             {"prj", "tsk", "stp", "ses", "hst", "act", "evt", "evd", "aud", "key", "rul",
              "int", "res", "rvw", "ckp", "rms", "ctx",
-             "mem", "mjb", "mja", "mtr", "mqi"},
+             "mem", "mjb", "mja", "mtr", "mqi", "sck"},
         )
 
     def test_prefix_appears_in_the_identifier(self) -> None:

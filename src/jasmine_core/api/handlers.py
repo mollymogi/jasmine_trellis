@@ -54,6 +54,8 @@ class Core:
         self.conversation_processing = ConversationProcessing(conn,schema_version=self.schema_version)
         self.reviews = reviews.ReviewStore(self.resolver)
         self.continuity = ContinuityStore(conn,schema_version=self.schema_version)
+        from ..worklog import WorklogStore
+        self.worklog = WorklogStore(conn, schema_version=self.schema_version)
         from ..context.memory_provider import MemoryProvider
         self.context = ContextBuilder(conn,schema_version=self.schema_version,memory=MemoryProvider.from_deployment())
         self.adapter = NativeAdapterStore(self)
@@ -110,6 +112,13 @@ def _base_routes() -> list[Route]:
         Route("GET", re.compile(r"^/v1/tasks/([^/]+)/checkpoints/latest$"), latest_checkpoint, "checkpoint:read"),
         Route("GET", re.compile(r"^/v1/checkpoints/([^/]+)$"), get_checkpoint, "checkpoint:read"),
         Route("POST", re.compile(r"^/v1/tasks/([^/]+)/resume$"), build_resume, "resume:build"),
+        # ADR 0039: session Checkpoints are written by capture's system key, and
+        # the resume block is read with the hint's `memory:recall`-only key.
+        Route("POST", re.compile(r"^/v1/session-checkpoints$"), create_session_checkpoint, "events:write"),
+        Route("POST", re.compile(r"^/v1/session-checkpoints/recover$"), recover_session_checkpoints,
+              "events:write"),
+        Route("GET", re.compile(r"^/v1/session-checkpoints$"), list_session_checkpoints, "events:read"),
+        Route("POST", re.compile(r"^/v1/continuity/recent$"), recent_activity, "memory:recall"),
         Route("GET", re.compile(r"^/v1/resumes/([^/]+)$"), get_resume, "resume:read"),
         Route("GET", re.compile(r"^/v1/resolutions/preview$"), resolution_preview, "resolutions:read"),
         Route("POST", re.compile(r"^/v1/resolve/([^/]+)$"), resolve_interpretation, "resolutions:process"),
@@ -763,6 +772,48 @@ def create_checkpoint(request,core,principal,match):
     if request.query:raise errors.InvalidRequest('checkpoint POST accepts no query')
     result=core.continuity.create(request.json_body(),actor_id=principal.actor_id)
     return Response(200 if result['replayed'] else 201,result)
+
+
+def create_session_checkpoint(request, core, principal, match):
+    if request.query:
+        raise errors.InvalidRequest("session checkpoint POST accepts no query")
+    result = core.worklog.record(request.json_body(), actor_id=principal.actor_id,
+                                 actor_kind=core.actor_kind(principal.actor_id))
+    return Response(200 if result["replayed"] else 201, result)
+
+
+def recover_session_checkpoints(request, core, principal, match):
+    if request.query:
+        raise errors.InvalidRequest("session checkpoint recovery accepts no query")
+    result = core.worklog.recover(request.json_body(), actor_id=principal.actor_id,
+                                  actor_kind=core.actor_kind(principal.actor_id))
+    return Response(200, result)
+
+
+def list_session_checkpoints(request, core, principal, match):
+    from ..worklog import _require_root, family_root
+
+    if set(request.query) - {"workspace_root", "limit"}:
+        raise errors.InvalidRequest("unknown session checkpoint query")
+    family = None
+    if "workspace_root" in request.query:
+        family = family_root(_require_root(request.query["workspace_root"][0]))
+    limit = _int_param(request, "limit", 50)
+    if not 1 <= limit <= 200:
+        raise errors.InvalidRequest("limit must be 1..200", field="limit")
+    rows = core.worklog.list(family=family, limit=limit)
+    return Response(200, {"session_checkpoints": rows, "count": len(rows)})
+
+
+def recent_activity(request, core, principal, match):
+    """The resume block for a new session (ADR 0039 B). Read-only."""
+    if request.query:
+        raise errors.InvalidRequest("recent activity accepts no query")
+    access = memory_api.services(core).access
+    result = core.worklog.recent(
+        request.json_body(),
+        may_read=lambda project_id: access.may_read(project_id=project_id, actor_id=principal.actor_id))
+    return Response(200, result)
 
 
 def get_checkpoint(request,core,principal,match):

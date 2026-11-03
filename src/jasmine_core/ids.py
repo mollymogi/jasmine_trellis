@@ -33,10 +33,13 @@ RANDOM_BYTES = RANDOM_BITS // 8
 #: result inside a trace. `del` is deliberately not used for the delete command
 #: Event: `evt_` already covers every command Event, and a second id for the
 #: same thing would give clients two ways to name one command.
+#:
+#: ADR 0039 adds `sck`, a session Checkpoint (a work record of one session).
 PREFIXES = frozenset({"prj", "tsk", "stp", "ses", "hst", "act", "evt", "evd", "aud", "key",
                       "rul", "int", "res", "rvw",
                       "ckp", "rms", "ctx",
-                      "mem", "mjb", "mja", "mtr", "mqi"})
+                      "mem", "mjb", "mja", "mtr", "mqi",
+                      "sck"})
 
 #: Every shipped prefix is three characters; the pattern is exact rather than a
 #: 3-4 character range so a future one cannot slip in unnoticed.
