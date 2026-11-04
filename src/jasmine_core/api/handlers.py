@@ -793,15 +793,18 @@ def recover_session_checkpoints(request, core, principal, match):
 def list_session_checkpoints(request, core, principal, match):
     from ..worklog import _require_root, family_root
 
-    if set(request.query) - {"workspace_root", "limit"}:
+    from ..worklog import _require_agent
+
+    if set(request.query) - {"workspace_root", "agent", "limit"}:
         raise errors.InvalidRequest("unknown session checkpoint query")
     family = None
     if "workspace_root" in request.query:
         family = family_root(_require_root(request.query["workspace_root"][0]))
+    agent = _require_agent(_optional_param(request, "agent"))
     limit = _int_param(request, "limit", 50)
     if not 1 <= limit <= 200:
         raise errors.InvalidRequest("limit must be 1..200", field="limit")
-    rows = core.worklog.list(family=family, limit=limit)
+    rows = core.worklog.list(family=family, limit=limit, agent=agent)
     return Response(200, {"session_checkpoints": rows, "count": len(rows)})
 
 

@@ -6,6 +6,7 @@ its system key, the hint handler reads the block with its `memory:recall` key.
 import io
 import json
 import shlex
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -325,6 +326,78 @@ class WorklogHooks(ClaudeCapture):
                                  for g in hooks[event] for h in g["hooks"]))
         install_claude.install(self.home, self.binding_path, receipts, disable=True, **options)
         self.assertNotIn("hooks", json.loads(target.read_text()))
+
+    def two_workspaces(self):
+        """A finished Claude session here, then a later one in another folder."""
+        self.finished_session()
+        # Not nearby (a sibling tree), so it is another workspace, not a neighbour.
+        other = Path(tempfile.mkdtemp(prefix="jasmine-other-"))
+        self.addCleanup(shutil.rmtree, other, True)
+        self.new_session()
+        self.capture("SessionStart", source="startup", cwd=str(other))
+        self.typed("另一个目录里的事", cwd=str(other))
+        self.capture("UserPromptSubmit", prompt="另一个目录里的事", cwd=str(other))
+        self.capture("Stop", last_assistant_message="好的", cwd=str(other))
+        self.capture("SessionEnd", reason="other", cwd=str(other))
+        return other
+
+    def store(self):
+        from jasmine_core import SCHEMA_VERSION
+
+        conn = db.connect(self.db_path)
+        self.addCleanup(conn.close)
+        return worklog.WorklogStore(conn, schema_version=SCHEMA_VERSION)
+
+    def test_global_scope_orders_every_workspace_by_time(self):
+        self.two_workspaces()
+        body = {"host_id": self.device.host_id, "workspace_root": str(self.native_root.resolve()),
+                "exclude_native_session_id": "nobody"}
+        everywhere = self.store().recent({**body, "scope": "global"}, may_read=lambda p: True)
+        self.assertEqual(everywhere["status"], "ok", everywhere)
+        self.assertEqual(len(everywhere["sessions"]), 2)
+        text = everywhere["text"]
+        self.assertIn("范围：全部工作区", text)
+        # The newer session (in the other folder) comes first.
+        self.assertLess(text.index("上一次"), text.index("另一个目录里的事"))
+        self.assertIn("再把字幕调大一号", text)  # the older session, as a line of the other sessions
+        # The default stays this workspace only.
+        here = self.store().recent(body, may_read=lambda p: True)
+        self.assertEqual(len(here["sessions"]), 1)
+        self.assertNotIn("另一个目录里的事", here["text"])
+
+    def test_agent_filter_applies_inside_either_scope(self):
+        self.two_workspaces()
+        body = {"host_id": self.device.host_id, "workspace_root": str(self.native_root.resolve()),
+                "exclude_native_session_id": "nobody"}
+        claude = self.store().recent({**body, "scope": "global", "agent": "claude"}, may_read=lambda p: True)
+        self.assertEqual(len(claude["sessions"]), 2)
+        self.assertIn("只包含 Claude 的会话", claude["text"])
+        codex = self.store().recent({**body, "scope": "global", "agent": "codex"}, may_read=lambda p: True)
+        self.assertEqual((codex["status"], codex["text"]), ("empty", None))
+        # Time is still the order inside a single agent's sessions.
+        self.assertEqual(claude["sessions"][0]["agent"], "claude")
+
+    def test_scope_and_agent_are_checked_before_any_query(self):
+        from jasmine_core import errors
+
+        body = {"host_id": self.device.host_id, "workspace_root": str(self.native_root)}
+        with self.assertRaises(errors.InvalidRequest):
+            self.store().recent({**body, "scope": "everywhere"}, may_read=lambda p: True)
+        with self.assertRaises(errors.InvalidRequest):
+            self.store().recent({**body, "agent": "gpt"}, may_read=lambda p: True)
+
+    def test_the_list_endpoint_and_worklog_command_filter_by_agent(self):
+        self.two_workspaces()
+        code, page = self.call("GET", "/v1/session-checkpoints?agent=claude", token=self.admin_token)
+        self.assertEqual((code, page["count"]), (200, 2), page)
+        code, page = self.call("GET", "/v1/session-checkpoints?agent=codex", token=self.admin_token)
+        self.assertEqual((code, page["count"]), (200, 0))
+        code, page = self.call("GET", "/v1/session-checkpoints?agent=gpt", token=self.admin_token)
+        self.assertEqual(code, 400, page)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cli.main(["worklog", "--db", str(self.db_path), "--since", "1d", "--agent", "codex"])
+        self.assertEqual(out.getvalue().strip(), "no work record in this period")
 
     def test_worklog_command_lists_the_records(self):
         self.finished_session()

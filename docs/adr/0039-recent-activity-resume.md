@@ -150,6 +150,16 @@ ADR 0036 要求先确认真人输入，是因为召回内容由这句话决定�
 - Grok：只写工作记录，不注入（没有同步注入通道）。
 - 时间预算 1 秒；超时不注入，绝不阻塞。每次触发写一条 receipt（`status: recent_activity`），只记触发方式、所用记录 id、字符数和耗时。
 
+### 4.5 查询范围与 agent（2026-11-04 补充）
+
+接续块的查询可以指定两个参数，都是按最后活动时间排序：
+
+- `scope`：`workspace`（默认）只看当前工作区族；`global` 看本机上所有工作区的会话，不同工作区的会话按时间混排。
+- `agent`：可选 `claude` / `codex` / `grok`，只取该 agent 的会话。按会话事件的来源判断，与它在哪个目录开的无关。
+
+两者可以组合。默认的注入行为不变（只看工作区）。把注入默认改为全局，需要单独确认，因为它会把其他项目的内容带进每个新会话。
+`GET /v1/session-checkpoints` 和 `jasmine-core worklog` 也支持 `agent` 过滤。
+
 ## 5. C：任务级 Checkpoint 接通
 
 现有链路已经写好：会话有 `task_id` 时，PreCompact 和 Stop 写 ADR 0011 Checkpoint，SessionStart 构建上下文。缺的是**会话到 Task 的可靠绑定**，以及**Task 本身可用**。
