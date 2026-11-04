@@ -402,7 +402,7 @@ def cmd_worklog(args: argparse.Namespace) -> int:
     try:
         check_version(conn)
         rows = WorklogStore(conn, schema_version=current_version(conn)).list(
-            family=family, since=since, limit=args.limit)
+            family=family, since=since, limit=args.limit, agent=args.agent)
     finally:
         conn.close()
     if args.json:
@@ -573,6 +573,8 @@ def build_parser() -> argparse.ArgumentParser:
     worklog_parser.add_argument("--db", help="path to core.db (or set JASMINE_CORE_DB)")
     worklog_parser.add_argument("--workspace", help="only this workspace (a worktree counts as its repository)")
     worklog_parser.add_argument("--since", default="7d", help="how far back: 7d, 12h (default 7d)")
+    worklog_parser.add_argument("--agent", choices=["claude", "codex", "grok"],
+                                help="only sessions of this agent")
     worklog_parser.add_argument("--limit", type=int, default=50)
     worklog_parser.add_argument("--json", action="store_true")
     worklog_parser.set_defaults(func=cmd_worklog)

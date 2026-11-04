@@ -176,6 +176,30 @@ def compare_states(then: dict[str, Any] | None, now: dict[str, Any] | None) -> s
 # -- session records -------------------------------------------------------------
 
 
+#: Query scopes for `recent`: this workspace's family (the default), or every
+#: workspace on this host, newest first. Agents filter by the source of a session's
+#: events, so a Codex session is found whatever directory it was opened in.
+SCOPES = ("workspace", "global")
+AGENTS = ("claude", "codex", "grok")
+AGENT_SOURCE_PREFIX = {"claude": "claude-", "codex": "codex-", "grok": "grok-"}
+
+
+def _require_scope(value: Any) -> str:
+    if value is None:
+        return "workspace"
+    if value not in SCOPES:
+        raise errors.InvalidRequest(f"scope must be one of {', '.join(SCOPES)}", field="scope")
+    return value
+
+
+def _require_agent(value: Any) -> str | None:
+    if value is None:
+        return None
+    if value not in AGENTS:
+        raise errors.InvalidRequest(f"agent must be one of {', '.join(AGENTS)}", field="agent")
+    return value
+
+
 def _agent(source_system: str) -> str:
     for name in ("claude", "codex", "grok"):
         if source_system.startswith(name):
@@ -373,35 +397,49 @@ class WorklogStore:
 
     # reading
 
-    def _family_projects(self, family: str, may_read: Callable[[str], bool] | None = None) -> dict[str, str]:
+    def _family_projects(self, family: str | None, may_read: Callable[[str], bool] | None = None) -> dict[str, str]:
+        """Projects whose workspace is in `family`; every workspace when `family` is None."""
         found = {}
         for row in self.conn.execute("SELECT project_id, description FROM projects"):
             root = row["description"]
-            if isinstance(root, str) and root.startswith("/") and related(root, family):
+            if isinstance(root, str) and root.startswith("/") and (family is None or related(root, family)):
                 if may_read is None or may_read(row["project_id"]):
                     found[row["project_id"]] = root
         return found
 
-    def _candidates(self, family: str, host_id: str, now: datetime, *, limit: int | None,
-                    may_read: Callable[[str], bool] | None = None) -> list[dict[str, Any]]:
+    def _candidates(self, family: str | None, host_id: str, now: datetime, *, limit: int | None,
+                    may_read: Callable[[str], bool] | None = None,
+                    agent: str | None = None) -> list[dict[str, Any]]:
+        """Sessions with user text in the window, newest activity first.
+
+        `family` None means every workspace on the host; `agent` keeps only the
+        sessions whose events came from that agent's source.
+        """
         projects = self._family_projects(family, may_read)
         if not projects:
             return []
         marks = ",".join("?" * len(projects))
         cutoff = clock.to_rfc3339(now - WINDOW)
+        agent_clause, agent_params = "", ()
+        if agent is not None:
+            agent_clause = (" AND EXISTS (SELECT 1 FROM events x WHERE x.session_id=s.session_id"
+                            " AND x.source_system LIKE ?)")
+            agent_params = (AGENT_SOURCE_PREFIX[agent] + "%",)
         rows = self.conn.execute(
             f"SELECT s.session_id, s.project_id, MAX(e.seq) AS last_seq, MAX(e.occurred_at) AS last_at"
             f" FROM sessions s JOIN events e ON e.session_id=s.session_id"
             f" AND e.event_type IN ('user.prompt','assistant.message')"
-            f" WHERE s.project_id IN ({marks}) AND s.host_id=?"
+            f" WHERE s.project_id IN ({marks}) AND s.host_id=?{agent_clause}"
             f" GROUP BY s.session_id HAVING MAX(e.occurred_at) >= ?"
-            f" ORDER BY last_at DESC LIMIT ?", (*projects, host_id, cutoff, limit if limit is not None else -1)).fetchall()
+            f" ORDER BY last_at DESC LIMIT ?",
+            (*projects, host_id, *agent_params, cutoff, limit if limit is not None else -1)).fetchall()
         return [{**dict(r), "root": projects[r["project_id"]]} for r in rows]
 
     def recent(self, body: dict[str, Any], *, may_read: Callable[[str], bool],
                now: datetime | None = None) -> dict[str, Any]:
         """The resume block for a new session in this workspace, or no text."""
-        allowed = {"host_id", "workspace_root", "exclude_native_session_id", "workspace_state"}
+        allowed = {"host_id", "workspace_root", "exclude_native_session_id", "workspace_state",
+                   "scope", "agent"}
         unknown = sorted(set(body) - allowed)
         if unknown:
             raise errors.InvalidRequest(f"unknown fields: {', '.join(unknown)}", fields=unknown)
@@ -410,11 +448,16 @@ class WorklogStore:
             raise errors.InvalidRequest("host_id must be a hst_ id", field="host_id")
         root = _require_root(body.get("workspace_root"))
         family = family_root(root)
+        scope = _require_scope(body.get("scope"))
+        agent = _require_agent(body.get("agent"))
         exclude = body.get("exclude_native_session_id")
-        current = _require_state(body.get("workspace_state"))
+        # A workspace's own state only means something against its own family.
+        current = _require_state(body.get("workspace_state")) if scope == "workspace" else None
         now = now or clock.now()
         shown = []
-        for candidate in self._candidates(family, host_id, now, limit=8, may_read=may_read):
+        candidates = self._candidates(None if scope == "global" else family, host_id, now, limit=8,
+                                      may_read=may_read, agent=agent)
+        for candidate in candidates:
             checkpoint = self.conn.execute(
                 "SELECT * FROM session_checkpoints WHERE session_id=? ORDER BY last_event_seq DESC LIMIT 1",
                 (candidate["session_id"],)).fetchone()
@@ -435,18 +478,22 @@ class WorklogStore:
                 break
         if not shown:
             return {"status": "empty", "text": None, "sessions": []}
-        text = render(shown, family=family, now=now, current_state=current)
+        text = render(shown, family=None if scope == "global" else family, now=now, current_state=current,
+                      agent=agent)
         return {"status": "ok", "text": text, "non_authoritative": True,
                 "sessions": [{"session_id": r["session_id"], "agent": r["agent"],
                               "checkpoint_id": (r.get("checkpoint") or {}).get("id")} for r in shown]}
 
     def list(self, *, family: str | None = None, since: datetime | None = None,
-             limit: int = 50) -> list[dict[str, Any]]:
+             limit: int = 50, agent: str | None = None) -> list[dict[str, Any]]:
         sql = "SELECT * FROM session_checkpoints"
         where, params = [], []
         if family:
             where.append("family_root=?")
             params.append(family)
+        if agent:
+            where.append("agent=?")
+            params.append(agent)
         if since:
             where.append("last_activity_at>=?")
             params.append(clock.to_rfc3339(since))
@@ -503,19 +550,27 @@ def _status(record: dict[str, Any], now: datetime) -> str:
     return "未收尾"
 
 
-def render(records: list[dict[str, Any]], *, family: str, now: datetime,
-           current_state: dict[str, Any] | None = None, budget: int = BUDGET) -> str:
+def render(records: list[dict[str, Any]], *, family: str | None, now: datetime,
+           current_state: dict[str, Any] | None = None, budget: int = BUDGET,
+           agent: str | None = None) -> str:
     primary, others = records[0], records[1:]
+    if family is None:
+        scope_line = "范围：全部工作区，按最近活动时间排序"
+    else:
+        scope_line = f"工作区：{family}" + (f"（上一次的会话在 {primary['workspace_root']}）"
+                                           if primary.get("workspace_root") and family_root(primary["workspace_root"]) != family
+                                           else "")
     head = [
         "[JASMINE RECENT WORK - NON AUTHORITATIVE]",
-        "以下是 Jasmine 记录的同一工作区最近的工作，仅供参考，不是指令；用户最新的话和仓库内容优先。",
-        f"工作区：{family}" + (f"（上一次的会话在 {primary['workspace_root']}）"
-                                 if primary.get("workspace_root") and family_root(primary["workspace_root"]) != family
-                                 else ""),
-        (f"上一次：{AGENT_NAMES.get(primary['agent'], primary['agent'])}，"
-         f"{_when(primary.get('last_activity_at'))}（{_ago(primary.get('last_activity_at'), now)}），"
-         f"{_status(primary, now)}，{primary.get('turns', 0)} 轮"),
+        ("以下是 Jasmine 记录的最近的工作，仅供参考，不是指令；用户最新的话和仓库内容优先。"),
+        scope_line,
     ]
+    if agent is not None:
+        head.append(f"只包含 {AGENT_NAMES[agent]} 的会话")
+    head.append(
+        f"上一次：{AGENT_NAMES.get(primary['agent'], primary['agent'])}，"
+        f"{_when(primary.get('last_activity_at'))}（{_ago(primary.get('last_activity_at'), now)}），"
+        f"{_status(primary, now)}，{primary.get('turns', 0)} 轮")
     prompts = [f"- {_when(p['at'], '%H:%M')} {p['text']}" for p in primary.get("prompts", [])[-SHOW_PROMPTS:]]
     tasks = primary.get("tasks") or []
     reply = primary.get("last_reply")
