@@ -28,7 +28,7 @@ INTENT_MAX_CHARS = 200
 REINJECT_SECONDS = 30 * 60
 
 _INTENT_RES = (
-    re.compile(r"(刚才|刚刚|上次|之前|昨天|前面|上一次).{0,6}(在)?(做|干|聊|弄|改|搞|进行|写|跑|处理)"),
+    re.compile(r"(刚才|刚刚|上次|之前|昨天|前面|上一次|最近).{0,6}(在)?(做|干|聊|弄|改|搞|进行|写|跑|处理)"),
     re.compile(r"记(不记)?得.{0,8}(刚才|刚刚|上次|之前|昨天|我们|我)"),
     re.compile(r"(接着|继续)(上次|刚才|之前|昨天)"),
     re.compile(r"(?i)\bwhat (was|were) (i|we) (doing|working on)\b"),
@@ -37,7 +37,34 @@ _INTENT_RES = (
     re.compile(r"(?i)\bpick up where\b"),
 )
 #: Only a short question counts for these: "进度" in a long instruction is not one.
-_SHORT_INTENT_RES = (re.compile(r"做到哪"), re.compile(r"进度"))
+_SHORT_INTENT_RES = (re.compile(r"做到哪"), re.compile(r"进度(?!条)(怎么样|如何|到哪|呢|$|[？?])"))
+
+
+#: Words that widen the question to every workspace on this machine.
+_GLOBAL_RE = re.compile(r"(所有|全部|别的|其他|其它|各个)的?(项目|工作区|目录|地方)|全局|跨项目"
+                        r"|(?i:\b(all|other) (projects|workspaces)\b|\beverywhere\b)")
+#: An agent named in the question narrows it to that agent's sessions.
+_AGENT_RES = {"claude": re.compile(r"(?i)claude|克劳德"), "codex": re.compile(r"(?i)codex"),
+              "grok": re.compile(r"(?i)grok")}
+
+
+def recent_query(prompt: Any) -> dict[str, str] | None:
+    """What a prompt asks about recent work: None, or the query options it implies.
+
+    `{}` is the default (this workspace, any agent). "所有项目" / "全局" and the
+    like add `scope: global`; naming exactly one agent adds `agent`. Naming two
+    agents is not a filter, so neither is applied.
+    """
+    if not asks_about_recent_work(prompt):
+        return None
+    text = prompt.strip()
+    query: dict[str, str] = {}
+    if _GLOBAL_RE.search(text):
+        query["scope"] = "global"
+    named = [agent for agent, pattern in _AGENT_RES.items() if pattern.search(text)]
+    if len(named) == 1:
+        query["agent"] = named[0]
+    return query
 
 
 def asks_about_recent_work(prompt: Any) -> bool:
@@ -125,7 +152,7 @@ def recover(binding: Binding, *, workspace_root: str | Path, native_session_id: 
 
 
 def recent(binding: Binding, *, workspace_root: str | Path, native_session_id: str,
-           deadline: float) -> tuple[str | None, dict[str, Any]]:
+           deadline: float, query: dict[str, str] | None = None) -> tuple[str | None, dict[str, Any]]:
     """The resume block, read with the Memory hint key. `(text, receipt)`; never raises."""
     started = time.monotonic()
     if binding.memory_key_file is None:
@@ -138,12 +165,13 @@ def recent(binding: Binding, *, workspace_root: str | Path, native_session_id: s
         answer = CoreClient(binding.core_url, read_key(binding.memory_key_file), timeout=remaining).post(
             "/v1/continuity/recent", {"host_id": binding.host_id, "workspace_root": str(workspace_root),
                                       "exclude_native_session_id": native_session_id,
-                                      "workspace_state": state})
+                                      "workspace_state": state, **(query or {})})
         text = answer.get("text")
         if not isinstance(text, str) or not text or answer.get("non_authoritative") is not True:
             text = None
         receipt = {"status": answer.get("status"), "chars": len(text) if text else 0,
-                   "sessions": [s.get("session_id") for s in answer.get("sessions") or []]}
+                   "sessions": [s.get("session_id") for s in answer.get("sessions") or []],
+                   **(query or {})}
     except Exception as exc:
         text, receipt = None, {"status": "failed", "error_type": type(exc).__name__}
     if text is not None and time.monotonic() > deadline:
