@@ -226,22 +226,25 @@ def main() -> int:
         recent = None
         if (binding is not None and args.device_binding and binding.memory_hint
                 and receipt.get("status") == "accepted"):
-            trigger = None
+            trigger, query = None, None
             if receipt.get("event_type") == "session.started" and native.get("source") in ("startup", "clear"):
                 trigger, seconds = "session_start", memory_hint.BUDGET_SECONDS
-            elif (receipt.get("event_type") == "user.prompt"
-                  and worklog_client.asks_about_recent_work(native.get("prompt"))):
-                trigger, seconds = "prompt", RECENT_SECONDS
+            elif receipt.get("event_type") == "user.prompt":
+                query = worklog_client.recent_query(native.get("prompt"))
+                if query is not None:
+                    trigger, seconds = "prompt", RECENT_SECONDS
             if trigger:
                 sid = receipt["native_session_id"]
-                if worklog_client.injected_recently(binding.spool_dir, sid):
+                # Once per session for the default question; a question naming all
+                # projects or an agent is a new question and is always answered.
+                if not query and worklog_client.injected_recently(binding.spool_dir, sid):
                     receipt["recent_activity"] = {"status": "skipped", "reason": "already_injected", "trigger": trigger}
                 else:
                     recent, answer = worklog_client.recent(
                         binding, workspace_root=workspace_root(native["cwd"]), native_session_id=sid,
-                        deadline=time.monotonic() + seconds)
+                        deadline=time.monotonic() + seconds, query=query)
                     receipt["recent_activity"] = {**answer, "trigger": trigger}
-                    if recent:
+                    if recent and not query:
                         worklog_client.mark_injected(binding.spool_dir, sid, trigger)
         # ADR 0036: only a prompt Core has just accepted as the user's may get a
         # Memory hint, and only when this device opted in. Never raises.
