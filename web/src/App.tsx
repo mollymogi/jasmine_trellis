@@ -47,7 +47,7 @@ import {
 
 export function App(): JSX.Element {
   const route = useHashRoute()
-  const { signedIn, signOut, pendingConfirmations } = useSession()
+  const { signedIn, signOut, pendingConfirmations, autoSignIn } = useSession()
   const { dark, toggle } = useColorScheme()
 
   if (!signedIn) {
@@ -66,7 +66,7 @@ export function App(): JSX.Element {
             </Button>
           </div>
         </header>
-        <SignIn />
+        {autoSignIn === 'checking' ? <main id="main" className="signin"><p className="muted">正在本机自动登录…</p></main> : <SignIn />}
       </div>
     )
   }

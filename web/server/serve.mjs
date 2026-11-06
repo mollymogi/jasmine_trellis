@@ -10,12 +10,15 @@
  *   node server/serve.mjs --root dist --port 5180
  *   P6_CORE_ORIGIN=http://127.0.0.1:8789 node server/serve.mjs --root dist
  *
- * It binds loopback only and never sets an Authorization header.
+ * It binds loopback only and never sets an Authorization header. With
+ * `P6_LOCAL_SIGNIN_CREDENTIAL` set, its own page may read the operator's browser
+ * credential from `/_local/session` and sign in by itself (see local-session.mjs).
  */
 
 import http from 'node:http'
 import { serveLocalAgents } from './local-agents.mjs'
 import { serveLocalInterpreter } from './interpreter-control.mjs'
+import { serveLocalSession } from './local-session.mjs'
 import { randomUUID } from 'node:crypto'
 import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { extname, join, normalize, resolve, sep } from 'node:path'
@@ -372,6 +375,7 @@ export function createDashboardServer({ root, origin, allowlist = loadAllowlist(
       }, proxyRequestId(req))
       return
     }
+    if (target.pathname === '/_local/session') { serveLocalSession(req, res, { port: req.socket.localPort }); return }
     if (target.pathname === '/_local/interpreter' && flagEnabled(process.env, 'P6_ENABLE_CONVERSATION_PROCESSING')) { void serveLocalInterpreter(req, res, origin); return }
     if ((target.pathname === '/_local/agents' || /^\/_local\/agents\/(codex|claude|grok)\/(capture|memory-hint)$/.test(target.pathname))) { void serveLocalAgents(req, res, origin); return }
     if (target.kind === 'api') proxy(req, res, origin, allowlist)

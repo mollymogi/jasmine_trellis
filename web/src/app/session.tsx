@@ -8,7 +8,7 @@ import type { PendingConfirmation } from '../api/webConfirmations'
  * or "退出" clears the token, and a screenshot of the page shows only bullets.
  */
 
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { CoreClient } from '../api/client'
@@ -31,6 +31,25 @@ export const REQUIRED_READ_SCOPES = [
   'resolutions:read',
 ] as const
 
+/** Local auto sign-in (`GET /_local/session`): the dashboard host hands its own page
+ * the operator's browser credential on a single-user machine. `checking` until it
+ * answers; `unavailable` when the host does not offer it or the token is refused. */
+export type AutoSignIn = 'checking' | 'available' | 'unavailable'
+
+/** Ask the dashboard host for the local credential and prove it with an authenticated read. */
+export async function fetchLocalToken(fetchImpl: typeof fetch = (...args) => globalThis.fetch(...args)): Promise<string | null> {
+  try {
+    const reply = await fetchImpl('/_local/session', { credentials: 'same-origin', cache: 'no-store' })
+    if (!reply.ok) return null
+    const token = (await reply.json() as { token?: unknown }).token
+    if (typeof token !== 'string' || !token) return null
+    await makeEndpoints(new CoreClient({ getToken: () => token, fetchImpl })).listProjects({ limit: 1, offset: 0 })
+    return token
+  } catch {
+    return null
+  }
+}
+
 interface SessionValue {
   pendingConfirmations: PendingConfirmation[]
   trackConfirmation: (pending: PendingConfirmation) => void
@@ -40,11 +59,16 @@ interface SessionValue {
   signIn: (token: string) => void
   signOut: () => void
   endpoints: Endpoints
+  autoSignIn: AutoSignIn
+  signInLocally: () => Promise<boolean>
 }
 
 const SessionContext = createContext<SessionValue | null>(null)
 
-export function SessionProvider({ children }: { children: ReactNode }): JSX.Element {
+/** Unit tests mock `fetch` call by call, so the load-time request is opt-in there. */
+const LOCAL_SIGNIN_DEFAULT = import.meta.env.MODE !== 'test'
+
+export function SessionProvider({ children, localSignIn = LOCAL_SIGNIN_DEFAULT }: { children: ReactNode; localSignIn?: boolean }): JSX.Element {
   const [pendingConfirmations, setPendingConfirmations] = useState<PendingConfirmation[]>([])
   const trackConfirmation = useCallback((pending: PendingConfirmation) => setPendingConfirmations((rows) => [...rows.filter((row) => row.id !== pending.id), pending]), [])
   const clearConfirmation = useCallback((id: string) => setPendingConfirmations((rows) => rows.filter((row) => row.id !== id)), [])
@@ -65,14 +89,25 @@ export function SessionProvider({ children }: { children: ReactNode }): JSX.Elem
     setToken(null)
   }, [])
 
+  const [autoSignIn, setAutoSignIn] = useState<AutoSignIn>(localSignIn ? 'checking' : 'unavailable')
+  const signInLocally = useCallback(async () => {
+    const local = await fetchLocalToken()
+    setAutoSignIn(local ? 'available' : 'unavailable')
+    if (local) signIn(local)
+    return local !== null
+  }, [signIn])
+  // Once per page load. After “退出” the page stays signed out; the sign-in page
+  // offers the local sign-in again as a button.
+  useEffect(() => { if (localSignIn) void signInLocally() }, [localSignIn, signInLocally])
+
   const endpoints = useMemo(() => {
     const client = new CoreClient({ getToken: () => tokenRef.current })
     return makeEndpoints(client)
   }, [])
 
   const value = useMemo<SessionValue>(
-    () => ({ token, signedIn: token !== null, signIn, signOut, endpoints, pendingConfirmations, trackConfirmation, clearConfirmation }),
-    [token, signIn, signOut, endpoints, pendingConfirmations, trackConfirmation, clearConfirmation],
+    () => ({ token, signedIn: token !== null, signIn, signOut, endpoints, pendingConfirmations, trackConfirmation, clearConfirmation, autoSignIn, signInLocally }),
+    [token, signIn, signOut, endpoints, pendingConfirmations, trackConfirmation, clearConfirmation, autoSignIn, signInLocally],
   )
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>

@@ -20,7 +20,7 @@ import { Label } from './ui/label'
 import { ErrorPanel } from './States'
 
 export function SignIn(): JSX.Element {
-  const { signIn } = useSession()
+  const { signIn, autoSignIn, signInLocally } = useSession()
   const [value, setValue] = useState('')
   const [error, setError] = useState<CoreApiError | null>(null)
   const [checking, setChecking] = useState(false)
@@ -73,6 +73,9 @@ export function SignIn(): JSX.Element {
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3 px-0">
+      {autoSignIn === 'available' ? (
+        <Button type="button" onClick={() => void signInLocally()}>本机自动登录</Button>
+      ) : null}
       <form onSubmit={(event) => void submit(event)} aria-describedby={helpId}>
         <Label htmlFor={inputId}>Core API token</Label>
         <Input
