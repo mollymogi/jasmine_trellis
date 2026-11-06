@@ -286,6 +286,31 @@ class WorklogHooks(ClaudeCapture):
         self.assertIn("再把字幕调大一号", context)
         self.assertIn(f"上一次的会话在 {self.native_root.resolve()}", context)
 
+    def test_a_prompt_naming_all_projects_is_answered_even_after_the_start_block(self):
+        self.finished_session()
+        self.new_session()
+        text, _ = self.hint("SessionStart", source="startup")
+        self.assertIsNotNone(text)  # the default block, once
+        self.typed("我刚才在做什么")
+        _, receipt = self.hint("UserPromptSubmit", prompt="我刚才在做什么")
+        self.assertEqual(receipt["recent_activity"]["reason"], "already_injected")
+        real = worklog_client.recent
+        with patch.object(worklog_client, "recent", side_effect=real) as asked:
+            text, receipt = self.hint("UserPromptSubmit", prompt="其他项目最近在做什么")
+        self.assertEqual(asked.call_args.kwargs["query"], {"scope": "global"})
+        self.assertEqual((receipt["recent_activity"]["status"], receipt["recent_activity"]["scope"]), ("ok", "global"))
+        self.assertIn("范围：全部工作区", text)
+
+    def test_a_codex_prompt_naming_an_agent_filters_by_it(self):
+        self.finished_session()
+        self.codex_main("SessionStart", source="resume")
+        _, out, row = self.codex_main("UserPromptSubmit", prompt="claude 刚才在做什么")
+        self.assertEqual(row["recent_activity"]["agent"], "claude")
+        self.assertIn("只包含 Claude 的会话", json.loads(out)["hookSpecificOutput"]["additionalContext"])
+        _, out, row = self.codex_main("UserPromptSubmit", prompt="codex 刚才在做什么")
+        # This Codex session is the only Codex one, and it never sees itself.
+        self.assertEqual((row["recent_activity"]["agent"], row["recent_activity"]["status"]), ("codex", "empty"))
+
     def test_the_hint_main_prints_a_session_start_envelope(self):
         self.finished_session()
         self.new_session()
@@ -435,6 +460,20 @@ class WorklogPieces(unittest.TestCase):
         # A session started in the home directory (or above) is nobody's previous work.
         self.assertFalse(worklog.related(str(Path.home()), str(Path.home() / "x")))
         self.assertFalse(worklog.related(str(Path.home().parent), str(Path.home() / "x")))
+
+    def test_a_prompt_selects_the_scope_and_the_agent(self):
+        cases = {
+            "我刚才在做什么": {},
+            "codex 刚才在做什么": {"agent": "codex"},
+            "Claude 上次做到哪了": {"agent": "claude"},
+            "其他项目最近在做什么": {"scope": "global"},
+            "所有项目里 codex 最近在干什么": {"scope": "global", "agent": "codex"},
+            "codex 和 claude 刚才都在做什么": {},  # two agents is not a filter
+            "这首歌发布到哪个账号": None,
+            "把所有项目的进度条改成蓝色然后再看看": None,
+        }
+        for prompt, expected in cases.items():
+            self.assertEqual(worklog_client.recent_query(prompt), expected, prompt)
 
     def test_intent_matches_questions_about_recent_work_only(self):
         asks = ["记不记得我刚才在做什么", "我们上次做到哪了", "继续上次的", "刚刚在改什么来着", "进度怎么样",

@@ -15,7 +15,8 @@ from .interpretations import InterpretationStore
 from .resolver import ResolverStore
 from .interpretation_maintenance import MaintenanceStore
 
-SOURCES=('codex-native-conversation-v1','claude-native-conversation-v1','grok-native-conversation-v1')
+SOURCES=('codex-native-conversation-v1','claude-native-conversation-v1','grok-native-conversation-v1',
+         'opencode-native-conversation-v1')
 CURSOR='conversation_processing_cursor'
 ACTIVATED='conversation_processing_started_at'
 # A rate-limited provider is an account-wide condition, not a property of one
@@ -75,7 +76,7 @@ class ConversationProcessing:
   if 'event_id' in body:
    event=self.events.get(body['event_id'])
    if not self._eligible(event) or any(event[name]!=body[name] for name in ('project_id','session_id') if name in body):raise errors.InvalidRequest('source scope mismatch or unsupported producer')
-  clauses=['e.source_system IN (?,?,?)',"e.event_type IN ('user.prompt','assistant.message')",'e.host_id=?'];params=[*SOURCES,self.host]
+  clauses=['e.source_system IN ('+','.join('?'*len(SOURCES))+')',"e.event_type IN ('user.prompt','assistant.message')",'e.host_id=?'];params=[*SOURCES,self.host]
   for name,prefix in [('project_id','prj'),('session_id','ses'),('event_id','evt')]:
    if name in body:
     if not ids.is_id(body[name],prefix):raise errors.InvalidRequest('invalid source scope')

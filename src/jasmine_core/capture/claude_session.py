@@ -272,12 +272,14 @@ def _session_root(device,n):
 #: Of the hint budget, the most the resume block may take on a prompt that asks for it.
 RECENT_SECONDS=0.8
 
-def _recent(n,device,trigger,deadline):
-    """The resume block (ADR 0039 B), at most once per session within its window."""
+def _recent(n,device,trigger,deadline,query=None):
+    """The resume block (ADR 0039 B). The default question is answered at most once
+    per session within its window; a prompt that names all projects or an agent
+    asks something the earlier block did not answer, so it is always answered."""
     spool=device.spool_dir
-    if worklog_client.injected_recently(spool,n['sid']):return None,{'status':'skipped','reason':'already_injected','trigger':trigger}
-    text,receipt=worklog_client.recent(device,workspace_root=_session_root(device,n),native_session_id=n['sid'],deadline=deadline)
-    if text:worklog_client.mark_injected(spool,n['sid'],trigger)
+    if not query and worklog_client.injected_recently(spool,n['sid']):return None,{'status':'skipped','reason':'already_injected','trigger':trigger}
+    text,receipt=worklog_client.recent(device,workspace_root=_session_root(device,n),native_session_id=n['sid'],deadline=deadline,query=query)
+    if text and not query:worklog_client.mark_injected(spool,n['sid'],trigger)
     return text,{**receipt,'trigger':trigger}
 
 def memory_hint_device(native,device,claude_home,*,now=time.monotonic):
@@ -302,8 +304,9 @@ def memory_hint_device(native,device,claude_home,*,now=time.monotonic):
         text,receipt=_recent(n,device,'session_start',deadline)
         return text,{**receipt,'native_session_id':n['sid']}
     recent_text=recent=None
-    if worklog_client.asks_about_recent_work(n['text']):
-        recent_text,recent=_recent(n,device,'prompt',min(deadline,now()+RECENT_SECONDS))
+    query=worklog_client.recent_query(n['text'])
+    if query is not None:
+        recent_text,recent=_recent(n,device,'prompt',min(deadline,now()+RECENT_SECONDS),query)
     extra={'recent_activity':recent} if recent else {}
     verified=_session_verified(device,n)
     if verified is None:return recent_text,{'status':'ignored','reason':'no_verified_turn_in_session','native_session_id':n['sid'],**extra}

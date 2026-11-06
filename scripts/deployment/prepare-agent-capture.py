@@ -12,7 +12,7 @@ from jasmine_core import auth,db,errors,ids,registry
 from jasmine_core.hosthook.install import _backup,_write
 
 #: ADR 0036 phase A delivers the prompt-time Memory hint to these Agents.
-MEMORY_HINT_AGENTS=('codex','claude')
+MEMORY_HINT_AGENTS=('codex','claude','grok','opencode')
 
 def _capture_metadata(runtime,agent,document,credentials):
     """`<agent>-conversation-keys.json`, reconstructed when an older setup never wrote it.
@@ -71,7 +71,7 @@ def prepare(base,confirmed=False):
     credentials=base/'config/credentials';browser=json.loads((credentials/'browser-daily.json').read_text())
     reference=json.loads((base/'config/codex-conversation-device.json').read_text())
     adapters={}
-    for agent in ('codex','claude','grok'):
+    for agent in ('codex','claude','grok','opencode'):
         binding=base/'config'/f'{agent}-conversation-device.json'
         if not binding.exists():
             metadata=credentials/f'{agent}-conversation-keys.json'
@@ -93,7 +93,7 @@ def prepare(base,confirmed=False):
                 _write(binding,{'version':1,'core_url':runtime['core_origin'],'host_id':reference['host_id'],'api_key_file':paths['system'],'human_api_key_file':paths['human'],'inject_context':False,'on_unavailable':'allow','spool_dir':str(base/'data'/f'{agent}-capture-spool')});binding.chmod(0o600)
             finally:conn.close()
         if agent in MEMORY_HINT_AGENTS:_memory_key(runtime,agent,binding,credentials)
-        adapter={'python':runtime['python'],'installer':str(release/'scripts/deployment'/f'{agent}-capture-install.py'),'device_binding':str(binding),'receipts':str(base/'logs'/f'{agent}-conversation-receipts.jsonl'),'home':str(Path.home()/('.'+agent))}
+        adapter={'python':runtime['python'],'installer':str(release/'scripts/deployment'/f'{agent}-capture-install.py'),'device_binding':str(binding),'receipts':str(base/'logs'/f'{agent}-conversation-receipts.jsonl'),'home':str(Path.home()/'.config'/'opencode' if agent=='opencode' else Path.home()/('.'+agent))}
         if agent!='codex':adapter['launcher']=str(release/'scripts/deployment'/f'{agent}-capture.py')
         adapters[agent]=adapter
     profile=base/'config/agent-capture-control.json'
