@@ -36,17 +36,34 @@ export const REQUIRED_READ_SCOPES = [
  * answers; `unavailable` when the host does not offer it or the token is refused. */
 export type AutoSignIn = 'checking' | 'available' | 'unavailable'
 
+export const LOCAL_SIGNIN_TIMEOUT_MS = 5000
+
 /** Ask the dashboard host for the local credential and prove it with an authenticated read. */
 export async function fetchLocalToken(fetchImpl: typeof fetch = (...args) => globalThis.fetch(...args)): Promise<string | null> {
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  // Race the whole operation, including response bodies, so even a transport
+  // that ignores cancellation cannot keep the manual sign-in form hidden.
+  const deadline = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort()
+      resolve(null)
+    }, LOCAL_SIGNIN_TIMEOUT_MS)
+  })
   try {
-    const reply = await fetchImpl('/_local/session', { credentials: 'same-origin', cache: 'no-store' })
-    if (!reply.ok) return null
-    const token = (await reply.json() as { token?: unknown }).token
-    if (typeof token !== 'string' || !token) return null
-    await makeEndpoints(new CoreClient({ getToken: () => token, fetchImpl })).listProjects({ limit: 1, offset: 0 })
-    return token
+    const attempt = async () => {
+      const reply = await fetchImpl('/_local/session', { credentials: 'same-origin', cache: 'no-store', signal: controller.signal })
+      if (!reply.ok || controller.signal.aborted) return null
+      const token = (await reply.json() as { token?: unknown }).token
+      if (typeof token !== 'string' || !token || controller.signal.aborted) return null
+      await makeEndpoints(new CoreClient({ getToken: () => token, fetchImpl })).listProjects({ limit: 1, offset: 0 }, controller.signal)
+      return controller.signal.aborted ? null : token
+    }
+    return await Promise.race([attempt(), deadline])
   } catch {
     return null
+  } finally {
+    clearTimeout(timer)
   }
 }
 

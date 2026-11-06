@@ -2,7 +2,7 @@
  * Local auto sign-in: the dashboard host hands its own page the operator's
  * browser credential (`GET /_local/session`), and the page signs in by itself.
  */
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { chmodSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -10,12 +10,12 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { App } from '../src/App'
-import { SessionProvider } from '../src/app/session'
+import { LOCAL_SIGNIN_TIMEOUT_MS, SessionProvider } from '../src/app/session'
 import { isOwnPage, readLocalCredential, serveLocalSession } from '../server/local-session.mjs'
 import { installFakeCore, type FakeCore } from './helpers/fakeCore'
 
 let fake: FakeCore | null = null
-afterEach(() => { fake?.restore(); fake = null; vi.restoreAllMocks() })
+afterEach(() => { fake?.restore(); fake = null; vi.restoreAllMocks(); vi.useRealTimers() })
 
 const TOKEN = 'tok_local_operator_0123456789'
 const PROJECTS = { body: { projects: [], count: 0 } }
@@ -69,6 +69,34 @@ describe('GET /_local/session', () => {
 })
 
 describe('the page signs in by itself', () => {
+  it.each(['credential', 'credential body', 'Core', 'Core body'])('shows manual sign-in and aborts when %s stays pending', async (stage) => {
+    vi.useFakeTimers()
+    const signals: AbortSignal[] = []
+    let finish!: (response: Response) => void
+    const pending = new Promise<Response>((resolve) => { finish = resolve })
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      signals.push(init!.signal as AbortSignal)
+      const credentialRequest = input === '/_local/session'
+      if ((stage === 'credential' && credentialRequest) || (stage === 'Core' && !credentialRequest)) return pending
+      const response = new Response(JSON.stringify(credentialRequest ? { token: TOKEN } : PROJECTS.body))
+      if (stage === 'credential body' && credentialRequest) vi.spyOn(response, 'json').mockImplementation(() => pending.then(() => ({ token: TOKEN })))
+      if (stage === 'Core body' && !credentialRequest) vi.spyOn(response, 'text').mockImplementation(() => pending.then(() => JSON.stringify(PROJECTS.body)))
+      return response
+    })
+    render(<SessionProvider localSignIn><App /></SessionProvider>)
+    await act(async () => { await vi.advanceTimersByTimeAsync(LOCAL_SIGNIN_TIMEOUT_MS - 1) })
+    expect(screen.queryByLabelText('Core API token')).toBeNull()
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    expect(screen.getByLabelText('Core API token')).toBeTruthy()
+    expect(signals.length).toBe(stage.startsWith('credential') ? 1 : 2)
+    expect(signals.every((signal) => signal.aborted)).toBe(true)
+    // A late response from a transport that ignores abort must not sign in.
+    await act(async () => { finish(new Response(JSON.stringify({ token: TOKEN }))) })
+    expect(screen.getByLabelText('Core API token')).toBeTruthy()
+    expect(screen.queryByRole('navigation', { name: '主导航' })).toBeNull()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('uses the local credential after an authenticated read, without the token form', async () => {
     fake = installFakeCore({ 'GET /_local/session': { body: { token: TOKEN } }, 'GET /v1/projects': PROJECTS })
     render(<SessionProvider localSignIn><App /></SessionProvider>)
