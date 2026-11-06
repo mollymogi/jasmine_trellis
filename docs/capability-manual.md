@@ -3,7 +3,9 @@
 整理日期：2026-11-06，对应 `main` 提交 `9630f39`（schema 17）。
 
 本手册汇总当前代码里已有的功能和使用方法。每项能力的完整契约以对应 ADR 为准。
-“代码里有”不等于“日常部署已开启”：本机实际运行的版本、开关和验证结果，看私有部署目录里的
+
+**“代码里有”不等于“日常在用”。** 第 2 节的“状态”列和 2.1 节是对本机日常部署（`local-item6`）的实测：
+2026-11-06 只读查询 `core.db` 和各 Agent 的 hook 回执得到的数字。部署版本、开关和发布验证见私有部署目录里的
 `RESULT.md` / `RELEASE-RESULT.md`。
 
 > 命名：产品已改名 **Trellis**，仓库是 `jasmine_trellis`。Python 包 `jasmine_core`、命令
@@ -39,31 +41,70 @@ Trellis 是一个运行在本机的“Agent 工作底座”。它把 Claude Code
 
 ## 2. 功能清单
 
-| # | 能力 | 一句话 | 入口 | 依据 |
-| --- | --- | --- | --- | --- |
-| 1 | 事件存储 | 不可变、幂等的原始事件；原文保留并做敏感信息遮盖 | `POST/GET /v1/events` | ADR 0002–0004、P0-02 |
-| 2 | 项目 / 任务 / 会话 | 统一的对象模型，公共 ID（`prj_`、`tsk_`、`ses_`…） | `/v1/projects` `/v1/tasks` `/v1/sessions` | ADR 0001 |
-| 3 | 对话自动采集 | Claude Code、Codex、Grok 的日常对话自动进 Core，按工作区自动建项目 | Agent 用户级 hook | ADR 0026–0028 |
-| 4 | 对话浏览 | Agent → 项目 → 会话树、时间线、搜索、原文阅读 | 看板「对话」 | local-agent-discovery |
-| 5 | Agent 接入 | 检测本机已安装的 Agent，一键安装 / 停用采集 hook | 看板「对话 → Agent 接入」 | ADR 0028 |
-| 6 | 对话提炼（Interpreter） | 用本地 Codex / Grok 客户端把用户的话提炼成任务、规则、决定、纠正等候选 | 看板「对话提炼」 | ADR 0008、0029、0031、0032 |
-| 7 | 解析与审核（Resolver / Review） | 候选按策略自动应用或进入人工审核 | 看板「待审核」、`/v1/reviews` | ADR 0009 |
-| 8 | 规则目录（Authority） | 全局 / 项目 / 任务规则的版本化管理：提议、批准、替换、退役 | 看板「规则」、`/v1/rules` | ADR 0005、0033 |
-| 9 | 守卫（Guard） | 工具调用前按有效规则返回 allow / confirm / deny | `POST /v1/guard/check`、Host Hook `tool.before` | ADR 0005、0035 |
-| 10 | Host Hook 协议 | Agent 中立的事件协议：提问、工具前后、注入、Checkpoint | `jasmine-core hook` / `hooks` | ADR 0017–0021 |
-| 11 | 任务状态与验收 | Task / Step 状态机、验收标准、fail-closed 验收 | `/v1/tasks/{id}/transition` 等 | ADR 0006 |
-| 12 | 证据（Evidence） | 工具结果按可信级别入库；工作区指纹比对；人工确认只产生 INFO | `/v1/tool-results` `/v1/evidence/*` | ADR 0007、0015 |
-| 13 | 任务 Checkpoint / Resume | 任务级快照与恢复回执 | `/v1/checkpoints` `/v1/tasks/{id}/resume` | ADR 0011 |
-| 14 | Context Pack | 按预算精确构建注入给 Agent 的上下文（规则、任务状态、记忆） | `/v1/context/build` | ADR 0012、0025 |
-| 15 | 长期记忆 | 对话中的决定、纠正、约定直接成为带可信标签的记忆条目，写入 Hindsight | 看板「记忆」、`/v1/memory/*` | ADR 0014、0034、0037 |
-| 16 | 记忆自动提示 | Agent 收到提问时自动召回相关记忆，作为非权威提示注入 | Claude / Codex 的提示 hook | ADR 0036 |
-| 17 | 记忆引擎启动 | 在健康页一键启动本机 Hindsight | 看板「记忆 → 健康」 | ADR 0023 |
-| 18 | 工作记录（worklog） | 每个会话做了什么，按时间从新到旧 | `jasmine-core worklog`、`GET /v1/session-checkpoints` | ADR 0039 |
-| 19 | 会话 Checkpoint | 压缩前、会话结束、恢复时自动记一份会话快照 | Claude / Codex hook | ADR 0039 |
-| 20 | 新会话接续 | 新会话开始或问“我刚才在做什么”时，注入最近会话的接续块 | Claude / Codex hook、`POST /v1/continuity/recent` | ADR 0039 |
-| 21 | 长输出摘要（digest） | 确定性地把长日志 / 文档 / JSON 压成摘要，原文落盘 | `jasmine-core digest` | ADR 0038 |
-| 22 | 验收记录 | 只读展示已有的验证运行和原始 verdict | 看板「验收记录」、`/v1/validation/*` | ADR 0016 |
-| 23 | 审计与鉴权 | 按 scope 发 key、吊销、追加式审计日志 | `/v1/auth/keys` `/v1/audit` | ADR 0004 |
+状态：🟢 日常在用　🟡 在跑，但刚上线 / 用得很少 / 有明显问题　⚪ 代码有，日常没有使用　— 按需工具，没有使用记录
+
+| # | 能力 | 状态 | 一句话 | 入口 | 依据 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 事件存储 | 🟢 | 不可变、幂等的原始事件；原文保留并做敏感信息遮盖 | `POST/GET /v1/events` | ADR 0002–0004、P0-02 |
+| 2 | 项目 / 任务 / 会话 | 🟢 | 统一的对象模型，公共 ID（`prj_`、`tsk_`、`ses_`…） | `/v1/projects` `/v1/tasks` `/v1/sessions` | ADR 0001 |
+| 3 | 对话自动采集 | 🟢 | Claude Code、Codex、Grok 的日常对话自动进 Core，按工作区自动建项目 | Agent 用户级 hook | ADR 0026–0028 |
+| 4 | 对话浏览 | — | Agent → 项目 → 会话树、时间线、搜索、原文阅读 | 看板「对话」 | local-agent-discovery |
+| 5 | Agent 接入 | 🟢 | 检测本机已安装的 Agent，一键安装 / 停用采集 hook | 看板「对话 → Agent 接入」 | ADR 0028 |
+| 6 | 对话提炼（Interpreter） | 🟡 | 用本地 Codex / Grok 客户端把用户的话提炼成任务、规则、决定、纠正等候选 | 看板「对话提炼」 | ADR 0008、0029、0031、0032 |
+| 7 | 解析与审核（Resolver / Review） | 🟡 | 候选按策略自动应用或进入人工审核 | 看板「待审核」、`/v1/reviews` | ADR 0009 |
+| 8 | 规则目录（Authority） | 🟢 | 全局 / 项目 / 任务规则的版本化管理：提议、批准、替换、退役 | 看板「规则」、`/v1/rules` | ADR 0005、0033 |
+| 9 | 守卫（Guard） | ⚪ | 工具调用前按有效规则返回 allow / confirm / deny | `POST /v1/guard/check`、Host Hook `tool.before` | ADR 0005、0035 |
+| 10 | Host Hook 协议 | ⚪ | Agent 中立的事件协议：提问、工具前后、注入、Checkpoint | `jasmine-core hook` / `hooks` | ADR 0017–0021 |
+| 11 | 任务状态与验收 | 🟡 | Task / Step 状态机、验收标准、fail-closed 验收 | `/v1/tasks/{id}/transition` 等 | ADR 0006 |
+| 12 | 证据（Evidence） | ⚪ | 工具结果按可信级别入库；工作区指纹比对；人工确认只产生 INFO | `/v1/tool-results` `/v1/evidence/*` | ADR 0007、0015 |
+| 13 | 任务 Checkpoint / Resume | ⚪ | 任务级快照与恢复回执 | `/v1/checkpoints` `/v1/tasks/{id}/resume` | ADR 0011 |
+| 14 | Context Pack | ⚪ | 按预算精确构建注入给 Agent 的上下文（规则、任务状态、记忆） | `/v1/context/build` | ADR 0012、0025 |
+| 15 | 长期记忆 | 🟡 | 对话中的决定、纠正、约定直接成为带可信标签的记忆条目，写入 Hindsight | 看板「记忆」、`/v1/memory/*` | ADR 0014、0034、0037 |
+| 16 | 记忆自动提示 | 🟡 | Agent 收到提问时自动召回相关记忆，作为非权威提示注入 | Claude / Codex 的提示 hook | ADR 0036 |
+| 17 | 记忆引擎启动 | — | 在健康页一键启动本机 Hindsight | 看板「记忆 → 健康」 | ADR 0023 |
+| 18 | 工作记录（worklog） | 🟢 | 每个会话做了什么，按时间从新到旧 | `jasmine-core worklog`、`GET /v1/session-checkpoints` | ADR 0039 |
+| 19 | 会话 Checkpoint | 🟢 | 压缩前、会话结束、恢复时自动记一份会话快照 | Claude / Codex hook | ADR 0039 |
+| 20 | 新会话接续 | 🟡 | 新会话开始或问“我刚才在做什么”时，注入最近会话的接续块 | Claude / Codex hook、`POST /v1/continuity/recent` | ADR 0039 |
+| 21 | 长输出摘要（digest） | — | 确定性地把长日志 / 文档 / JSON 压成摘要，原文落盘 | `jasmine-core digest` | ADR 0038 |
+| 22 | 验收记录 | — | 只读展示已有的验证运行和原始 verdict | 看板「验收记录」、`/v1/validation/*` | ADR 0016 |
+| 23 | 审计与鉴权 | 🟢 | 按 scope 发 key、吊销、追加式审计日志 | `/v1/auth/keys` `/v1/audit` | ADR 0004 |
+
+### 2.1 实际运行状态（2026-11-06 实测）
+
+数据来自日常部署的 `core.db`（schema 17）和 `logs/*-conversation-receipts.jsonl`，只读查询。“近 7 天”指 10-30 到 11-06。
+
+**🟢 每天在用**
+
+| 能力 | 实测 | 自己怎么看 |
+| --- | --- | --- |
+| 对话采集 | 近 7 天：Codex 899 条提问 / 521 条回复，Claude 530 / 465，Grok 6 / 6；共 143 个会话 | 看板「对话」 |
+| 规则 | 58 条生效；近 7 天提议并批准 36 条 | 看板「规则」 |
+| 会话 Checkpoint / 工作记录 | 11-04 部署后开始有，共 55 条：会话结束 16、补写（RECOVERED）38、压缩前 1；Claude 19、Codex 34、Grok 2 | `jasmine-core worklog` |
+
+**🟡 在跑，但要注意**
+
+| 能力 | 实测 | 问题 |
+| --- | --- | --- |
+| 长期记忆写入 | 415 条记忆，几乎全部来自你的对话：纠正 209、决定 101、约定 60、验收 37；另有经过验证的结果 / 教训 7 条。写入引擎成功 342 条，失败 73 条，引擎没提取出内容的 16 条 | 73 条 `RETAIN_FAILED` 没有自动恢复 |
+| 记忆自动提示 | 共召回 1488 次：成功 1165、降级 299、空 24。近一周每天 60–216 次，每次约 5 条。Codex 回执里 499 次提问真的带上了记忆，269 次降级，187 次没召回到内容 | 降级约占 1/4；同几条记忆被反复召回（被召回最多的一条 237 次，前 5 条每条 120–237 次） |
+| 新会话接续 | 11-04 部署后真正注入 4 次（Claude 1、Codex 3，都在新会话开始时）。提示词触发的次数是 0 | 刚上线；用提示词选范围和 Agent 的功能还没部署 |
+| 对话提炼 / 审核 | 处理 2473 条；自动创建 701 个 Task，全部挂在 ACTIVE；625 条审核待处理，只批准过 1 条 | 自动建的 Task 和待审核几乎都是噪声，没人处理 |
+| 任务状态 | 703 个 Task 里只有 1 个走到 ACCEPTED，1 个 CANCELLED | 状态机基本没被人用，Task 只是被自动创建 |
+
+看记忆的地方：看板「记忆」的 trace 页（每次召回一条记录，含返回了哪些条目）和条目页（`recall_count`、最近召回时间）。
+
+**⚪ 代码有，日常没有使用**
+
+| 能力 | 实测 | 原因 |
+| --- | --- | --- |
+| Context Pack | 全部只有 3 个，都是 10-12 手动构建（`MANUAL`） | 只在会话绑定了 Task 的 Host Hook 路径里构建；日常对话走采集 hook，从不绑定 Task |
+| 任务 Checkpoint / Resume | 0 条 | 同上，依赖 Task 绑定；ADR 0039 的 C 部分（接通任务级 Checkpoint）尚未开始 |
+| Guard / Host Hook | `host_hook_deliveries` 为 0；工具调用事件只有 10-09 测试留下的 5 条。三个 Agent 的配置里都只装了采集 hook，没有 `jasmine-core hook` | 日常没有安装 Host Hook，也没有项目放 `.jasmine/host-binding.json` |
+| 证据 | 8 条，都是早期验证留下的 | 依赖 Host Hook / 任务流程 |
+
+**—** 对话浏览、记忆引擎启动、验收记录、digest 是按需使用的界面或命令，系统不记录使用次数。
+
+另外，Codex 回执里有 3192 次因为“会话来源未验证”被忽略。推测主要是提炼器自己调用 Codex 产生的临时会话，被正确挡掉了，尚未逐条核实。
 
 ---
 
@@ -77,9 +118,9 @@ Trellis 是一个运行在本机的“Agent 工作底座”。它把 Claude Code
 | 记忆自动提示 | ✅ | ✅ | ❌ | ❌ |
 | 会话 Checkpoint | ✅（PreCompact、SessionEnd、恢复） | ✅（SessionEnd、恢复） | ❌ | ❌ |
 | 新会话接续块 | ✅ | ✅ | ❌（会被别的 Agent 查到） | ❌ |
-| Host Hook（Guard / 注入 / 证据） | ✅ | ✅ | ✅ | ❌ |
+| Host Hook（Guard / 注入 / 证据） | 代码支持，日常未安装 | 代码支持，日常未安装 | 代码支持，日常未安装 | ❌ |
 
-Grok 和 OpenCode 的接续、记忆提示接入正在开发中。
+Grok 和 OpenCode 的接续、记忆提示、会话 Checkpoint 在 PR #40 中，尚未部署。表里的 ✅ 表示代码支持；日常是否真的在用，以 2.1 节为准。
 
 ---
 
