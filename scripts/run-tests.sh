@@ -21,14 +21,13 @@ faulthandler.enable()
 # in cloud CI. Collect referenced Python frames from a Python thread instead.
 stop = threading.Event()
 stream = sys.__stderr__
+print("CI diagnostic: Python suite entered; thread sampler starting before unittest discovery", file=stream, flush=True)
 def dump_stacks():
     while not stop.wait(60):
         print("CI diagnostic: Python thread snapshots (60-second interval)", file=stream)
         frames = sys._current_frames()
         try:
             for ident, frame in frames.items():
-                if ident == threading.get_ident():
-                    continue
                 print("Thread %s:" % ident, file=stream)
                 traceback.print_stack(frame, limit=64, file=stream)
         finally:

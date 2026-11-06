@@ -5,10 +5,12 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 const execute = promisify(execFile)
-const LABELS={grok:'Jasmine daily Grok conversation capture',claude:'Jasmine daily Claude conversation capture',codex:'Jasmine daily conversation capture'}
+const LABELS={grok:'Jasmine daily Grok conversation capture',claude:'Jasmine daily Claude conversation capture',codex:'Jasmine daily conversation capture',opencode:'Jasmine daily OpenCode conversation capture'}
+// OpenCode has no hook file: capture is one owned plugin file (ADR 0040).
+const OPENCODE_MARKER='// JASMINE_TRELLIS_OPENCODE_PLUGIN=1'
 export const CAPTURE_AGENTS=Object.keys(LABELS)
 // ADR 0036 phase A: the prompt-time Memory hint, per Agent, off by default.
-export const MEMORY_HINT_AGENTS=['codex','claude']
+export const MEMORY_HINT_AGENTS=['codex','claude','grok','opencode']
 const HINT_LABEL='Jasmine Memory hint for Claude'
 const EVENTS=['SessionStart','UserPromptSubmit','Stop','SessionEnd']
 const inflight=new Map()
@@ -58,6 +60,13 @@ function readHookDocument(file) {
   return JSON.parse(readFileSync(fd,'utf8'))
  }finally{if(fd!==undefined)closeSync(fd)}
 }
+function readPluginFile(file) {
+ let fd
+ try {fd=openSync(file,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);const stat=fstatSync(fd)
+  if(!stat.isFile()||stat.uid!==process.getuid()||stat.mode&0o022||stat.size>65536)throw Error('unsafe_plugin_file')
+  return readFileSync(fd,'utf8')
+ }finally{if(fd!==undefined)closeSync(fd)}
+}
 function messageReceipt(file){
  if(!file)return {}
  let fd
@@ -91,6 +100,11 @@ function memoryHintState(adapter,agent,doc) {
   const handlers=doc?.hooks?.UserPromptSubmit?.flatMap(group=>group.hooks??[]).filter(hook=>hook.statusMessage===HINT_LABEL)??[]
   enabled=handlers.length===1&&handlers[0].type==='command'&&handlers[0].command===command&&handlers[0].async!==true
  }
+ // Grok reads hook context only from a tool hook: the hint needs its PreToolUse handler (ADR 0039).
+ if(enabled&&agent==='grok'){
+  const handlers=doc?.hooks?.PreToolUse?.flatMap(group=>group.hooks??[])??[]
+  enabled=handlers.length===1&&handlers[0].type==='command'&&handlers[0].command===expectedCommand(adapter,agent)
+ }
  return {available,enabled}
 }
 export function captureStates(profile,authorization) {
@@ -98,7 +112,16 @@ export function captureStates(profile,authorization) {
  for(const agent of CAPTURE_AGENTS){
   const adapter=adapterFor(profile,agent)
   let configured=false,drift=false,blocked=false,doc=null
-  if(adapter){
+  if(adapter&&agent==='opencode'){
+   const file=join(adapter.home,'plugins/jasmine-trellis.js')
+   try{
+    const text=readPluginFile(file)
+    // The plugin pins its launcher, binding and receipts on one CONFIG line.
+    const config=JSON.parse(text.match(/^const CONFIG = (\{.*\});$/m)?.[1]??'null')
+    configured=text.includes(OPENCODE_MARKER)&&config?.python===adapter.python&&config?.launcher===adapter.launcher&&config?.device_binding===adapter.device_binding&&config?.receipts===adapter.receipts
+    drift=!configured
+   }catch{drift=existsSync(file)}
+  }else if(adapter){
    const file=join(adapter.home,agent==='grok'?'hooks/jasmine-conversation.json':agent==='claude'?'settings.json':'hooks.json')
    try{
     doc=readHookDocument(file);const command=expectedCommand(adapter,agent)

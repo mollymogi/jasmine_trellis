@@ -180,8 +180,8 @@ def compare_states(then: dict[str, Any] | None, now: dict[str, Any] | None) -> s
 #: workspace on this host, newest first. Agents filter by the source of a session's
 #: events, so a Codex session is found whatever directory it was opened in.
 SCOPES = ("workspace", "global")
-AGENTS = ("claude", "codex", "grok")
-AGENT_SOURCE_PREFIX = {"claude": "claude-", "codex": "codex-", "grok": "grok-"}
+AGENTS = ("claude", "codex", "grok", "opencode")
+AGENT_SOURCE_PREFIX = {"claude": "claude-", "codex": "codex-", "grok": "grok-", "opencode": "opencode-"}
 
 
 def _require_scope(value: Any) -> str:
@@ -201,7 +201,7 @@ def _require_agent(value: Any) -> str | None:
 
 
 def _agent(source_system: str) -> str:
-    for name in ("claude", "codex", "grok"):
+    for name in AGENTS:
         if source_system.startswith(name):
             return name
     return "agent"
@@ -511,7 +511,7 @@ def _row(row) -> dict[str, Any]:
 
 # -- rendering -----------------------------------------------------------------------
 
-AGENT_NAMES = {"claude": "Claude", "codex": "Codex", "grok": "Grok"}
+AGENT_NAMES = {"claude": "Claude", "codex": "Codex", "grok": "Grok", "opencode": "OpenCode"}
 
 
 def _local(stamp: str | None) -> datetime | None:
