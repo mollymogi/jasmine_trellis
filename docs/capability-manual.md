@@ -133,16 +133,30 @@ Grok 和 OpenCode 的接续、记忆提示、会话 Checkpoint 在 PR #40 中，
 
 **命令行方式**（运维用，路径换成你自己的 device binding 和回执文件）：
 
+Claude 和 Codex 都要先安装对话采集，再单独开启记忆提示，按各自的两条命令顺序执行：
+
 ```bash
+# Claude Code：先安装采集，再开启提示
+python -m jasmine_core.capture.install_claude --device-binding DEVICE.json --receipts RECEIPTS.jsonl \
+  --claude-home ~/.claude --launcher LAUNCHER --confirm-user-scope
 python -m jasmine_core.capture.install_claude --device-binding DEVICE.json --receipts RECEIPTS.jsonl \
   --claude-home ~/.claude --launcher LAUNCHER --confirm-user-scope --memory-hint enable
+
+# Codex：先安装采集，再开启提示
+python -m jasmine_core.capture.install_codex  --device-binding DEVICE.json --receipts RECEIPTS.jsonl \
+  --confirm-user-scope
 python -m jasmine_core.capture.install_codex  --device-binding DEVICE.json --receipts RECEIPTS.jsonl \
   --confirm-user-scope --memory-hint enable
+
+# Grok：安装采集
 python -m jasmine_core.capture.install_grok   --device-binding DEVICE.json --receipts RECEIPTS.jsonl \
   --grok-home ~/.grok --launcher LAUNCHER --confirm-user-scope
 ```
 
-加 `--disable` 卸载。`--memory-hint enable` 同时开启记忆提示和新会话接续。
+卸载采集：在对应 Agent 的**安装采集命令**（不含 `--memory-hint`）末尾加 `--disable`；卸载也会关闭
+记忆提示。只关闭提示而保留采集：将开启提示命令的 `--memory-hint enable` 改成 `--memory-hint disable`。
+只要带有 `--memory-hint`，安装器就只处理提示开关，即使同时加 `--disable` 也不会卸载采集。
+`--memory-hint enable` 同时开启记忆提示和新会话接续；它不会安装采集，首次接入必须先执行安装采集命令。
 
 接入后**不需要**在项目里放标记文件：采集按工作区（最近的 `.git`，否则启动目录）自动建项目。git
 worktree 在接续时视为同一仓库。
