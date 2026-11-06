@@ -8,11 +8,13 @@ here fails open: a hook never blocks, and a receipt never carries text.
 from __future__ import annotations
 
 import json
+import fcntl
 import os
 import re
 import subprocess
 import time
 from pathlib import Path
+from contextlib import contextmanager
 from typing import Any
 
 from ..api.client import CoreClient
@@ -268,6 +270,16 @@ def _read_staged(path: Path, now: float) -> dict[str, str]:
         return {}
 
 
+@contextmanager
+def _staged_lock(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # Keep this inode: unlinking a lock lets later callers lock a different file.
+    fd = os.open(path.with_suffix(".lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "r+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
 def stage(spool: Path, native_session_id: str, **parts: str | None) -> bool:
     """Keep parts for the session's next tool call. A new part replaces the same
     kind already staged (a newer hint replaces an older one); others are kept. Never raises."""
@@ -276,13 +288,13 @@ def stage(spool: Path, native_session_id: str, **parts: str | None) -> bool:
         return False
     try:
         path = _staged(spool, native_session_id)
-        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        merged = {**_read_staged(path, time.time()), **parts}
-        temp = path.with_name("." + path.name + ".tmp")
-        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
-        with os.fdopen(fd, "w") as handle:
-            json.dump({"at": time.time(), "parts": merged}, handle, ensure_ascii=False)
-        os.replace(temp, path)
+        with _staged_lock(path):
+            merged = {**_read_staged(path, time.time()), **parts}
+            temp = path.with_name("." + path.name + ".tmp")
+            fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(fd, "w") as handle:
+                json.dump({"at": time.time(), "parts": merged}, handle, ensure_ascii=False)
+            os.replace(temp, path)
         return True
     except (OSError, ValueError):
         return False
@@ -292,14 +304,12 @@ def take_staged(spool: Path, native_session_id: str, *, now: float | None = None
     """The staged text, removed so it is delivered once; None when there is none. Never raises."""
     try:
         path = _staged(spool, native_session_id)
-    except ValueError:
+        with _staged_lock(path):
+            parts = _read_staged(path, now if now is not None else time.time())
+            path.unlink(missing_ok=True)
+            return "\n\n".join(parts[k] for k in STAGED_PARTS if k in parts) or None
+    except (OSError, ValueError):
         return None
-    parts = _read_staged(path, now if now is not None else time.time())
-    try:
-        path.unlink()
-    except OSError:
-        pass
-    return "\n\n".join(parts[k] for k in STAGED_PARTS if k in parts) or None
 
 
 def envelope(hook_event: str, text: str) -> str:

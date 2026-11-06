@@ -8,6 +8,8 @@ import json
 import time
 import uuid
 from contextlib import redirect_stdout
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from unittest.mock import patch
 
 from test_grok_session_capture import GrokCapture
@@ -175,6 +177,54 @@ class GrokResume(GrokCapture):
 
 
 class StagedContext(GrokResume):
+    def concurrent_take(self, *, staging):
+        spool = self.native_root / "spool"
+        self.assertTrue(worklog_client.stage(spool, self.sid, resume="old"))
+        read = Event()
+        release = Event()
+        competing = Event()
+        original = worklog_client._read_staged
+
+        def paused_read(path, now):
+            parts = original(path, now)
+            if not read.is_set():
+                read.set()
+                if not release.wait(5):
+                    raise RuntimeError("timed out waiting to release staged read")
+            return parts
+
+        def compete():
+            competing.set()
+            if staging:
+                return worklog_client.stage(spool, self.sid, hint="new")
+            return worklog_client.take_staged(spool, self.sid)
+
+        with patch.object(worklog_client, "_read_staged", side_effect=paused_read):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                first = pool.submit(worklog_client.take_staged, spool, self.sid)
+                try:
+                    self.assertTrue(read.wait(5))
+                    second = pool.submit(compete)
+                    self.assertTrue(competing.wait(5))
+                    # The other operation cannot complete during read/remove.
+                    from concurrent.futures import TimeoutError
+                    with self.assertRaises(TimeoutError):
+                        second.result(timeout=0.1)
+                finally:
+                    release.set()
+                self.assertEqual(first.result(timeout=5), "old")
+                self.assertEqual(second.result(timeout=5), True if staging else None)
+        return spool
+
+    def test_concurrent_consumers_deliver_once(self):
+        spool = self.concurrent_take(staging=False)
+        self.assertIsNone(worklog_client.take_staged(spool, self.sid))
+
+    def test_concurrent_stage_survives_consumption(self):
+        spool = self.concurrent_take(staging=True)
+        self.assertEqual(worklog_client.take_staged(spool, self.sid), "new")
+        self.assertIsNone(worklog_client.take_staged(spool, self.sid))
+
     def test_parts_merge_and_a_stale_block_is_dropped(self):
         spool = self.native_root / "spool"
         worklog_client.stage(spool, self.sid, resume="R1", hint="H1")
