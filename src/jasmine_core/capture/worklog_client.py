@@ -45,7 +45,7 @@ _GLOBAL_RE = re.compile(r"(所有|全部|别的|其他|其它|各个)的?(项目
                         r"|(?i:\b(all|other) (projects|workspaces)\b|\beverywhere\b)")
 #: An agent named in the question narrows it to that agent's sessions.
 _AGENT_RES = {"claude": re.compile(r"(?i)claude|克劳德"), "codex": re.compile(r"(?i)codex"),
-              "grok": re.compile(r"(?i)grok")}
+              "grok": re.compile(r"(?i)grok"), "opencode": re.compile(r"(?i)open ?code")}
 
 
 def recent_query(prompt: Any) -> dict[str, str] | None:
@@ -207,6 +207,99 @@ def mark_injected(spool: Path, native_session_id: str, trigger: str) -> None:
             json.dump({"at": time.time(), "trigger": trigger}, handle)
     except OSError:
         pass
+
+
+def resume_block(binding: Binding, *, native_session_id: str, workspace_root: str | Path, starting: bool,
+                 prompt: Any, start_seconds: float, prompt_seconds: float) -> tuple[str | None, dict[str, Any] | None]:
+    """The resume block for a session that is starting or a prompt that asks for it.
+
+    `(text, receipt)`; `(None, None)` when neither applies. The default question
+    is answered once per session; a question naming all projects or an agent is
+    a new question and is always answered. Never raises.
+    """
+    query = None if starting else recent_query(prompt)
+    if not starting and query is None:
+        return None, None
+    trigger, seconds = ("session_start", start_seconds) if starting else ("prompt", prompt_seconds)
+    if not query and injected_recently(binding.spool_dir, native_session_id):
+        return None, {"status": "skipped", "reason": "already_injected", "trigger": trigger}
+    text, answer = recent(binding, workspace_root=workspace_root, native_session_id=native_session_id,
+                          deadline=time.monotonic() + seconds, query=query)
+    if text and not query:
+        mark_injected(binding.spool_dir, native_session_id, trigger)
+    return text, {**answer, "trigger": trigger}
+
+
+# -- deferred delivery ---------------------------------------------------------
+#
+# Grok discards what its SessionStart and UserPromptSubmit hooks print; only a
+# tool hook's `additionalContext` reaches the model. The block is staged here
+# and handed over on the session's next tool call.
+
+#: A staged block older than this is dropped instead of delivered.
+STAGED_SECONDS = 15 * 60
+_SAFE_SID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def _staged(spool: Path, native_session_id: str) -> Path:
+    if not _SAFE_SID.match(native_session_id or ""):
+        raise ValueError("unsafe native session id")
+    return spool / "staged-context" / (native_session_id + ".json")
+
+
+#: Staged parts, in the order they are delivered.
+STAGED_PARTS = ("resume", "hint")
+
+
+def _read_staged(path: Path, now: float) -> dict[str, str]:
+    """Fresh staged parts at `path`; {} for none, a stale file or anything unreadable."""
+    try:
+        if path.is_symlink():
+            path.unlink()
+            return {}
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "r") as handle:
+            body = json.load(handle)
+        parts = body["parts"]
+        if now - float(body["at"]) >= STAGED_SECONDS or not isinstance(parts, dict):
+            return {}
+        return {k: v for k, v in parts.items() if k in STAGED_PARTS and isinstance(v, str) and v}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+
+
+def stage(spool: Path, native_session_id: str, **parts: str | None) -> bool:
+    """Keep parts for the session's next tool call. A new part replaces the same
+    kind already staged (a newer hint replaces an older one); others are kept. Never raises."""
+    parts = {k: v for k, v in parts.items() if k in STAGED_PARTS and v}
+    if not parts:
+        return False
+    try:
+        path = _staged(spool, native_session_id)
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        merged = {**_read_staged(path, time.time()), **parts}
+        temp = path.with_name("." + path.name + ".tmp")
+        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w") as handle:
+            json.dump({"at": time.time(), "parts": merged}, handle, ensure_ascii=False)
+        os.replace(temp, path)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def take_staged(spool: Path, native_session_id: str, *, now: float | None = None) -> str | None:
+    """The staged text, removed so it is delivered once; None when there is none. Never raises."""
+    try:
+        path = _staged(spool, native_session_id)
+    except ValueError:
+        return None
+    parts = _read_staged(path, now if now is not None else time.time())
+    try:
+        path.unlink()
+    except OSError:
+        pass
+    return "\n\n".join(parts[k] for k in STAGED_PARTS if k in parts) or None
 
 
 def envelope(hook_event: str, text: str) -> str:
