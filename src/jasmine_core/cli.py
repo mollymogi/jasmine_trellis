@@ -573,7 +573,7 @@ def build_parser() -> argparse.ArgumentParser:
     worklog_parser.add_argument("--db", help="path to core.db (or set JASMINE_CORE_DB)")
     worklog_parser.add_argument("--workspace", help="only this workspace (a worktree counts as its repository)")
     worklog_parser.add_argument("--since", default="7d", help="how far back: 7d, 12h (default 7d)")
-    worklog_parser.add_argument("--agent", choices=["claude", "codex", "grok"],
+    worklog_parser.add_argument("--agent", choices=["claude", "codex", "grok", "opencode"],
                                 help="only sessions of this agent")
     worklog_parser.add_argument("--limit", type=int, default=50)
     worklog_parser.add_argument("--json", action="store_true")

@@ -147,7 +147,8 @@ ADR 0036 要求先确认真人输入，是因为召回内容由这句话决定�
   - 安装：`install_claude --memory-hint enable` 同时登记 UserPromptSubmit 和 SessionStart 两处；capture 安装多登记一个 PreCompact。两者都改 `~/.claude/settings.json`，部署时由用户单独确认。
   - "每个会话一次"用 spool 目录下的私有标记文件（`recent-activity/<native_session_id>.json`）实现，30 分钟内不重复注入。
 - Codex：同样在新会话启动（`source` 为 `startup` / `clear`）和提示词问到最近工作时注入。Codex 的采集 hook 本来就是同步的，并且接受 SessionStart / UserPromptSubmit 的 `additionalContext`，所以**不需要改 `~/.codex/hooks.json`**；开关与 Memory 提示共用（`memory_hint`），读取用同一把 `memory:recall` key。
-- Grok：只写工作记录，不注入（没有同步注入通道）。
+- Grok：见 4.6。
+- OpenCode：见 ADR 0040。
 - 时间预算 1 秒；超时不注入，绝不阻塞。每次触发写一条 receipt（`status: recent_activity`），只记触发方式、所用记录 id、字符数和耗时。
 
 ### 4.5 查询范围与 agent（2026-11-04 补充）
@@ -155,10 +156,35 @@ ADR 0036 要求先确认真人输入，是因为召回内容由这句话决定�
 接续块的查询可以指定两个参数，都是按最后活动时间排序：
 
 - `scope`：`workspace`（默认）只看当前工作区族；`global` 看本机上所有工作区的会话，不同工作区的会话按时间混排。
-- `agent`：可选 `claude` / `codex` / `grok`，只取该 agent 的会话。按会话事件的来源判断，与它在哪个目录开的无关。
+- `agent`：可选 `claude` / `codex` / `grok` / `opencode`，只取该 agent 的会话。按会话事件的来源判断，与它在哪个目录开的无关。
 
-两者可以组合。默认的注入行为不变（只看工作区）。把注入默认改为全局，需要单独确认，因为它会把其他项目的内容带进每个新会话。
+两者可以组合。默认的注入行为不变（只看工作区）。
+
+提示词也能选这两个参数（不调用模型，固定模式）：先要满足 4.1 的"问到最近工作"，再看措辞——
+出现"所有/全部/别的/其他/各个 + 项目/工作区/目录/地方"、"全局"、"跨项目"（或英文 all/other projects、everywhere）时用 `global`；
+恰好点名一个 agent（claude/克劳德、codex、grok、opencode/open code）时加 `agent`，点名两个则不过滤。
+"每个会话一次"只约束默认问题；点名范围或 agent 的提问是新问题，总会回答。
+4.1 的意图模式同时加入"最近"，并把"进度"限定为问句（不含"进度条"）。把注入默认改为全局，需要单独确认，因为它会把其他项目的内容带进每个新会话。
 `GET /v1/session-checkpoints` 和 `jasmine-core worklog` 也支持 `agent` 过滤。
+
+### 4.6 Grok：延后到第一次工具调用（2026-11-06 补充）
+
+Grok Build 1.0.70 会丢弃 SessionStart 和 UserPromptSubmit hook 的输出（没有 `additionalContext`），
+只有工具 hook 的 `additionalContext` 能进入模型。所以 Grok 的接续块和 Memory 提示改为**暂存、延后交付**：
+
+- **工作记录**：SessionEnd 写 `SESSION_END`；新增 PreCompact handler 写 `PRE_COMPACT`（不产生对话 Event）；
+  SessionStart 补写同工作区未收尾的会话（`RECOVERED`）。Grok 的 SessionStart 可能早于会话落盘，此时它被暂存，
+  到第一句提问时才发布，补写也随之在那时进行。
+- **触发**：会话启动（`source` 为 `new`，含 `/new`、`/clear`；`load` 即恢复旧会话，不触发）或提问问到最近工作，
+  与 4.1 相同；暂存的启动在第一句提问时发布，算作会话启动。每次提问照常请求 Memory 提示。
+- **暂存**：文本写入 spool 下的私有文件 `staged-context/<session>.json`（0600，拒绝符号链接），按种类
+  （`resume`、`hint`）合并：新的同类内容替换旧的。15 分钟内未交付就丢弃。
+- **交付**：新增 PreToolUse handler（无 matcher，超时 3 秒）。它只读暂存文件，不访问 Core；有内容时输出
+  `hookSpecificOutput.additionalContext` 并删除文件，不给出任何 allow/deny 决定，也不改工具输入；没有内容时输出 `{}`，
+  不写 receipt。这一轮如果不调用工具，内容就留到下一次工具调用或过期。
+- **开关**：与 Memory 提示共用 `memory_hint`。PreToolUse 每次工具调用都会启动一个进程，所以只在开关打开时登记：
+  `install_grok --memory-hint enable|disable` 改设备绑定，并按开关增删这个 handler；关闭采集时开关一并关闭。
+  看板的 Memory 提示开关现在也覆盖 Grok，只有 PreToolUse handler 在位才显示为已开启。
 
 ## 5. C：任务级 Checkpoint 接通
 

@@ -10,9 +10,10 @@ import { agentIdentity } from '../lib/agentIdentity'
 import { formatTimestamp, maskedSummary } from '../lib/text'
 import { sourceHref } from '../app/router'
 
-type Origin = 'codex' | 'claude' | 'grok' | 'other' | 'pending'
+type Origin = 'codex' | 'claude' | 'grok' | 'opencode' | 'other' | 'pending'
 const GROUPS = [
   { key: 'codex', label: 'Codex' }, { key: 'claude', label: 'Claude' }, { key: 'grok', label: 'Grok' },
+  { key: 'opencode', label: 'OpenCode' },
   { key: 'other', label: 'Core / 其他登记' }, { key: 'pending', label: '来源待确认' },
 ]
 export function projectOrigin(project: Project, registrations: RawEvent[]): Origin {
