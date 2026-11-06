@@ -1,5 +1,6 @@
 import json
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -88,10 +89,41 @@ diagnostic('answered_and_exiting')
           try: entry[name]={'result':probe()}
           except OSError as probe_exc:
             entry[name]={'error':type(probe_exc).__name__,'errno':probe_exc.errno}
+        if isinstance(exc,PermissionError) and sig==signal.SIGTERM:
+          # Only the owned fixture PID, after the failed signal. Never poll/reap
+          # it here or send a stack-dump signal to a potentially recycled PID.
+          entry['lifecycle_at_denial']={}
+          for name in ('correlated-child.log','correlated-startup.log','correlated-exit-stack.log'):
+            try:
+              with (self.root/name).open() as log:
+                entry['lifecycle_at_denial'][name]=log.read(2048)
+            except OSError as log_exc:
+              entry['lifecycle_at_denial'][name]={'error':type(log_exc).__name__,'errno':log_exc.errno}
+          try:
+            raw=os.read(c.proc.stderr.fileno(),2048)
+            c.stderr.extend(raw)
+            entry['stderr_at_denial']=raw.decode('utf-8',errors='replace')
+          except OSError as read_exc:
+            entry['stderr_at_denial']={'error':type(read_exc).__name__,'errno':read_exc.errno}
+          # Bound the read-only process-state probe within the existing close
+          # budget. Do not collect command lines, environments or other PIDs.
+          remaining=cleanup_budget.end-time.monotonic()
+          if remaining>0:
+            try:
+              state=subprocess.run(['/bin/ps','-p',str(c.proc.pid),'-o','pid=,ppid=,pgid=,uid=,stat='],
+                                   capture_output=True,timeout=min(.2,remaining))
+              entry['owned_process_state']={'returncode':state.returncode,
+                  'stdout':state.stdout[:1024].decode('utf-8',errors='replace'),
+                  'stderr':state.stderr[:1024].decode('utf-8',errors='replace')}
+            except (OSError,subprocess.TimeoutExpired) as state_exc:
+              entry['owned_process_state']={'error':type(state_exc).__name__,'errno':getattr(state_exc,'errno',None)}
+          else:
+            entry['owned_process_state']={'skipped':'cleanup budget exhausted'}
         raise
     try:
       with patch('jasmine_core.adapter.native_client.os.killpg',side_effect=observed_killpg), patch.object(c.proc,'wait',side_effect=observed_wait):
-        cleanup=c.close(Budget())
+        cleanup_budget=Budget()
+        cleanup=c.close(cleanup_budget)
     finally:
       child_log=self.root/'correlated-child.log'
       print('native correlated cleanup diagnostic: '+json.dumps({
