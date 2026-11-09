@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 import threading
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -24,6 +25,10 @@ from .types import MEMORY_TYPES, RecallRequest
 
 MAX_ITEMS = 5
 MAX_TOKENS = 400
+#: The engine recall asks for a deeper pool than the hint renders (MAX_TOKENS), so
+#: repeat damping has candidates to fall back on. Replayed on 631 real prompts:
+#: 400 left 6.5% of prompts with nothing to show under damping, 800 left 4%.
+HINT_RECALL_TOKENS = 800
 MAX_ITEM_CHARS = 300
 ENGINE_SECONDS = 1.0
 #: The hint asks for Hindsight's `low` recall. On local-item6 the cross-encoder
@@ -39,6 +44,11 @@ SESSION_TURNS = 20
 SESSION_ENTRIES = 200
 SESSION_TTL_SECONDS = 24 * 3600
 MAX_SESSIONS = 1000
+#: Repeat damping (ADR 0036 amendment): a memory the hint has already put in front
+#: of the Agent this many times in one project within the window is held back, in
+#: any session. Pinned memories are exempt. Measured on local-item6, 2026-11-01..06.
+MAX_INJECTIONS_PER_WINDOW = 5
+INJECTION_WINDOW_SECONDS = 24 * 3600
 
 HEADER = "[JASMINE RELEVANT MEMORY - NON AUTHORITATIVE]"
 FOOTER = "[/JASMINE RELEVANT MEMORY]"
@@ -88,7 +98,9 @@ class _Session:
 
 
 class SessionLedger:
-    """Items already hinted per native session, so a turn does not repeat them.
+    """Items already hinted per native session, so a turn does not repeat them,
+    and how often each memory was shown per project within the window (repeat
+    damping, ADR 0036 amendment).
 
     In-process and bounded. Losing it on restart only means an item may be
     hinted once more; nothing depends on it for correctness.
@@ -97,6 +109,7 @@ class SessionLedger:
     def __init__(self, *, clock=time.monotonic) -> None:
         self._lock = threading.Lock()
         self._sessions: dict[tuple[str, str, str], _Session] = {}
+        self._injected: dict[str, dict[str, list[float]]] = {}
         self._clock = clock
 
     def _get(self, key: tuple[str, str, str]) -> _Session:
@@ -124,6 +137,35 @@ class SessionLedger:
                 for memory_id, _ in sorted(session.seen.items(), key=lambda kv: kv[1])[
                         :len(session.seen) - SESSION_ENTRIES]:
                     del session.seen[memory_id]
+            # Repeat damping counts what was actually handed to the Agent, per project.
+            now = self._clock()
+            shown = self._injected.setdefault(key[1], {})
+            for memory_id in memory_ids:
+                shown.setdefault(memory_id, []).append(now)
+            self._prune_injected(key[1], now)
+
+    def over_limit(self, project_id: str, memory_ids: Iterable[str]) -> set[str]:
+        """The given memories this project has been shown MAX_INJECTIONS_PER_WINDOW
+        times or more within the window."""
+        with self._lock:
+            now = self._clock()
+            self._prune_injected(project_id, now)
+            shown = self._injected.get(project_id, {})
+            return {m for m in memory_ids if len(shown.get(m, ())) >= MAX_INJECTIONS_PER_WINDOW}
+
+    def _prune_injected(self, project_id: str, now: float) -> None:
+        shown = self._injected.get(project_id)
+        if shown is None:
+            return
+        cutoff = now - INJECTION_WINDOW_SECONDS
+        for memory_id in list(shown):
+            fresh = [t for t in shown[memory_id] if t > cutoff]
+            if fresh:
+                shown[memory_id] = fresh
+            else:
+                del shown[memory_id]
+        if not shown:
+            del self._injected[project_id]
 
 
 _LEDGERS: dict[str, SessionLedger] = {}
@@ -172,7 +214,7 @@ def build(adapter: MemoryAdapter, store, ledger: SessionLedger, *, actor_id: str
         return {"status": "skipped", "reason": reason, "items": [], "text": None, "trace_id": None}
     outcome = adapter.recall(RecallRequest(
         project_id=project_id, actor_id=actor_id, query=query, task_id=task_id,
-        session_id=session_id, types=tuple(MEMORY_TYPES), max_tokens=MAX_TOKENS))
+        session_id=session_id, types=tuple(MEMORY_TYPES), max_tokens=HINT_RECALL_TOKENS))
     if outcome.status == "degraded":
         # Healthy-bank items are useful for ordinary recall, but hints fail open
         # as a whole and must not mark any partial result as delivered.
@@ -180,6 +222,7 @@ def build(adapter: MemoryAdapter, store, ledger: SessionLedger, *, actor_id: str
                 "items": [], "withheld": [], "text": None, "trace_id": outcome.trace_id}
     key = (actor_id, project_id, native_session_id)
     recent = ledger.recent(key)
+    overused = ledger.over_limit(project_id, [r.memory_id for r in outcome.items])
     lines: list[str] = []
     chosen: list[dict[str, Any]] = []
     withheld: list[dict[str, str]] = []
@@ -194,6 +237,9 @@ def build(adapter: MemoryAdapter, store, ledger: SessionLedger, *, actor_id: str
         item = store.item(memory_id)
         if item is None or item["status"] != "ACTIVE":
             withheld.append({"memory_id": memory_id, "reason": "not_active"})
+            continue
+        if memory_id in overused and not item.get("pinned"):
+            withheld.append({"memory_id": memory_id, "reason": "hinted_often"})
             continue
         line = _line(item)
         if line is None:
