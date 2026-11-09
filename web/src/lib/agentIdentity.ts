@@ -1,6 +1,6 @@
 import type { RawEvent } from '../api/types'
 
-export type AgentKind = 'codex' | 'claude' | 'grok' | 'opencode' | 'unknown'
+export type AgentKind = 'codex' | 'claude' | 'grok' | 'opencode' | 'antigravity' | 'unknown'
 
 /** Labels describe recorded producer metadata, never words in message text. */
 export function agentIdentity(event: RawEvent): { kind: AgentKind; label: string } {
@@ -14,5 +14,6 @@ export function agentIdentity(event: RawEvent): { kind: AgentKind; label: string
   if (/^claude(?:$|[-_:./])/.test(producer)) return { kind: 'claude', label: 'Claude' }
   if (/^grok(?:$|[-_:./])/.test(producer)) return { kind: 'grok', label: 'Grok' }
   if (/^opencode(?:$|[-_:./])/.test(producer)) return { kind: 'opencode', label: 'OpenCode' }
+  if (/^antigravity(?:$|[-_:./])/.test(producer)) return { kind: 'antigravity', label: 'Antigravity' }
   return { kind: 'unknown', label: '未知助手' }
 }

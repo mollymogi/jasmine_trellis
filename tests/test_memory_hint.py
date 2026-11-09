@@ -14,6 +14,7 @@ from memory_support import HOST, FakeTransport
 from test_api import ACTOR
 from test_memory_api import MemoryApiTestCase
 
+from jasmine_core import db
 from jasmine_core.memory import hint
 from jasmine_core.memory.adapter import MemoryAdapter
 from jasmine_core.memory.transport import TransportError
@@ -51,6 +52,17 @@ class Ledger(unittest.TestCase):
         ledger.note(("a", "p", "s"), ["m1"])
         now[0] = hint.SESSION_TTL_SECONDS + 1
         self.assertEqual(ledger.recent(("a", "p", "s")), set())
+
+    def test_an_item_shown_too_often_in_a_project_is_over_the_limit_until_the_window_passes(self):
+        now = [0.0]
+        ledger = hint.SessionLedger(clock=lambda: now[0])
+        for n in range(hint.MAX_INJECTIONS_PER_WINDOW):
+            ledger.note(("act", "prj", f"s{n}"), ["m1"])  # a new session each time: not "recent"
+            now[0] += 1
+        self.assertEqual(ledger.over_limit("prj", ["m1", "m2"]), {"m1"})
+        self.assertEqual(ledger.over_limit("other-project", ["m1"]), set())
+        now[0] = hint.INJECTION_WINDOW_SECONDS + 1  # the earliest shows have aged out
+        self.assertEqual(ledger.over_limit("prj", ["m1"]), set())
 
 
 class _Harness(observed_tests.ObservedAdmission):
@@ -110,6 +122,21 @@ class Build(_Harness):
         self.assertEqual(again["status"], "empty")
         self.assertEqual(again["withheld"][0]["reason"], "hinted_recently")
         self.assertEqual(self.build(session="s2")["status"], "ok")
+
+    def test_an_item_shown_too_often_in_a_project_is_held_back_unless_pinned(self):
+        items = self.seed("就用 v3 版本。", "采用本地作为授权中心。")
+        ledger = hint.SessionLedger()
+        for n in range(hint.MAX_INJECTIONS_PER_WINDOW):
+            self.assertEqual(self.build(session=f"s{n}", ledger=ledger)["status"], "ok")
+        result = self.build(session="new", ledger=ledger)
+        self.assertEqual(result["status"], "empty")
+        self.assertEqual({w["reason"] for w in result["withheld"]}, {"hinted_often"})
+        pinned = items[0]["memory_id"]
+        with db.transaction(self.conn):
+            self.conn.execute("UPDATE memory_items SET pinned=1 WHERE memory_id=?", (pinned,))
+        result = self.build(session="new2", ledger=ledger)
+        self.assertEqual([i["memory_id"] for i in result["items"]], [pinned])
+        self.assertEqual({w["reason"] for w in result["withheld"]}, {"hinted_often"})
 
     def test_withheld_turns_age_out_through_build(self):
         self.seed("就用 v3 版本。")

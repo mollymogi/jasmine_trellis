@@ -377,7 +377,7 @@ export function createDashboardServer({ root, origin, allowlist = loadAllowlist(
     }
     if (target.pathname === '/_local/session') { serveLocalSession(req, res, { port: req.socket.localPort }); return }
     if (target.pathname === '/_local/interpreter' && flagEnabled(process.env, 'P6_ENABLE_CONVERSATION_PROCESSING')) { void serveLocalInterpreter(req, res, origin); return }
-    if ((target.pathname === '/_local/agents' || /^\/_local\/agents\/(codex|claude|grok|opencode)\/(capture|memory-hint)$/.test(target.pathname))) { void serveLocalAgents(req, res, origin); return }
+    if ((target.pathname === '/_local/agents' || /^\/_local\/agents\/(codex|claude|grok|opencode|antigravity)\/(capture|memory-hint)$/.test(target.pathname))) { void serveLocalAgents(req, res, origin); return }
     if (target.kind === 'api') proxy(req, res, origin, allowlist)
     else serveStatic(req, res, root)
   })

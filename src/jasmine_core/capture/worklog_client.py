@@ -47,7 +47,8 @@ _GLOBAL_RE = re.compile(r"(所有|全部|别的|其他|其它|各个)的?(项目
                         r"|(?i:\b(all|other) (projects|workspaces)\b|\beverywhere\b)")
 #: An agent named in the question narrows it to that agent's sessions.
 _AGENT_RES = {"claude": re.compile(r"(?i)claude|克劳德"), "codex": re.compile(r"(?i)codex"),
-              "grok": re.compile(r"(?i)grok"), "opencode": re.compile(r"(?i)open ?code")}
+              "grok": re.compile(r"(?i)grok"), "opencode": re.compile(r"(?i)open ?code"),
+              "antigravity": re.compile(r"(?i)antigravity|反重力|\bagy\b")}
 
 
 def recent_query(prompt: Any) -> dict[str, str] | None:
