@@ -31,6 +31,9 @@ else:
  if c.get('conversation_processing',{}).get('enabled') is True:env['P6_ENABLE_CONVERSATION_PROCESSING']='1'
  if c.get('agent_capture_control_config'):env['JASMINE_AGENT_CAPTURE_CONTROL_CONFIG']=c['agent_capture_control_config']
  if c.get('interpreter_control_config'):env['JASMINE_INTERPRETER_CONTROL_CONFIG']=c['interpreter_control_config']
+ # Single-user machine: the dashboard's own page signs in with the operator's
+ # browser credential instead of asking for it (web/server/local-session.mjs).
+ if c.get('dashboard_local_signin') is True:env['P6_LOCAL_SIGNIN_CREDENTIAL']=str(b/'config/credentials/browser-daily.json')
  # Only public operational metadata reaches the dashboard; never configuration or keys.
  backups=[]
  for report in sorted((b/'backups').glob('*/BACKUP.json'),reverse=True):
