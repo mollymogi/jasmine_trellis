@@ -1,16 +1,18 @@
 /** Operator-pinned installation only. Browser input cannot choose code, paths or keys. */
 import { constants, openSync, closeSync, fstatSync, readFileSync, existsSync, writeSync, readSync } from 'node:fs'
-import { isAbsolute, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 const execute = promisify(execFile)
-const LABELS={grok:'Jasmine daily Grok conversation capture',claude:'Jasmine daily Claude conversation capture',codex:'Jasmine daily conversation capture',opencode:'Jasmine daily OpenCode conversation capture'}
+const LABELS={grok:'Jasmine daily Grok conversation capture',claude:'Jasmine daily Claude conversation capture',codex:'Jasmine daily conversation capture',opencode:'Jasmine daily OpenCode conversation capture',antigravity:'Jasmine daily Antigravity conversation capture'}
+// Antigravity: one named entry in ~/.gemini/config/hooks.json, one handler per event (ADR 0042).
+const ANTIGRAVITY_HOOK='jasmine-trellis',ANTIGRAVITY_EVENTS=['SessionStart','PreInvocation','Stop']
 // OpenCode has no hook file: capture is one owned plugin file (ADR 0040).
 const OPENCODE_MARKER='// JASMINE_TRELLIS_OPENCODE_PLUGIN=1'
 export const CAPTURE_AGENTS=Object.keys(LABELS)
 // ADR 0036 phase A: the prompt-time Memory hint, per Agent, off by default.
-export const MEMORY_HINT_AGENTS=['codex','claude','grok','opencode']
+export const MEMORY_HINT_AGENTS=['codex','claude','grok','opencode','antigravity']
 const HINT_LABEL='Jasmine Memory hint for Claude'
 const EVENTS=['SessionStart','UserPromptSubmit','Stop','SessionEnd']
 const inflight=new Map()
@@ -121,6 +123,15 @@ export function captureStates(profile,authorization) {
     configured=text.includes(OPENCODE_MARKER)&&config?.python===adapter.python&&config?.launcher===adapter.launcher&&config?.device_binding===adapter.device_binding&&config?.receipts===adapter.receipts
     drift=!configured
    }catch{drift=existsSync(file)}
+  }else if(adapter&&agent==='antigravity'){
+   const file=join(adapter.home,'hooks.json')
+   try{
+    const entry=readHookDocument(file)?.[ANTIGRAVITY_HOOK]
+    // The installer pins ~/.gemini (the parent of the config root) for transcripts.
+    const base=[adapter.python,'-I','-B',adapter.launcher,'--device-binding',adapter.device_binding,'--receipts',adapter.receipts,'--gemini-home',dirname(adapter.home)]
+    configured=!!entry&&entry.enabled!==false&&ANTIGRAVITY_EVENTS.every(event=>{const handlers=entry[event]??[];return handlers.length===1&&(handlers[0].type??'command')==='command'&&handlers[0].command===[...base,'--event',event].map(quoted).join(' ')})
+    drift=!!entry&&!configured
+   }catch{drift=false}
   }else if(adapter){
    const file=join(adapter.home,agent==='grok'?'hooks/jasmine-conversation.json':agent==='claude'?'settings.json':'hooks.json')
    try{
