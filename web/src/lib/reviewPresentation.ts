@@ -24,8 +24,8 @@ export function reviewReason(review: Review): string {
 export function reviewKind(kind: string): string { return CANDIDATE_LABELS[kind] ?? '其他建议' }
 export function reviewAgent(event?: RawEvent | null): { id: string; name: string } {
   const source = event?.source_system ?? ''
-  const id = ['codex', 'claude', 'grok', 'opencode', 'cursor', 'gemini'].find(name => source === name || source.startsWith(name + '-'))
-  return id ? { id, name: { codex: 'Codex', claude: 'Claude', grok: 'Grok', opencode: 'OpenCode', cursor: 'Cursor', gemini: 'Gemini' }[id]! } : { id: 'unknown', name: event ? '其他来源' : '来源待确认' }
+  const id = ['codex', 'claude', 'grok', 'opencode', 'antigravity', 'cursor', 'gemini'].find(name => source === name || source.startsWith(name + '-'))
+  return id ? { id, name: { codex: 'Codex', claude: 'Claude', grok: 'Grok', opencode: 'OpenCode', antigravity: 'Antigravity', cursor: 'Cursor', gemini: 'Gemini' }[id]! } : { id: 'unknown', name: event ? '其他来源' : '来源待确认' }
 }
 /** Same narrow project-convention operation as conversation processing. Never turn an inferred task into a rule. */
 export function conventionActions(review: Review, source: RawEvent | null | undefined) {

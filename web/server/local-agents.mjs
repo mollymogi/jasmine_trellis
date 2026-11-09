@@ -11,6 +11,7 @@ const CATALOG = [
   { id: 'claude', name: 'Claude', command: 'claude', apps: ['Claude.app'], adapter: true },
   { id: 'grok', name: 'Grok', command: 'grok', dirs: ['.grok/bin'], adapter: true },
   { id: 'opencode', name: 'OpenCode', command: 'opencode', dirs: ['.opencode/bin'], apps: ['OpenCode.app'], adapter: true },
+  { id: 'antigravity', name: 'Antigravity', command: 'agy', apps: ['Antigravity.app'], adapter: true },
   { id: 'gemini', name: 'Gemini CLI', command: 'gemini' },
   { id: 'aider', name: 'Aider', command: 'aider' },
   { id: 'cursor', name: 'Cursor', command: 'cursor', apps: ['Cursor.app'] },
@@ -40,7 +41,7 @@ export async function serveLocalAgents(req, res, origin, discover = discoverAgen
     send(res, 403, { error: 'local_origin_required' }); return
   }
   const path=new URL(req.url,'http://local.invalid').pathname
-  const match=path.match(/^\/_local\/agents\/(codex|claude|grok|opencode)\/(capture|memory-hint)$/)
+  const match=path.match(/^\/_local\/agents\/(codex|claude|grok|opencode|antigravity)\/(capture|memory-hint)$/)
   const write=!!match,agent=match?.[1],memoryHint=match?.[2]==='memory-hint'
   if(memoryHint&&!MEMORY_HINT_AGENTS.includes(agent)){send(res,404,{error:'memory_hint_unavailable'});return}
   if(req.method!==(write?'POST':'GET')) {send(res,405,{error:'method_not_allowed'});return}

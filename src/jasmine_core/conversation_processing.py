@@ -16,7 +16,7 @@ from .resolver import ResolverStore
 from .interpretation_maintenance import MaintenanceStore
 
 SOURCES=('codex-native-conversation-v1','claude-native-conversation-v1','grok-native-conversation-v1',
-         'opencode-native-conversation-v1')
+         'opencode-native-conversation-v1','antigravity-native-conversation-v1')
 CURSOR='conversation_processing_cursor'
 ACTIVATED='conversation_processing_started_at'
 # A rate-limited provider is an account-wide condition, not a property of one
