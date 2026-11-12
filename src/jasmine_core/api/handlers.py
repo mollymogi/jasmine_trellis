@@ -909,7 +909,8 @@ def recover_session_checkpoints(request, core, principal, match):
         allowed = confirmed_project_ids(core.conn, principal.bound_host_id or "")
     result = core.worklog.recover(request.json_body(), actor_id=principal.actor_id,
                                   actor_kind=core.actor_kind(principal.actor_id),
-                                  allowed_projects=allowed)
+                                  allowed_projects=allowed,
+                                  bound_host_id=principal.bound_host_id)
     return Response(200, result)
 
 

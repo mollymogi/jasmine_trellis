@@ -5,6 +5,7 @@ its system key, the hint handler reads the block with its `memory:recall` key.
 """
 import io
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -17,9 +18,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from test_claude_session_capture import ClaudeCapture
-from jasmine_core import auth, clock, cli, db, worklog
+from jasmine_core import SCHEMA_VERSION, auth, clock, cli, db, errors, ids, registry, worklog
 from jasmine_core.capture import claude_session, codex_session, install_claude, memory_hint, worklog_client
+from jasmine_core.events import EventStore
 from jasmine_core.hosthook.binding import load_device
+from jasmine_core.migrations import migrate
+from jasmine_core.models import NewEvent, NewObject
+from jasmine_core.objects import ObjectStore
 
 
 class WorklogHooks(ClaudeCapture):
@@ -522,8 +527,221 @@ class WorklogPieces(unittest.TestCase):
         self.assertLessEqual(len(text), worklog.BUDGET)
         self.assertTrue(text.endswith("[/JASMINE RECENT WORK]"))
 
+    def test_require_root_accepts_a_drive_path_and_rejects_unc(self):
+        self.assertEqual(worklog._require_root("/tmp/proj"), "/tmp/proj")
+        self.assertEqual(worklog._require_root("C:/Users/liu/src"), "C:/Users/liu/src")
+        self.assertEqual(worklog._require_root("d:/work"), "d:/work")
+        for value in ("C:\\Users\\liu", "\\\\server\\share", "//server/share",
+                      "\\\\?\\C:\\Users", "relative/path", "C:relative", ""):
+            with self.assertRaises(errors.InvalidRequest):
+                worklog._require_root(value)
+        with patch.object(worklog.Path, "is_file", side_effect=AssertionError("opened")):
+            self.assertEqual(worklog.family_root("C:/Users/liu/src"), "C:/Users/liu/src")
+            self.assertEqual(worklog.family_root("\\\\server\\share"), "\\\\server\\share")
+
+
+class CrossHostResume(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="jasmine-cross-resume-")
+        self.addCleanup(self.tmp.cleanup)
+        self.conn = db.connect(Path(self.tmp.name) / "core.db")
+        self.addCleanup(self.conn.close)
+        migrate(self.conn)
+        self.store = worklog.WorklogStore(self.conn, schema_version=SCHEMA_VERSION)
+        self.objects = ObjectStore(self.conn, schema_version=SCHEMA_VERSION)
+        self.events = EventStore(self.conn, schema_version=SCHEMA_VERSION)
+        self.actor = ids.new_id("act")
+        self.hub = ids.new_id("hst")
+        self.client = ids.new_id("hst")
+        reg = registry.Registry(self.conn)
+        with db.transaction(self.conn):
+            reg.upsert_host(self.hub, display_name="hub-host-row")
+            reg.upsert_host(self.client, display_name="client-host-row")
+            reg.upsert_actor(self.actor, kind="human", display_name="tester", home_host_id=self.hub)
+        self.saved = os.environ.get("JASMINE_TAILNET_CLIENTS")
+        os.environ.pop("JASMINE_TAILNET_CLIENTS", None)
+        self.addCleanup(self.restore_flag)
+        self.base = f"/tmp/jasmine-resume-{uuid.uuid4().hex}/app"
+        self.child = self.base + "/child"
+        self.deep = self.child + "/down/too-far"
+        self.client_root = "/home/liu/app"
+
+    def restore_flag(self):
+        if self.saved is None:
+            os.environ.pop("JASMINE_TAILNET_CLIENTS", None)
+        else:
+            os.environ["JASMINE_TAILNET_CLIENTS"] = self.saved
+
+    def flag(self, on):
+        if on:
+            os.environ["JASMINE_TAILNET_CLIENTS"] = "1"
+        else:
+            os.environ.pop("JASMINE_TAILNET_CLIENTS", None)
+
+    def project(self, host, root, name):
+        created = self.objects.create(NewObject.project({
+            "name": name, "description": root, "host_id": host}), actor_id=self.actor)
+        return created["object"]["project_id"]
+
+    def prompt(self, host, project_id, text, *, minutes_ago, native):
+        when = clock.now() - timedelta(minutes=minutes_ago)
+        created = self.objects.create(NewObject.session({
+            "project_id": project_id, "host_id": host, "source_system": "claude-capture",
+            "occurred_at": clock.to_rfc3339(when),
+        }), actor_id=self.actor)
+        session_id = created["object"]["session_id"]
+        with db.transaction(self.conn):
+            self.events.append(NewEvent(
+                event_type="user.prompt", source_system="claude-capture", actor_id=self.actor,
+                actor_kind="human", host_id=host, project_id=project_id, session_id=session_id,
+                occurred_at=when, payload={"text": text, "native_session_id": native}))
+        return session_id
+
+    def alias(self, host, root, project_id, *, confirmed=1, display_name=None):
+        self.conn.execute(
+            "INSERT INTO workspace_aliases (host_id, root, project_id, remote_key, confirmed, created_at)"
+            " VALUES (?, ?, ?, NULL, ?, ?)",
+            (host, root, project_id, confirmed, clock.now_rfc3339()))
+        if display_name is not None:
+            self.conn.execute(
+                "INSERT INTO tailnet_clients (host_id, display_name, status, created_at, revoked_at)"
+                " VALUES (?, ?, 'active', ?, NULL)",
+                (host, display_name, clock.now_rfc3339()))
+
+    def recent(self, host, root, **extra):
+        return self.store.recent({"host_id": host, "workspace_root": root, **extra}, may_read=lambda _p: True)
+
+    def test_flag_off_keeps_nearby_directories_on_this_host(self):
+        bank = self.project(self.hub, self.base, "bank")
+        near = self.project(self.hub, self.child, "near")
+        self.prompt(self.hub, bank, "hub-bank-prompt", minutes_ago=30, native="hub-bank")
+        self.prompt(self.hub, near, "nearby-child-prompt", minutes_ago=20, native="hub-child")
+        self.prompt(self.client, bank, "sibling-host-prompt", minutes_ago=10, native="client-bank")
+        self.alias(self.hub, self.base, bank, display_name="mini-screen")
+        self.alias(self.client, self.client_root, bank, display_name="linux-desk")
+        block = self.recent(self.hub, self.base)
+        self.assertEqual(block["status"], "ok", block)
+        self.assertIn("nearby-child-prompt", block["text"])
+        self.assertIn("hub-bank-prompt", block["text"])
+        self.assertNotIn("sibling-host-prompt", block["text"])
+        self.assertNotIn("linux-desk", block["text"])
+        self.assertNotIn("mini-screen", block["text"])
+
+    def test_confirmed_alias_resumes_one_project_across_hosts(self):
+        bank = self.project(self.hub, self.base, "bank")
+        near = self.project(self.hub, self.child, "near")
+        self.alias(self.hub, self.base, bank, display_name="mini-screen")
+        self.alias(self.client, self.client_root, bank, display_name="linux-desk")
+        self.prompt(self.hub, bank, "oldest-hub-prompt", minutes_ago=50, native="old")
+        self.prompt(self.client, bank, "sibling-host-prompt", minutes_ago=10, native="new")
+        self.prompt(self.hub, bank, "second-hub-prompt", minutes_ago=20, native="mid")
+        self.prompt(self.client, bank, "third-client-prompt", minutes_ago=30, native="third")
+        self.prompt(self.hub, near, "nearby-child-prompt", minutes_ago=5, native="child")
+        self.flag(True)
+        with patch.object(worklog, "related", side_effect=AssertionError("nearby")):
+            block = self.recent(self.client, self.client_root)
+        self.assertEqual(block["status"], "ok", block)
+        self.assertEqual(len(block["sessions"]), 3)
+        self.assertIn("sibling-host-prompt", block["text"])
+        self.assertIn("second-hub-prompt", block["text"])
+        self.assertIn("third-client-prompt", block["text"])
+        self.assertNotIn("oldest-hub-prompt", block["text"])
+        self.assertNotIn("nearby-child-prompt", block["text"])
+        self.assertIn("linux-desk", block["text"])
+        self.assertIn("mini-screen", block["text"])
+        self.assertNotIn("client-host-row", block["text"])
+        self.assertNotIn("hub-host-row", block["text"])
+        self.assertEqual(set(block["sessions"][0]), {"session_id", "agent", "checkpoint_id"})
+        # The hub opening its own confirmed root uses the same project, not nearby folders.
+        with patch.object(worklog, "related", side_effect=AssertionError("nearby")):
+            here = self.recent(self.hub, self.base)
+        self.assertNotIn("nearby-child-prompt", here["text"])
+        self.assertIn("sibling-host-prompt", here["text"])
+
+    def test_unconfirmed_hub_directory_keeps_nearby_folders(self):
+        bank = self.project(self.hub, self.base, "bank")
+        near = self.project(self.hub, self.child, "near")
+        far = self.project(self.hub, self.deep, "far")
+        self.prompt(self.hub, bank, "hub-bank-prompt", minutes_ago=40, native="hub")
+        self.prompt(self.hub, near, "nearby-child-prompt", minutes_ago=20, native="child")
+        self.prompt(self.hub, far, "too-far-prompt", minutes_ago=15, native="far")
+        self.prompt(self.client, bank, "sibling-host-prompt", minutes_ago=10, native="client")
+        self.alias(self.hub, self.base, bank, confirmed=0)
+        self.flag(True)
+        block = self.recent(self.hub, self.base)
+        self.assertIn("nearby-child-prompt", block["text"])
+        self.assertIn("hub-bank-prompt", block["text"])
+        self.assertNotIn("too-far-prompt", block["text"])
+        self.assertNotIn("sibling-host-prompt", block["text"])
+
+    def test_global_scope_stays_on_this_hosts_confirmed_projects(self):
+        bank = self.project(self.hub, self.base, "bank")
+        near = self.project(self.hub, self.child, "near")
+        other = self.project(self.client, "/srv/other", "other")
+        self.alias(self.hub, self.base, bank, display_name="mini-screen")
+        self.alias(self.client, "/srv/other", other, display_name="linux-desk")
+        self.prompt(self.hub, bank, "hub-bank-prompt", minutes_ago=30, native="hub")
+        self.prompt(self.hub, near, "nearby-child-prompt", minutes_ago=20, native="child")
+        self.prompt(self.client, bank, "sibling-host-prompt", minutes_ago=10, native="client")
+        self.prompt(self.client, other, "other-project-prompt", minutes_ago=5, native="other")
+        self.flag(True)
+        block = self.recent(self.hub, self.base, scope="global")
+        self.assertEqual(block["status"], "ok", block)
+        self.assertIn("范围：全部工作区", block["text"])
+        self.assertIn("hub-bank-prompt", block["text"])
+        self.assertNotIn("nearby-child-prompt", block["text"])
+        self.assertNotIn("sibling-host-prompt", block["text"])
+        self.assertNotIn("other-project-prompt", block["text"])
+        self.assertNotIn("linux-desk", block["text"])
+        self.flag(False)
+        opened = self.recent(self.hub, self.base, scope="global")
+        self.assertIn("nearby-child-prompt", opened["text"])
+        self.assertNotIn("sibling-host-prompt", opened["text"])
+
+    def test_recover_fills_only_the_bound_host_and_does_not_read_the_client_path(self):
+        bank = self.project(self.hub, self.base, "bank")
+        lonely = self.project(self.client, "/home/liu/lonely", "lonely")
+        nested = self.project(self.client, "/home/liu/lonely/extra", "nested")
+        same = self.project(self.hub, "/home/liu/lonely", "same-string")
+        self.alias(self.client, self.client_root, bank, display_name="linux-desk")
+        self.prompt(self.client, bank, "client-quiet-prompt", minutes_ago=40, native="client")
+        self.prompt(self.hub, bank, "hub-quiet-prompt", minutes_ago=40, native="hub")
+        self.prompt(self.client, lonely, "lonely-prompt", minutes_ago=40, native="lonely")
+        self.prompt(self.client, nested, "nested-prompt", minutes_ago=40, native="nested")
+        self.prompt(self.hub, same, "same-string-on-hub", minutes_ago=40, native="same")
+        self.flag(True)
+        with patch.object(worklog, "family_root", side_effect=AssertionError("read git")):
+            with self.assertRaises(errors.HostMismatch):
+                self.store.recover(
+                    {"host_id": self.client, "workspace_root": self.client_root},
+                    actor_id=self.actor, actor_kind="human", bound_host_id=self.hub)
+            recovered = self.store.recover(
+                {"host_id": self.client, "workspace_root": self.client_root},
+                actor_id=self.actor, actor_kind="human", bound_host_id=self.client)
+        self.assertEqual(recovered["count"], 1, recovered)
+        row = self.conn.execute(
+            "SELECT host_id, family_root, workspace_root FROM session_checkpoints").fetchone()
+        self.assertEqual(row["host_id"], self.client)
+        self.assertEqual(row["workspace_root"], self.base)
+        self.assertEqual(row["family_root"], self.base)
+        with patch.object(worklog, "family_root", side_effect=AssertionError("read git")):
+            exact = self.store.recover(
+                {"host_id": self.client, "workspace_root": "/home/liu/lonely"},
+                actor_id=self.actor, actor_kind="human", bound_host_id=self.client)
+        self.assertEqual(exact["count"], 1, exact)
+        roots = {r["workspace_root"] for r in self.conn.execute("SELECT workspace_root FROM session_checkpoints")}
+        self.assertEqual(roots, {self.base, "/home/liu/lonely"})
+        self.flag(False)
+        nearby = self.project(self.hub, self.child, "near")
+        self.prompt(self.hub, nearby, "nearby-quiet", minutes_ago=40, native="near")
+        folded = self.store.recover(
+            {"host_id": self.hub, "workspace_root": self.base},
+            actor_id=self.actor, actor_kind="human")
+        self.assertEqual(folded["count"], 2, folded)
+
 
 def load_tests(loader, tests, pattern):
     suite = unittest.TestSuite(WorklogHooks(name) for name in WorklogHooks.__dict__ if name.startswith("test_"))
     suite.addTests(loader.loadTestsFromTestCase(WorklogPieces))
+    suite.addTests(loader.loadTestsFromTestCase(CrossHostResume))
     return suite
