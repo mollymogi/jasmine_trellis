@@ -3,3 +3,21 @@
 @import "./fonts/jiangcheng.css";
 @import "./styles/mogi/theme.css";
 @import "./app.css";
+
+/*
+ * Page shell. It lives here, in the dashboard's own entry, rather than in
+ * app.css, because app.css is also loaded by hosts that embed these views
+ * (Jasmine Mesh imports it alongside its own tokens). A `body` rule in a
+ * component layer competes with the host's, and the winner then depends on
+ * import order. Keeping it in the standalone entry means an embedder simply
+ * gets its own shell, while the standalone dashboard looks exactly as before.
+ */
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
