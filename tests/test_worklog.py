@@ -528,16 +528,33 @@ class WorklogPieces(unittest.TestCase):
         self.assertTrue(text.endswith("[/JASMINE RECENT WORK]"))
 
     def test_require_root_accepts_a_drive_path_and_rejects_unc(self):
+        from jasmine_core.workspace_alias import normalize_root
+
         self.assertEqual(worklog._require_root("/tmp/proj"), "/tmp/proj")
+        self.assertEqual(worklog._require_root("/tmp/proj/"), "/tmp/proj")
+        self.assertEqual(worklog._require_root("/"), "/")
         self.assertEqual(worklog._require_root("C:/Users/liu/src"), "C:/Users/liu/src")
-        self.assertEqual(worklog._require_root("d:/work"), "d:/work")
-        for value in ("C:\\Users\\liu", "\\\\server\\share", "//server/share",
-                      "\\\\?\\C:\\Users", "relative/path", "C:relative", ""):
-            with self.assertRaises(errors.InvalidRequest):
+        self.assertEqual(worklog._require_root("d:/work"), "D:/work")
+        self.assertEqual(worklog._require_root("C:\\src\\AgentApp\\"), "C:/src/AgentApp")
+        self.assertEqual(worklog._require_root("C:/"), "C:/")
+        self.assertEqual(worklog._require_root("C:\\"), "C:/")
+        self.assertEqual(normalize_root("C:\\src\\AgentApp\\"), "C:/src/AgentApp")
+        self.assertEqual(normalize_root("d:/work/"), "D:/work")
+        for value in ("\\\\server\\share", "//server/share", "\\\\?\\C:\\Users",
+                      "relative/path", "C:relative", ""):
+            with self.assertRaises(errors.InvalidRequest) as caught:
                 worklog._require_root(value)
+            self.assertEqual(caught.exception.status, 400)
+            with self.assertRaises(errors.InvalidRequest) as caught:
+                normalize_root(value)
+            self.assertEqual(caught.exception.status, 400)
         with patch.object(worklog.Path, "is_file", side_effect=AssertionError("opened")):
-            self.assertEqual(worklog.family_root("C:/Users/liu/src"), "C:/Users/liu/src")
+            stored = worklog._require_root("C:\\src\\AgentApp\\")
+            self.assertEqual(stored, "C:/src/AgentApp")
+            self.assertEqual(worklog.family_root(stored), stored)
             self.assertEqual(worklog.family_root("\\\\server\\share"), "\\\\server\\share")
+            self.assertFalse(worklog.related(stored, stored + "/child"))
+            self.assertFalse(worklog.related(stored, "/tmp/proj"))
 
 
 class CrossHostResume(unittest.TestCase):

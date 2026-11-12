@@ -47,15 +47,37 @@ class ResolveOutcome:
         }
 
 
-def normalize_root(value: Any) -> str:
-    """POSIX absolute path as stored. Do not resolve it and do not open it."""
-    if (not isinstance(value, str) or "\x00" in value or not value.startswith("/")
-            or value.startswith("//") or len(value) > _MAX_ROOT):
-        raise errors.InvalidRequest("root must be an absolute path", field="root")
+def _stored_drive(value: str) -> str | None:
+    """``C:\\src\\AgentApp\\`` to ``C:/src/AgentApp``. None when it is not a drive root."""
+    text = value[0].upper() + ":" + value[2:].replace("\\", "/")
+    if len(text) > 3:
+        text = text.rstrip("/")
+    if len(text) < 3 or text[1:3] != ":/" or "\\" in text:
+        return None
+    return text
+
+
+def normalize_root(value: Any, *, field: str = "root") -> str:
+    """Absolute path as stored. A drive root becomes ``C:/...``. Never opened.
+
+    UNC and ``\\\\?\\`` are rejected. A POSIX trailing slash is removed except
+    on ``/``. ``..`` is not resolved.
+    """
+    if not isinstance(value, str) or not value or "\x00" in value or len(value) > _MAX_ROOT:
+        raise errors.InvalidRequest(f"{field} must be an absolute path", field=field)
+    if value.startswith("\\\\") or value.startswith("//"):
+        raise errors.InvalidRequest(f"{field} must be an absolute path", field=field)
+    if _DRIVE_RE.match(value):
+        drive = _stored_drive(value)
+        if drive is None:
+            raise errors.InvalidRequest(f"{field} must be an absolute path", field=field)
+        return drive
+    if not value.startswith("/"):
+        raise errors.InvalidRequest(f"{field} must be an absolute path", field=field)
     if value != "/":
         value = value.rstrip("/")
     if not value.startswith("/"):
-        raise errors.InvalidRequest("root must be an absolute path", field="root")
+        raise errors.InvalidRequest(f"{field} must be an absolute path", field=field)
     return value
 
 

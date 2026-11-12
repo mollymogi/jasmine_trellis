@@ -140,20 +140,14 @@ def related(root: str, family: str) -> bool:
     return False
 
 
-def _rejected_root(value: str) -> bool:
-    """UNC and ``\\\\?\\`` stay rejected. POSIX absolutes and ``C:/...`` do not."""
-    if value.startswith("\\\\") or value.startswith("//"):
-        return True
-    if value.startswith("/"):
-        return False
-    return not (_DRIVE_ROOT.match(value) and "\\" not in value)
-
-
 def _require_root(value: Any, field: str = "workspace_root") -> str:
-    if (not isinstance(value, str) or not value or len(value) > MAX_ROOT_CHARS or "\x00" in value
-            or _rejected_root(value)):
-        raise errors.InvalidRequest(f"{field} must be an absolute path", field=field)
-    return value
+    """Path stored for checkpoint, recover, and recent. A drive root becomes ``C:/...``.
+
+    The hub does not open that path. UNC and ``\\\\?\\`` are rejected.
+    """
+    from .workspace_alias import normalize_root
+
+    return normalize_root(value, field=field)
 
 
 # -- workspace state (reported by the hook, compared here) ---------------------
