@@ -261,7 +261,8 @@ cat "$PS_BODY"
         ps_log = self.ps_log.read_text()
         self.assertIn("lsof -nP -iTCP:18787 -sTCP:LISTEN -t", ps_log)
         if platform.system() == "Darwin":
-            self.assertIn("ps -axEww -o command= -p 4242", ps_log)
+            self.assertIn("ps -wwE -p 4242 -o command=", ps_log)
+            self.assertNotIn("-ax", ps_log)
         else:
             self.assertIn("ps eww -p 4242", ps_log)
         self.ps_body.write_text(

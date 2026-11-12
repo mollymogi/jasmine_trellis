@@ -99,7 +99,7 @@ core_env_text() {
   local pid text=""
   for pid in $pids; do
     if [[ "$(uname -s)" == "Darwin" ]]; then
-      text+=$'\n'"$(ps -axEww -o command= -p "$pid" 2>/dev/null || true)"
+      text+=$'\n'"$(ps -wwE -p "$pid" -o command= 2>/dev/null || true)"
     else
       text+=$'\n'"$(ps eww -p "$pid" 2>/dev/null || true)"
     fi
