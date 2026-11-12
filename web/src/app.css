@@ -5,16 +5,6 @@
  * variables. Class names are the ones the views already use, so the views did not change.
  */
 
-body {
-  margin: 0;
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
-}
-
 @layer base {
   code,
   pre,
