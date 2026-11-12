@@ -246,3 +246,31 @@ class HostHookNamespaceReserved(CoreError):
 
     status = 403
     code = "host_hook_namespace_reserved"
+
+
+class GatewaySecretMismatch(CoreError):
+    """X-Jasmine-Gateway was sent and is not the secret loaded at startup."""
+
+    status = 403
+    code = "gateway_secret_mismatch"
+
+
+class GatewayKeyNotPinned(CoreError):
+    """A tailnet request used a key whose bound_host_id is still NULL."""
+
+    status = 403
+    code = "gateway_key_not_pinned"
+
+
+class HostMismatch(CoreError):
+    """A tailnet request named a host_id other than the key's bound host."""
+
+    status = 403
+    code = "host_mismatch"
+
+
+class TailnetDisabled(CoreError):
+    """The gateway header matched, but JASMINE_TAILNET_CLIENTS is unset."""
+
+    status = 403
+    code = "tailnet_disabled"

@@ -22,6 +22,7 @@ from typing import Any, Callable
 from .. import db, errors, ids
 from ..canonical import looks_like_credential
 from ..migrations import check_version, migrate
+from ..tailnet_gateway import GatewayStartupError, load_gateway_secret, secret_path
 from .dispatch import JSON_CONTENT_TYPE, dispatch, safe_log_method
 from .handlers import Core
 from .request import MAX_BODY_BYTES, Request, split_target
@@ -183,12 +184,39 @@ class _Handler(BaseHTTPRequestHandler):
         return getattr(self, "_status", "-")
 
 
+def data_dir_for_db(db_path: Path) -> Path:
+    """Deployment keeps core.db in `{data_dir}/data` and the secret beside it.
+
+    A database that is not inside a directory named ``data`` uses its own
+    parent, so a temporary database can hold ``config/credentials`` next to it.
+    """
+    parent = Path(db_path).expanduser().resolve().parent
+    if parent.name == "data":
+        return parent.parent
+    return parent
+
+
+def load_optional_gateway_secret(data_dir: Path) -> str | None:
+    """Read the gateway secret once. Absent leaves loopback behavior unchanged.
+
+    A file that exists but fails the gateway's mode, owner, or content checks
+    raises GatewayStartupError. Those checks are not reimplemented here.
+    """
+    # lexists, not exists: a symlink is present and must fail the gateway's O_NOFOLLOW check.
+    if not os.path.lexists(secret_path(data_dir)):
+        return None
+    return load_gateway_secret(data_dir)
+
+
 class Application:
     """Owns the database path and hands each request its own connection."""
 
-    def __init__(self, db_path: str | Path, *, log: Log | None = None) -> None:
+    def __init__(self, db_path: str | Path, *, log: Log | None = None,
+                 data_dir: str | Path | None = None) -> None:
         self.db_path = Path(db_path)
         self.log = log or (lambda message: print(f"jasmine-core: {message}", file=sys.stderr))
+        self.data_dir = Path(data_dir) if data_dir is not None else data_dir_for_db(self.db_path)
+        self.gateway_secret = load_optional_gateway_secret(self.data_dir)
         self._local = threading.local()
 
     def _connection(self):
@@ -200,7 +228,7 @@ class Application:
         return conn
 
     def _core(self) -> Core:
-        return Core(self._connection())
+        return Core(self._connection(), gateway_secret=self.gateway_secret)
 
     def handle(self, request: Request) -> Any:
         from .request import Response
@@ -236,8 +264,14 @@ def serve(db_path: str | Path, *, host: str = "127.0.0.1", port: int = 8787,
     except Exception:
         conn.close()
         raise
+    try:
+        application = Application(db_path, log=log)
+    except GatewayStartupError as exc:
+        # Same refusal as the gateway: exit 3, and never print the secret.
+        log(f"refusing to start: {exc}")
+        raise SystemExit(3) from exc
     server = _LoopbackHTTPServer((host, port), _Handler)
-    server.app = Application(db_path, log=log)  # type: ignore[attr-defined]
+    server.app = application  # type: ignore[attr-defined]
     server.daemon_threads = True
     log(f"jasmine-core API on http://{host}:{server.server_port} (schema v{version}, db {db_path})")
     previous_term = None

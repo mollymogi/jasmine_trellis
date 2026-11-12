@@ -276,7 +276,7 @@ class UpgradeFromP0(unittest.TestCase):
                           "m0008_resolutions", "m0009_continuity", "m0010_context",
                           "m0011_memory", "m0012_web_confirmations", "m0013_host_hooks", "m0014_conversation_processing",
          "m0015_observed_memory", "m0016_not_recallable",
-         "m0017_session_checkpoints"])
+         "m0017_session_checkpoints", "m0018_api_key_bound_host"])
         task = conn.execute("SELECT status,revision,acceptance_criteria_json FROM tasks WHERE task_id=?", (task_id,)).fetchone()
         self.assertEqual((task["status"], task["revision"], json.loads(task["acceptance_criteria_json"])),
                          ("ACTIVE", 7, {"requirements": []}))

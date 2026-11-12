@@ -1,0 +1,279 @@
+"""Tailnet requests are pinned to api_keys.bound_host_id.
+
+The gateway process is not started. Tests inject X-Jasmine-Gateway themselves
+and use a temporary data directory plus a temporary database.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import stat
+import tempfile
+import unittest
+from pathlib import Path
+
+from jasmine_core import auth, db, ids, registry
+from jasmine_core.api.request import Request
+from jasmine_core.api.server import Application, data_dir_for_db, serve
+from jasmine_core.migrations import migrate
+from jasmine_core.tailnet_gateway import GatewayStartupError, secret_path
+
+SECRET = "gateway-test-secret"
+WRONG = "wrong-gateway-header"
+PROMPT = "bound-host prompt that must not be logged"
+ACTOR = "act_01K742SG00CBKP25A9ETPBTRMJ"
+SCOPES = ["objects:write", "events:write", "memory:recall"]
+
+
+def write_secret(data_dir: Path, secret: str, mode: int = 0o600) -> Path:
+    path = secret_path(data_dir)
+    path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    try:
+        os.write(descriptor, (secret + "\n").encode())
+    finally:
+        os.close(descriptor)
+    os.chmod(path, mode)
+    return path
+
+
+class BoundHostTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory(prefix="jasmine-bound-host-")
+        self.addCleanup(self._tmp.cleanup)
+        self.data_dir = Path(self._tmp.name)
+        self.db_path = self.data_dir / "data" / "core.db"
+        self.db_path.parent.mkdir()
+        self.conn = db.connect(self.db_path)
+        self.addCleanup(self.conn.close)
+        migrate(self.conn)
+        self.host = ids.new_id("hst")
+        self.other = ids.new_id("hst")
+        reg = registry.Registry(self.conn)
+        with db.transaction(self.conn):
+            reg.upsert_host(self.host, display_name="client")
+            reg.upsert_host(self.other, display_name="other")
+            reg.upsert_actor(ACTOR, kind="human", display_name="tester", home_host_id=self.host)
+        issuer = auth.Auth(self.conn)
+        self.open_key = issuer.issue_key(actor_id=ACTOR, label="open", scopes=SCOPES)
+        self.pinned_key = issuer.issue_key(
+            actor_id=ACTOR, label="pinned", scopes=SCOPES, bound_host_id=self.host)
+        self._saved_flag = os.environ.get("JASMINE_TAILNET_CLIENTS")
+        os.environ["JASMINE_TAILNET_CLIENTS"] = "1"
+        self.addCleanup(self._restore_flag)
+        write_secret(self.data_dir, SECRET)
+        self.app = Application(self.db_path)
+        self.assertEqual(self.app.data_dir, self.data_dir.resolve())
+        self.assertEqual(data_dir_for_db(self.db_path), self.data_dir.resolve())
+        self.assertEqual(self.app.gateway_secret, SECRET)
+
+    def _restore_flag(self) -> None:
+        if self._saved_flag is None:
+            os.environ.pop("JASMINE_TAILNET_CLIENTS", None)
+        else:
+            os.environ["JASMINE_TAILNET_CLIENTS"] = self._saved_flag
+
+    def call(self, method: str, path: str, body=None, *, token: str | None = None,
+             gateway: str | None = None) -> tuple[int, dict]:
+        headers = {"content-type": "application/json"}
+        if token:
+            headers["authorization"] = f"Bearer {token}"
+        if gateway is not None:
+            headers["x-jasmine-gateway"] = gateway
+        raw = b"" if body is None else json.dumps(body).encode()
+        response = self.app.handle(Request(method=method, path=path, headers=headers, body=raw))
+        payload = response.body if isinstance(response.body, dict) else {}
+        return response.status, payload
+
+    def event_count(self) -> int:
+        return self.conn.execute("SELECT COUNT(*) AS n FROM events").fetchone()["n"]
+
+    def audit_text(self) -> str:
+        rows = self.conn.execute("SELECT error_code, detail_json, path FROM audit_log").fetchall()
+        return json.dumps([dict(row) for row in rows])
+
+    def test_migration_leaves_existing_pins_null(self) -> None:
+        self.assertIsNone(self.open_key["bound_host_id"])
+        stored = self.conn.execute(
+            "SELECT bound_host_id FROM api_keys WHERE key_id = ?", (self.open_key["key_id"],)
+        ).fetchone()["bound_host_id"]
+        self.assertIsNone(stored)
+        self.assertEqual(self.pinned_key["bound_host_id"], self.host)
+
+    def test_missing_header_keeps_null_key_behavior(self) -> None:
+        before = self.event_count()
+        status, body = self.call(
+            "POST", "/v1/events", self._event(self.host), token=self.open_key["token"])
+        self.assertEqual(status, 201)
+        self.assertEqual(body["event"]["host_id"], self.host)
+        self.assertEqual(self.event_count(), before + 1)
+
+    def test_wrong_header_is_not_treated_as_local(self) -> None:
+        before = self.event_count()
+        status, body = self.call(
+            "POST", "/v1/events", self._event(self.host),
+            token=self.open_key["token"], gateway=WRONG)
+        self.assertEqual(status, 403)
+        self.assertEqual(body["error"]["code"], "gateway_secret_mismatch")
+        self.assertEqual(self.event_count(), before)
+        self.assertIsNone(self._last_used(self.open_key["key_id"]))
+        raw = self.audit_text()
+        self.assertIn("gateway_secret_mismatch", raw)
+        self.assertNotIn(WRONG, raw)
+        self.assertNotIn(SECRET, raw)
+        self.assertNotIn(PROMPT, raw)
+        health, health_body = self.call("GET", "/v1/health", gateway=WRONG)
+        self.assertEqual(health, 403)
+        self.assertEqual(health_body["error"]["code"], "gateway_secret_mismatch")
+
+    def test_valid_header_rejects_an_unpinned_key(self) -> None:
+        before = self.event_count()
+        status, body = self.call(
+            "POST", "/v1/events", self._event(self.host),
+            token=self.open_key["token"], gateway=SECRET)
+        self.assertEqual(status, 403)
+        self.assertEqual(body["error"]["code"], "gateway_key_not_pinned")
+        self.assertEqual(self.event_count(), before)
+        self.assertIsNone(self._last_used(self.open_key["key_id"]))
+        self.assertNotIn(SECRET, self.audit_text())
+
+    def test_mismatched_host_does_not_insert_an_event(self) -> None:
+        before = self.event_count()
+        status, body = self.call(
+            "POST", "/v1/events", self._event(self.other),
+            token=self.pinned_key["token"], gateway=SECRET)
+        self.assertEqual(status, 403)
+        self.assertEqual(body["error"]["code"], "host_mismatch")
+        self.assertEqual(self.event_count(), before)
+        self.assertNotIn(PROMPT, self.audit_text())
+        self.assertNotIn(SECRET, self.audit_text())
+
+    def test_matching_host_is_accepted_on_named_routes(self) -> None:
+        status, project = self.call(
+            "POST", "/v1/projects", {"name": "demo", "host_id": self.host},
+            token=self.pinned_key["token"], gateway=SECRET)
+        self.assertEqual(status, 201, project)
+        project_id = project["object"]["project_id"]
+        status, session = self.call(
+            "POST", "/v1/sessions", {"project_id": project_id, "host_id": self.host},
+            token=self.pinned_key["token"], gateway=SECRET)
+        self.assertEqual(status, 201, session)
+        status, event = self.call(
+            "POST", "/v1/events", self._event(self.host, project_id=project_id),
+            token=self.pinned_key["token"], gateway=SECRET)
+        self.assertEqual(status, 201, event)
+        status, recent = self.call(
+            "POST", "/v1/continuity/recent",
+            {"host_id": self.host, "workspace_root": "/tmp/jasmine-bound-host", "scope": "global"},
+            token=self.pinned_key["token"], gateway=SECRET)
+        self.assertEqual(status, 200, recent)
+        status, recovered = self.call(
+            "POST", "/v1/session-checkpoints/recover",
+            {"host_id": self.host, "workspace_root": "/tmp/jasmine-bound-host"},
+            token=self.pinned_key["token"], gateway=SECRET)
+        self.assertEqual(status, 200, recovered)
+        self.assertEqual(recovered["count"], 0)
+
+    def test_mismatched_host_is_refused_on_every_named_route(self) -> None:
+        before = self.event_count()
+        bodies = {
+            "/v1/projects": {"name": "nope", "host_id": self.other},
+            "/v1/sessions": {"host_id": self.other},
+            "/v1/events": self._event(self.other),
+            "/v1/memory/hint": {
+                "project_id": ids.new_id("prj"), "native_session_id": "native",
+                "prompt": PROMPT, "host_id": self.other,
+            },
+            "/v1/continuity/recent": {
+                "host_id": self.other, "workspace_root": "/tmp/jasmine-bound-host",
+            },
+            "/v1/session-checkpoints": {
+                "host_id": self.other, "project_id": ids.new_id("prj"),
+                "native_session_id": "native", "reason": "SESSION_END",
+                "workspace_root": "/tmp/jasmine-bound-host",
+            },
+            "/v1/session-checkpoints/recover": {
+                "host_id": self.other, "workspace_root": "/tmp/jasmine-bound-host",
+            },
+        }
+        for path, body in bodies.items():
+            status, payload = self.call(
+                "POST", path, body, token=self.pinned_key["token"], gateway=SECRET)
+            self.assertEqual(status, 403, path)
+            self.assertEqual(payload["error"]["code"], "host_mismatch", path)
+        self.assertEqual(self.event_count(), before)
+        self.assertNotIn(PROMPT, self.audit_text())
+
+    def test_unset_flag_rejects_writes_but_not_health(self) -> None:
+        os.environ.pop("JASMINE_TAILNET_CLIENTS", None)
+        before = self.event_count()
+        status, body = self.call(
+            "POST", "/v1/events", self._event(self.host),
+            token=self.pinned_key["token"], gateway=SECRET)
+        self.assertEqual(status, 403)
+        self.assertEqual(body["error"]["code"], "tailnet_disabled")
+        self.assertEqual(self.event_count(), before)
+        self.assertIsNone(self._last_used(self.pinned_key["key_id"]))
+        health, health_body = self.call("GET", "/v1/health", gateway=SECRET)
+        self.assertEqual(health, 200)
+        self.assertEqual(health_body["status"], "ok")
+        schema, schema_body = self.call("GET", "/v1/meta/schema", gateway=SECRET)
+        self.assertEqual(schema, 403)
+        self.assertEqual(schema_body["error"]["code"], "tailnet_disabled")
+        self.assertNotIn(SECRET, self.audit_text())
+
+    def test_issuing_route_does_not_accept_a_pin(self) -> None:
+        admin = auth.Auth(self.conn).issue_key(actor_id=ACTOR, label="admin", scopes=["admin"])
+        status, body = self.call(
+            "POST", "/v1/auth/keys",
+            {"label": "remote", "scopes": ["events:write"], "bound_host_id": self.host},
+            token=admin["token"])
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"]["code"], "invalid_request")
+        self.assertIn("bound_host_id", body["error"]["details"]["fields"])
+
+    def _event(self, host_id: str, **extra) -> dict:
+        body = {
+            "event_type": "user.prompt", "source_system": "test", "host_id": host_id,
+            "payload": {"text": PROMPT}, "occurred_at": "2026-09-29T12:00:00.000000Z",
+        }
+        body.update(extra)
+        return body
+
+    def _last_used(self, key_id: str):
+        return self.conn.execute(
+            "SELECT last_used_at FROM api_keys WHERE key_id = ?", (key_id,)
+        ).fetchone()["last_used_at"]
+
+
+class GatewaySecretStartupTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory(prefix="jasmine-gateway-secret-")
+        self.addCleanup(self._tmp.cleanup)
+        self.data_dir = Path(self._tmp.name)
+        self.db_path = self.data_dir / "data" / "core.db"
+        self.db_path.parent.mkdir()
+
+    def test_absent_secret_still_starts(self) -> None:
+        app = Application(self.db_path)
+        self.assertIsNone(app.gateway_secret)
+        self.assertFalse(secret_path(self.data_dir).exists())
+
+    def test_bad_mode_fails_startup_without_printing_the_secret(self) -> None:
+        write_secret(self.data_dir, SECRET, mode=0o644)
+        self.assertEqual(stat.S_IMODE(secret_path(self.data_dir).stat().st_mode), 0o644)
+        with self.assertRaises(GatewayStartupError) as raised:
+            Application(self.db_path)
+        self.assertNotIn(SECRET, str(raised.exception))
+        logs: list[str] = []
+        with self.assertRaises(SystemExit) as exited:
+            serve(self.db_path, port=0, log=logs.append)
+        self.assertEqual(exited.exception.code, 3)
+        text = "\n".join(logs)
+        self.assertIn("refusing to start", text)
+        self.assertNotIn(SECRET, text)
+
+
+if __name__ == "__main__":
+    unittest.main()

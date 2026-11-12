@@ -49,7 +49,7 @@ class MigrateCommand(unittest.TestCase):
             "m0009_continuity", "m0010_context", "m0011_memory", "m0012_web_confirmations",
             "m0013_host_hooks", "m0014_conversation_processing",
             "m0015_observed_memory", "m0016_not_recallable",
-         "m0017_session_checkpoints"])
+         "m0017_session_checkpoints", "m0018_api_key_bound_host"])
         self.assertEqual(payload["schema_version"], SCHEMA_VERSION)
         self.assertTrue(self.db_path.exists())
 

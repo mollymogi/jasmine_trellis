@@ -2,14 +2,18 @@
 
 The order is deliberate and is the property P0-T06 checks:
 
-1. resolve the route (405 vs 404, before authentication, so a wrong method on a
+1. classify the gateway header (a mismatch or a disabled tailnet call writes
+   no Truth and is not treated as a loopback request),
+2. resolve the route (405 vs 404, before authentication, so a wrong method on a
    known path is not reported as a missing token),
-2. authenticate unless the route is public,
-3. check the scope,
-4. run the handler,
-5. write the audit row in its own transaction.
+3. authenticate unless the route is public,
+4. on a tailnet request, require a pinned key and, on the named routes, a
+   matching host_id — both before the key is touched,
+5. check the scope,
+6. run the handler,
+7. write the audit row in its own transaction.
 
-A failure at step 2, 3 or 4 writes no Truth, but step 5 still runs.
+A failure at step 1, 3, 4, 5 or 6 writes no Truth, but step 7 still runs.
 """
 
 from __future__ import annotations
@@ -42,10 +46,13 @@ def dispatch(core: Core, request: Request) -> Response:
     error_code: str | None = None
     audit_detail: dict[str, Any] = {}
     try:
+        handlers.admit_gateway(core, request)
         route, match = handlers.resolve(request.method, request.path)
         scope = route.scope
         if not route.public:
             principal = core.auth.authenticate(request.header("authorization"))
+            handlers.admit_pinned_key(core, principal)
+            handlers.admit_bound_host(core, request, principal, route)
             if route.scope:
                 principal.require(route.scope)
             for required_scope in route.required_scopes:

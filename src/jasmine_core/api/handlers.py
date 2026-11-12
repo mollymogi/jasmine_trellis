@@ -11,7 +11,9 @@ is P1, and there is no method that could contradict an append-only Event.
 
 from __future__ import annotations
 
+import os
 import re
+import secrets
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -25,6 +27,7 @@ from ..models import NewEvent, NewObject
 from ..continuity import ContinuityStore
 from ..context.builder import ContextBuilder
 from ..adapter.requirements import NativeAdapterStore
+from ..tailnet_gateway import GATEWAY_HEADER
 from .request import Request, Response
 
 Handler = Callable[[Request, "Core", auth.Principal | None, "re.Match[str]"], Response]
@@ -38,9 +41,12 @@ PARSERS = {"project": NewObject.project, "task": NewObject.task, "session": NewO
 class Core:
     """Process-wide state: one connection, one store, one registry, one audit log."""
 
-    def __init__(self, conn) -> None:
+    def __init__(self, conn, *, gateway_secret: str | None = None) -> None:
         check_version(conn)
         self.conn = conn
+        #: The gateway secret read once at process start. None means the file was absent.
+        self.gateway_secret = gateway_secret
+        self.tailnet_request = False
         self.schema_version = current_version(conn)
         self.objects = objects.ObjectStore(conn, schema_version=self.schema_version)
         self.evidence = evidence.EvidenceStore(conn, schema_version=self.schema_version)
@@ -77,13 +83,16 @@ class Route:
     #: Whether an anonymous caller is allowed. Only liveness and schema reporting.
     public: bool = False
     required_scopes: tuple[str, ...] = ()
+    #: Tailnet requests on this route must match body host_id to the key pin.
+    checks_bound_host: bool = False
 
 
 def _collection_routes() -> list[Route]:
     routes: list[Route] = []
     for kind, plural in PLURAL.items():
         routes.append(Route("POST", re.compile(rf"^/v1/{plural}$"),
-                            _make_create(kind), "objects:write"))
+                            _make_create(kind), "objects:write",
+                            checks_bound_host=kind in {"project", "session"}))
         routes.append(Route("GET", re.compile(rf"^/v1/{plural}$"),
                             _make_list(kind), "objects:read"))
         routes.append(Route("GET", re.compile(rf"^/v1/{plural}/([^/]+)$"),
@@ -114,11 +123,13 @@ def _base_routes() -> list[Route]:
         Route("POST", re.compile(r"^/v1/tasks/([^/]+)/resume$"), build_resume, "resume:build"),
         # ADR 0039: session Checkpoints are written by capture's system key, and
         # the resume block is read with the hint's `memory:recall`-only key.
-        Route("POST", re.compile(r"^/v1/session-checkpoints$"), create_session_checkpoint, "events:write"),
+        Route("POST", re.compile(r"^/v1/session-checkpoints$"), create_session_checkpoint, "events:write",
+              checks_bound_host=True),
         Route("POST", re.compile(r"^/v1/session-checkpoints/recover$"), recover_session_checkpoints,
-              "events:write"),
+              "events:write", checks_bound_host=True),
         Route("GET", re.compile(r"^/v1/session-checkpoints$"), list_session_checkpoints, "events:read"),
-        Route("POST", re.compile(r"^/v1/continuity/recent$"), recent_activity, "memory:recall"),
+        Route("POST", re.compile(r"^/v1/continuity/recent$"), recent_activity, "memory:recall",
+              checks_bound_host=True),
         Route("GET", re.compile(r"^/v1/resumes/([^/]+)$"), get_resume, "resume:read"),
         Route("GET", re.compile(r"^/v1/resolutions/preview$"), resolution_preview, "resolutions:read"),
         Route("POST", re.compile(r"^/v1/resolve/([^/]+)$"), resolve_interpretation, "resolutions:process"),
@@ -139,7 +150,7 @@ def _base_routes() -> list[Route]:
         Route("GET", re.compile(r"^/v1/auth/keys$"), list_keys, "admin"),
         Route("POST", re.compile(r"^/v1/auth/keys/([^/]+)/revoke$"), revoke_key, "admin"),
         Route("GET", re.compile(r"^/v1/audit$"), list_audit, "admin"),
-        Route("POST", re.compile(r"^/v1/events$"), create_event, "events:write"),
+        Route("POST", re.compile(r"^/v1/events$"), create_event, "events:write", checks_bound_host=True),
         Route("GET", re.compile(r"^/v1/events$"), list_events, "events:read"),
         Route("GET", re.compile(r"^/v1/events/([^/]+)$"), get_event, "events:read"),
         Route("GET", re.compile(r"^/v1/rules$"), list_rules, "authority:read"),
@@ -178,6 +189,54 @@ def _base_routes() -> list[Route]:
 ROUTES: tuple[Route, ...]
 """Assigned at the bottom of the module: the route table names the handlers,
 so it can only be built once they exist."""
+
+
+def tailnet_clients_enabled() -> bool:
+    """True only when the hub process was started with the clients flag set."""
+    value = os.environ.get("JASMINE_TAILNET_CLIENTS")
+    return bool(value and value.strip())
+
+
+def admit_gateway(core: Core, request: Request) -> None:
+    """Classify X-Jasmine-Gateway before authentication.
+
+    A missing header is today's loopback request. A present header that does not
+    match the startup secret is neither loopback nor an authenticated tailnet
+    call. The header value is not copied into the error.
+    """
+    header = request.header(GATEWAY_HEADER)
+    if header is None:
+        core.tailnet_request = False
+        return
+    secret = core.gateway_secret
+    if secret is None or not secrets.compare_digest(header, secret):
+        core.tailnet_request = False
+        raise errors.GatewaySecretMismatch("gateway secret does not match")
+    core.tailnet_request = True
+    if request.method == "GET" and request.path == "/v1/health":
+        return
+    if not tailnet_clients_enabled():
+        raise errors.TailnetDisabled("tailnet clients are disabled")
+
+
+def admit_pinned_key(core: Core, principal: auth.Principal) -> None:
+    if core.tailnet_request and principal.bound_host_id is None:
+        raise errors.GatewayKeyNotPinned("this API key is not pinned to a host")
+
+
+def admit_bound_host(core: Core, request: Request, principal: auth.Principal, route: Route) -> None:
+    """Refuse a tailnet body whose host_id is not the key's pin. Do not write."""
+    if not core.tailnet_request or not route.checks_bound_host:
+        return
+    if not request.body:
+        return
+    body = request.json_body()
+    if "host_id" not in body:
+        return
+    presented = body["host_id"]
+    bound = principal.bound_host_id or ""
+    if not isinstance(presented, str) or presented != bound:
+        raise errors.HostMismatch("host_id does not match the key")
 
 
 def resolve(method: str, path: str) -> tuple[Route, re.Match[str]]:

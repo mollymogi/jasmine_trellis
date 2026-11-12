@@ -370,7 +370,11 @@ def hint(request: Request, core: "Core", principal: auth.Principal,
     from . import hint as hint_module
 
     svc = services(core)
-    body = _body(request, {"project_id", "native_session_id", "session_id", "task_id", "prompt"})
+    allowed = {"project_id", "native_session_id", "session_id", "task_id", "prompt"}
+    # Optional on a tailnet call so the host pin can be checked. Loopback bodies stay as they are.
+    if core.tailnet_request:
+        allowed = allowed | {"host_id"}
+    body = _body(request, allowed)
     project_id = body.get("project_id")
     if not ids.is_id(project_id, "prj"):
         raise errors.InvalidRequest("project_id must be a prj_ id", field="project_id")
@@ -519,5 +523,6 @@ def routes(route_cls) -> tuple:
         route_cls("GET", re.compile(r"^/v1/memory/traces/([^/]+)$"), get_trace, "memory:read"),
         route_cls("GET", re.compile(r"^/v1/memory/health$"), memory_health, "memory:read"),
         route_cls("POST", re.compile(r"^/v1/memory/reflect$"), reflect, "memory:reflect"),
-        route_cls("POST", re.compile(r"^/v1/memory/hint$"), hint, "memory:recall"),
+        route_cls("POST", re.compile(r"^/v1/memory/hint$"), hint, "memory:recall",
+                  checks_bound_host=True),
     )
