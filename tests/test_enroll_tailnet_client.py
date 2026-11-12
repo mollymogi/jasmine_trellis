@@ -151,6 +151,48 @@ class Enrollment(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_a_symlink_bundle_writes_nothing(self):
+        link = self.root / "link"
+        link.symlink_to(self.root / "missing-target")
+        before = self.database.read_bytes()
+        code, out, err = run(self.enroll, [
+            "--db", str(self.database), "--display-name", "liuxu", "--confirm",
+            "--bundle", str(link), "--platform", "linux", "--agent", "codex",
+        ])
+        self.assertNotEqual(code, 0)
+        self.assertFalse(out)
+        self.assertIn("symlink", err)
+        self.assertEqual(self.database.read_bytes(), before)
+        self.assertTrue(link.is_symlink())
+        self.assertFalse((self.root / "missing-target").exists())
+
+    def test_a_failed_key_write_revokes_issued_keys(self):
+        def fail_write(path, data):
+            raise OSError("short write")
+
+        self.enroll._write_private = fail_write
+        code, out, err = self.enroll_client("codex")
+        self.assertEqual(code, 1)
+        self.assertFalse(out)
+        self.assertIn("those keys were revoked", err)
+        self.assert_silent_about(self.hub_key["token"], out, err)
+        conn = db.connect(self.database)
+        try:
+            clients = conn.execute("SELECT host_id, status FROM tailnet_clients").fetchall()
+            self.assertEqual(len(clients), 1)
+            self.assertEqual(clients[0]["status"], "revoked")
+            keys = conn.execute(
+                "SELECT revoked_at FROM api_keys WHERE bound_host_id = ?", (clients[0]["host_id"],)
+            ).fetchall()
+            self.assertEqual(len(keys), 3)
+            self.assertTrue(all(row["revoked_at"] for row in keys))
+            hub = conn.execute(
+                "SELECT revoked_at FROM api_keys WHERE key_id = ?", (self.hub_key["key_id"],)
+            ).fetchone()
+            self.assertIsNone(hub["revoked_at"])
+        finally:
+            conn.close()
+
     def test_windows_enrollment_writes_nothing(self):
         cases = (
             ["--display-name", "WIN-DRUN38VBEEM", "--platform", "linux"],

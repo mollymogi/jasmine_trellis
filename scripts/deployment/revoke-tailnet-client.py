@@ -21,7 +21,7 @@ from jasmine_core import auth, clock, db, ids  # noqa: E402
 
 
 class RevokeError(Exception):
-    """Refusal. Nothing was changed."""
+    """Refusal, or keys were revoked but the client row did not update. Safe to print."""
 
 
 def revoke(database: Path, host_id: str, *, confirmed: bool) -> dict[str, object]:
@@ -46,11 +46,18 @@ def revoke(database: Path, host_id: str, *, confirmed: bool) -> dict[str, object
         for key in pending:
             gate.revoke(key["key_id"])
         with db.transaction(conn):
-            conn.execute(
+            changed = conn.execute(
                 "UPDATE tailnet_clients SET status = 'revoked', revoked_at = COALESCE(revoked_at, ?)"
                 " WHERE host_id = ?",
                 (clock.now_rfc3339(), host_id),
-            )
+            ).rowcount
+        if changed != 1:
+            raise RevokeError("client status was not updated; retry revoke")
+        landed = conn.execute(
+            "SELECT status FROM tailnet_clients WHERE host_id = ?", (host_id,)
+        ).fetchone()
+        if landed is None or landed["status"] != "revoked":
+            raise RevokeError("client status was not updated; retry revoke")
     finally:
         conn.close()
     return {"host_id": host_id, "status": "revoked", "keys_revoked": len(pending)}
