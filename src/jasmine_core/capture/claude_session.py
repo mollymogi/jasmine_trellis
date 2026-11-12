@@ -10,11 +10,13 @@ from __future__ import annotations
 import argparse,fcntl,hashlib,json,os,stat,sys,time
 from datetime import datetime,timezone
 from pathlib import Path
-from ..hosthook.binding import load_device,_private_bytes
+from ..api.client import hook_deadline
+from ..hosthook.binding import TAILNET_CORE_ORIGIN, load_device,_private_bytes
 from ..hosthook.install import _write
 from .codex_session import append_receipt,workspace_root
 from .grok_session import EVENTS,valid_id,bind_workspace,_publish
 from . import memory_hint,worklog_client
+from .hook_budget import HINT_FLOOR_SECONDS, arm_tailnet, disarm
 SOURCE='claude-native-conversation-v1'
 #: Capture handles one more native event than it publishes: PreCompact writes a
 #: session Checkpoint (ADR 0039) and no conversation Event.
@@ -146,6 +148,14 @@ def _native(native,home):
     return {**native,'event':event,'sid':sid,'turn':turn,'cwd':str(cwd),'text':text}
 
 def capture_device(native,device,claude_home):
+    event = native.get('hook_event_name') if isinstance(native, dict) else None
+    token = arm_tailnet(device.core_url, event)
+    try:
+        return _capture_device(native, device, claude_home)
+    finally:
+        disarm(token)
+
+def _capture_device(native,device,claude_home):
     n=_native(native,claude_home)
     if n is None:return {'status':'ignored','reason':'unsupported_or_unverified_main_session'}
     folder=device.spool_dir/'claude-sessions';folder.mkdir(parents=True,exist_ok=True,mode=0o700)
@@ -283,6 +293,14 @@ def _recent(n,device,trigger,deadline,query=None):
     return text,{**receipt,'trigger':trigger}
 
 def memory_hint_device(native,device,claude_home,*,now=time.monotonic):
+    event = native.get('hook_event_name') if isinstance(native, dict) else None
+    token = arm_tailnet(device.core_url, event)
+    try:
+        return _memory_hint_device(native, device, claude_home, now=now)
+    finally:
+        disarm(token)
+
+def _memory_hint_device(native,device,claude_home,*,now=time.monotonic):
     """Return `(text, receipt)` for the separate synchronous hint handler.
 
     Separate from capture because capture's UserPromptSubmit handler is async and
@@ -311,10 +329,16 @@ def memory_hint_device(native,device,claude_home,*,now=time.monotonic):
     verified=_session_verified(device,n)
     if verified is None:return recent_text,{'status':'ignored','reason':'no_verified_turn_in_session','native_session_id':n['sid'],**extra}
     verified_turn,root=verified
-    remaining=deadline-now()
-    if remaining<=0.05:return recent_text,{'status':'skipped','reason':'no_time_left','native_session_id':n['sid'],**extra}
+    wall=hook_deadline()
+    tailnet=device.core_url==TAILNET_CORE_ORIGIN and wall is not None
+    if tailnet:
+        remaining=wall-now()
+        if remaining<HINT_FLOOR_SECONDS:return recent_text,{'status':'skipped','reason':'no_time_left','native_session_id':n['sid'],**extra}
+    else:
+        remaining=deadline-now()
+        if remaining<=0.05:return recent_text,{'status':'skipped','reason':'no_time_left','native_session_id':n['sid'],**extra}
     binding=bind_workspace({**n,'cwd':root},device,source=SOURCE,timeout=remaining)
-    text,receipt=memory_hint.request(binding,project_id=binding.project_id,native_session_id=n['sid'],prompt=n['text'],deadline=deadline)
+    text,receipt=memory_hint.request(binding,project_id=binding.project_id,native_session_id=n['sid'],prompt=n['text'],deadline=wall if tailnet else deadline)
     text='\n\n'.join(t for t in (recent_text,text) if t) or None
     return text,{**receipt,'native_session_id':n['sid'],'verified_turn':verified_turn,**extra}
 

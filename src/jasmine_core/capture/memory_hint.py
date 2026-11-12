@@ -12,8 +12,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..api.client import CoreClient
-from ..hosthook.binding import Binding, _read_json, load_device, read_key
+from ..api.client import CoreClient, hook_deadline
+from ..hosthook.binding import TAILNET_CORE_ORIGIN, Binding, _read_json, load_device, read_key
 from ..hosthook.dialects._common import additional_context
 from ..hosthook.install import InstallError, _write
 
@@ -27,12 +27,22 @@ def request(binding: Binding, *, project_id: str, native_session_id: str, prompt
     started = time.monotonic()
     # Avoid rounding the default timeout upward by adding and then subtracting
     # a monotonic timestamp. Caller-supplied deadlines still share their budget.
-    remaining = BUDGET_SECONDS if deadline is None else deadline - started
-    deadline = deadline if deadline is not None else started + BUDGET_SECONDS
+    tailnet = binding.core_url == TAILNET_CORE_ORIGIN
+    wall = hook_deadline()
+    if tailnet and wall is not None:
+        deadline = wall
+        remaining = deadline - started
+    else:
+        remaining = BUDGET_SECONDS if deadline is None else deadline - started
+        deadline = deadline if deadline is not None else started + BUDGET_SECONDS
     receipt: dict[str, Any] = {"status": "disabled"}
     if not binding.memory_hint or binding.memory_key_file is None:
         return None, receipt
-    if remaining <= 0.05:
+    if tailnet:
+        from .hook_budget import HINT_FLOOR_SECONDS
+        if remaining < HINT_FLOOR_SECONDS:
+            return None, {"status": "skipped", "reason": "no_time_left"}
+    elif remaining <= 0.05:
         return None, {"status": "skipped", "reason": "no_time_left"}
     try:
         client = client_factory(binding.core_url, read_key(binding.memory_key_file), timeout=remaining)

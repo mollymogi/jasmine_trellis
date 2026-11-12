@@ -26,6 +26,8 @@ from .. import ids
 BINDING_RELATIVE = Path(".jasmine") / "host-binding.json"
 ENV_BINDING = "JASMINE_HOST_BINDING"
 LOOPBACK_URL = re.compile(r"http://(?:127\.0\.0\.1|localhost|\[::1\]):[0-9]{1,5}\Z")
+#: The only non-loopback Core origin a device binding may name. Not an env var.
+TAILNET_CORE_ORIGIN = "https://mercuryliumac-mini.tail07df76.ts.net"
 ALLOWED = {"version", "core_url", "host_id", "project_id", "task_id", "step_id", "api_key_file",
            "human_api_key_file", "on_unavailable", "spool_dir", "timeout_seconds", "inject_context"}
 #: What a project file may say when a device binding applies (everything else is device-owned).
@@ -161,7 +163,7 @@ def _build(data: dict[str, Any], path: Path, spool_base: Path, device: Path | No
     if data.get("version") != 1:
         raise BindingError("binding version must be 1")
     url = data.get("core_url")
-    if not isinstance(url, str) or not LOOPBACK_URL.match(url):
+    if not isinstance(url, str) or not (LOOPBACK_URL.match(url) or url == TAILNET_CORE_ORIGIN):
         raise BindingError("core_url must be loopback http://HOST:PORT")
     for name, prefix in (("host_id", "hst"), ("project_id", "prj"), ("task_id", "tsk"), ("step_id", "stp")):
         value = data.get(name)

@@ -17,8 +17,8 @@ from pathlib import Path
 from contextlib import contextmanager
 from typing import Any
 
-from ..api.client import CoreClient
-from ..hosthook.binding import Binding, read_key
+from ..api.client import CoreClient, hook_deadline
+from ..hosthook.binding import TAILNET_CORE_ORIGIN, Binding, read_key
 from ..hosthook.dialects._common import additional_context
 
 MAX_DIRTY = 50
@@ -117,6 +117,34 @@ def workspace_state(root: str | Path, *, timeout: float = GIT_SECONDS) -> dict[s
             "complete": complete}
 
 
+def git_remote_origin(root: str | Path, *, timeout: float = GIT_SECONDS) -> tuple[str | None, str]:
+    """Raw `git remote get-url origin`, or ``(None, "absent")`` on failure. Capped at 0.5s."""
+    limit = timeout
+    deadline = hook_deadline()
+    if deadline is not None:
+        limit = min(limit, deadline - time.monotonic())
+    if limit <= 0:
+        return None, "absent"
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "remote", "get-url", "origin"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+            timeout=limit, env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
+    except (OSError, subprocess.TimeoutExpired):
+        return None, "absent"
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None, "absent"
+    text = proc.stdout.decode("utf-8", "replace").strip()
+    try:
+        from ..workspace_alias import classify_origin
+        kind, _key = classify_origin(text)
+    except Exception:
+        return None, "absent"
+    if kind not in ("url", "local"):
+        return None, "absent"
+    return text, kind
+
+
 def _system(binding: Binding, timeout: float) -> CoreClient:
     return CoreClient(binding.core_url, read_key(binding.api_key_file), timeout=timeout)
 
@@ -160,6 +188,13 @@ def recent(binding: Binding, *, workspace_root: str | Path, native_session_id: s
     started = time.monotonic()
     if binding.memory_key_file is None:
         return None, {"status": "disabled"}
+    if binding.core_url == TAILNET_CORE_ORIGIN:
+        from .hook_budget import RECENT_FLOOR_SECONDS
+        wall = hook_deadline()
+        # No clock, or less than the recent floor: do not start git or the POST.
+        if wall is None or wall - time.monotonic() < RECENT_FLOOR_SECONDS:
+            return None, {"status": "skipped", "reason": "no_time_left"}
+        deadline = wall
     try:
         state = workspace_state(workspace_root, timeout=min(GIT_SECONDS, max(0.05, (deadline - started) / 3)))
         remaining = deadline - time.monotonic()
