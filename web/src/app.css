@@ -1175,9 +1175,27 @@ main {
   vertical-align: middle;
 }
 
-.usage-detail-row td { background: var(--muted); }
+.usage-detail-row td { background: var(--muted); padding: 0; }
 
-.usage-detail { display: flex; flex-direction: column; gap: 10px; max-width: 100%; }
+/* The session list is the only table with an in-row drill-down: an expanded row carries a
+   nine-column turn table inside one `colSpan` cell. Under the default auto layout that
+   child sizes the parent's columns, so expanding a row stretched 输入/输出 to half the
+   screen. Fixed layout takes the widths from the header instead, and the detail block
+   below is the scroll container, so a narrow window scrolls the turns sideways. */
+.usage-sessions-table { table-layout: fixed; }
+
+.usage-sessions-table thead th:nth-child(1) { width: 118px; }
+.usage-sessions-table thead th:nth-child(3) { width: 190px; }
+.usage-sessions-table thead th:nth-child(4) { width: 68px; }
+.usage-sessions-table thead th:nth-child(5),
+.usage-sessions-table thead th:nth-child(6),
+.usage-sessions-table thead th:nth-child(7),
+.usage-sessions-table thead th:nth-child(8) { width: 92px; }
+.usage-sessions-table thead th:nth-child(9) { width: 78px; }
+
+.usage-detail { display: flex; flex-direction: column; gap: 10px; max-width: 100%; min-width: 0; overflow-x: auto; padding: 12px; }
+
+.usage-detail > * { min-width: 0; max-width: 100%; }
 
 .usage-detail__head { margin: 0; font-size: 12px; color: var(--muted-foreground); overflow-wrap: anywhere; }
 

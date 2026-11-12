@@ -489,7 +489,7 @@ export function ConversationUsageView(): JSX.Element {
               </p>
             ) : (
               <TableScroll label="会话 token 用量列表">
-                <Table aria-label="会话 token 用量列表">
+                <Table aria-label="会话 token 用量列表" className="usage-sessions-table">
                   <TableHeader>
                     <TableRow>
                       <TableHead scope="col">Agent</TableHead>
