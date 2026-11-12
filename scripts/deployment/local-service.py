@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Launch explicitly configured loopback services and the opt-in Memory writer."""
+"""Launch explicitly configured loopback services and the opt-in Memory writer.
+
+com.jasminecore.v1.local.tailnet-gateway is
+scripts/deployment/com.jasminecore.v1.local.tailnet-gateway.plist (Disabled true,
+KeepAlive true, same as com.jasminecore.v1.local.core). PYTHON, ENTRYPOINT
+(scripts/deployment/tailnet-gateway-entrypoint.py), RELEASE_DIR and DATA_DIR in
+that plist are install-time placeholders. This launcher does not bootstrap it
+and does not configure tailscale serve.
+"""
 import argparse,json,os,datetime,hashlib
 from pathlib import Path
 p=argparse.ArgumentParser(); p.add_argument('--base',required=True);p.add_argument('component',choices=['core','dashboard','memory','processing']);args=p.parse_args()
