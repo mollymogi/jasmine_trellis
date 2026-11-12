@@ -274,3 +274,33 @@ class TailnetDisabled(CoreError):
 
     status = 403
     code = "tailnet_disabled"
+
+
+class ProjectNotAliased(CoreError):
+    """A tailnet write named a project this host has no confirmed alias for."""
+
+    status = 403
+    code = "project_not_aliased"
+
+
+class AliasConflict(CoreError):
+    """A confirmed alias does not accept this non-empty remote. No project id is returned."""
+
+    status = 409
+    code = "alias_conflict"
+
+    def __init__(self, matched_by: str | None = None) -> None:
+        super().__init__("alias conflict", alias_conflict=True, created=False)
+        self.matched_by = matched_by
+
+    def to_payload(self, request_id: str) -> dict[str, Any]:
+        payload = super().to_payload(request_id)
+        details = dict(payload["error"]["details"])
+        details["project_id"] = None
+        payload["error"]["details"] = details
+        payload["status"] = "alias_conflict"
+        payload["project_id"] = None
+        payload["created"] = False
+        payload["alias_conflict"] = True
+        payload["matched_by"] = self.matched_by
+        return payload

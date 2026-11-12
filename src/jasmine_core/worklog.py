@@ -320,7 +320,8 @@ class WorklogStore:
                                actor_id=actor_id, actor_kind=actor_kind)
 
     def recover(self, body: dict[str, Any], *, actor_id: str, actor_kind: str,
-                now: datetime | None = None) -> dict[str, Any]:
+                now: datetime | None = None,
+                allowed_projects: set[str] | None = None) -> dict[str, Any]:
         """Record sessions of this workspace that went quiet without a closing record."""
         allowed = {"host_id", "workspace_root", "exclude_native_session_id"}
         unknown = sorted(set(body) - allowed)
@@ -337,6 +338,8 @@ class WorklogStore:
             # Covered, active or excluded sessions must not hide older eligible
             # sessions. Only successful recoveries count toward RECOVER_LIMIT.
             for candidate in self._candidates(family, host_id, now, limit=None):
+                if allowed_projects is not None and candidate["project_id"] not in allowed_projects:
+                    continue
                 if len(written) >= RECOVER_LIMIT:
                     break
                 last = _parse(candidate["last_at"])

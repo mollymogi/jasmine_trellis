@@ -155,6 +155,12 @@ class BoundHostTests(unittest.TestCase):
             token=self.pinned_key["token"], gateway=SECRET)
         self.assertEqual(status, 201, project)
         project_id = project["object"]["project_id"]
+        self.conn.execute(
+            "INSERT INTO workspace_aliases"
+            " (host_id, root, project_id, remote_key, confirmed, created_at)"
+            " VALUES (?, '/tmp/jasmine-bound-host', ?, NULL, 1, '2026-11-12T00:00:00.000000Z')",
+            (self.host, project_id),
+        )
         status, session = self.call(
             "POST", "/v1/sessions", {"project_id": project_id, "host_id": self.host},
             token=self.pinned_key["token"], gateway=SECRET)

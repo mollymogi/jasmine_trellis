@@ -53,6 +53,7 @@ def dispatch(core: Core, request: Request) -> Response:
             principal = core.auth.authenticate(request.header("authorization"))
             handlers.admit_pinned_key(core, principal)
             handlers.admit_bound_host(core, request, principal, route)
+            handlers.admit_workspace_alias(core, request, principal, route)
             if route.scope:
                 principal.require(route.scope)
             for required_scope in route.required_scopes:
