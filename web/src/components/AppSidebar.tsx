@@ -11,6 +11,7 @@ import {
   ChevronsUpDown,
   CircleDashed,
   ClipboardCheck,
+  Coins,
   FileSearch,
   Flower2,
   HelpCircle,
@@ -55,6 +56,7 @@ import {
 export const NAV: { label: string; href: string; icon: LucideIcon }[] = [
   { label: '总览', href: hrefFor({ name: 'overview' }), icon: LayoutDashboard },
   { label: '对话', href: hrefFor({ name: 'conversation', projectId: null, taskId: null, sessionId: null }), icon: MessagesSquare },
+  { label: 'Token 消耗', href: hrefFor({ name: 'usage' }), icon: Coins },
   { label: '记忆', href: hrefFor({ name: 'memoryHealth' }), icon: Brain },
   { label: '规则', href: hrefFor({ name: 'rules', projectId: null, taskId: null, ruleId: null }), icon: ListChecks },
   { label: '对话提炼', href: hrefFor({ name: 'interpretations', projectId: null, taskId: null, eventId: null, status: null }), icon: FileSearch },
@@ -72,6 +74,7 @@ const LINK_LABEL = 'group-data-[collapsible=icon]:sr-only'
 
 export function isCurrent(route: Route, href: string): boolean {
   if (href.endsWith('/overview')) return route.name === 'overview'
+  if (href.endsWith('/usage')) return route.name === 'usage'
   if (href.includes('/conversation')) return route.name === 'conversation'
   if (href.includes('/interpretations')) return route.name === 'interpretations'
   if (href.includes('/reviews')) return route.name === 'reviews' || route.name === 'review'
