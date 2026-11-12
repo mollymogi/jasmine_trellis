@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import plistlib
@@ -11,6 +12,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from contextlib import redirect_stderr
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -382,6 +384,35 @@ class GatewayTest(unittest.TestCase):
         self.assertTrue(response.startswith(b"HTTP/1.1 413 "))
         self.assertEqual(len(self.stub.seen), before)  # type: ignore[attr-defined]
         self.assertEqual(self.log_lines()[-1]["reason"], "body_too_large")
+
+    def test_control_character_in_allowlisted_query_is_400_and_stays_off_stderr(self) -> None:
+        marker = "gwqueryctl"
+        raw = f"/v1/health?{marker}=\x01"
+        request = (
+            f"GET {raw} HTTP/1.1\r\n"
+            f"Host: {GATEWAY_HOST}\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+        ).encode("latin-1")
+        stderr = io.StringIO()
+        before = len(self.stub.seen)  # type: ignore[attr-defined]
+        with redirect_stderr(stderr):
+            with socket.create_connection((GATEWAY_HOST, self.port), timeout=2) as connection:
+                connection.sendall(request)
+                connection.settimeout(2)
+                response = bytearray()
+                while chunk := connection.recv(4096):
+                    response.extend(chunk)
+        self.assertTrue(response.startswith(b"HTTP/1.1 400 "))
+        self.assertIn(b"bad_request", response)
+        self.assertEqual(len(self.stub.seen), before)  # type: ignore[attr-defined]
+        self.assertEqual(self.log_lines()[-1]["path"], "/v1/health")
+        self.assertEqual(self.log_lines()[-1]["reason"], "bad_request")
+        captured = stderr.getvalue()
+        self.assertNotIn(marker, captured)
+        self.assertNotIn(raw, captured)
+        self.assertNotIn("\x01", captured)
+        self.assertNotIn("InvalidURL", captured)
 
     def test_non_ascii_target_is_400_without_a_traceback(self) -> None:
         request = (

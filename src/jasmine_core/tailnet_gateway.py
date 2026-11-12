@@ -274,8 +274,12 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             try:
                 connection.request(method, target, body=body if body else None, headers=headers)
-            except (UnicodeEncodeError, ValueError):
+            except (UnicodeEncodeError, ValueError, HTTPException):
+                # InvalidURL's message quotes the target. Do not log it.
                 self._finish(400, "bad_request", body, started)
+                return
+            except OSError:
+                self._finish(502, "upstream_unavailable", body, started)
                 return
             try:
                 upstream = connection.getresponse()
