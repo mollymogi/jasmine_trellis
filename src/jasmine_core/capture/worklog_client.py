@@ -122,11 +122,6 @@ def workspace_state(root: str | Path, *, timeout: float = GIT_SECONDS) -> dict[s
             "complete": complete}
 
 
-def _git_env() -> dict[str, str]:
-    """PATH only, so GIT_DIR and GIT_WORK_TREE cannot point git at another repo."""
-    return {"PATH": os.environ.get("PATH", ""), "GIT_TERMINAL_PROMPT": "0"}
-
-
 def git_remote_origin(root: str | Path, *, timeout: float = GIT_SECONDS) -> tuple[str | None, str]:
     """Raw `git remote get-url origin`. Absent only when git exits non-zero or prints nothing.
 
@@ -142,7 +137,7 @@ def git_remote_origin(root: str | Path, *, timeout: float = GIT_SECONDS) -> tupl
     proc = subprocess.run(
         ["git", "-C", str(root), "remote", "get-url", "origin"],
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-        timeout=limit, env=_git_env())
+        timeout=limit, env={"PATH": os.environ.get("PATH", ""), "GIT_TERMINAL_PROMPT": "0"})
     if proc.returncode != 0 or not proc.stdout.strip():
         return None, "absent"
     text = proc.stdout.decode("utf-8", "replace").strip()
