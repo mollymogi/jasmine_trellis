@@ -47,16 +47,6 @@ class ResolveOutcome:
         }
 
 
-def _stored_drive(value: str) -> str | None:
-    """``C:\\src\\AgentApp\\`` to ``C:/src/AgentApp``. None when it is not a drive root."""
-    text = value[0].upper() + ":" + value[2:].replace("\\", "/")
-    if len(text) > 3:
-        text = text.rstrip("/")
-    if len(text) < 3 or text[1:3] != ":/" or "\\" in text:
-        return None
-    return text
-
-
 def normalize_root(value: Any, *, field: str = "root") -> str:
     """Absolute path as stored. A drive root becomes ``C:/...``. Never opened.
 
@@ -68,10 +58,8 @@ def normalize_root(value: Any, *, field: str = "root") -> str:
     if value.startswith("\\\\") or value.startswith("//"):
         raise errors.InvalidRequest(f"{field} must be an absolute path", field=field)
     if _DRIVE_RE.match(value):
-        drive = _stored_drive(value)
-        if drive is None:
-            raise errors.InvalidRequest(f"{field} must be an absolute path", field=field)
-        return drive
+        drive = value[0].upper() + ":" + value[2:].replace("\\", "/")
+        return drive if len(drive) <= 3 else drive.rstrip("/")
     if not value.startswith("/"):
         raise errors.InvalidRequest(f"{field} must be an absolute path", field=field)
     if value != "/":

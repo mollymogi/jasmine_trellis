@@ -819,6 +819,32 @@ class CrossHostResume(unittest.TestCase):
         folded.assert_called()
         self.assertEqual(again["session_checkpoint"]["family_root"], "/resolved/repo")
 
+    def test_backslash_drive_description_matches_either_request(self):
+        raw = "C:\\src\\AgentApp"
+        canonical = "C:/src/AgentApp"
+        bank = self.project(self.hub, raw, "drive")
+        child = self.project(self.hub, raw + "\\child", "child")
+        self.prompt(self.hub, bank, "drive-prompt", minutes_ago=5, native="drive")
+        self.prompt(self.hub, child, "child-prompt", minutes_ago=5, native="child")
+        for enabled in (False, True):
+            self.flag(enabled)
+            for request in (raw, canonical, raw + "\\"):
+                with patch.object(worklog.Path, "is_file", side_effect=AssertionError("opened")), \
+                     patch.object(worklog, "related", side_effect=AssertionError("related")):
+                    block = self.recent(self.hub, request)
+                self.assertEqual(block["status"], "ok", (enabled, request))
+                self.assertIn("drive-prompt", block["text"])
+                self.assertNotIn("child-prompt", block["text"])
+        for enabled, request, native in ((False, raw, "drive-off"), (True, canonical, "drive-on")):
+            self.prompt(self.hub, bank, "quiet-" + native, minutes_ago=40, native=native)
+            self.flag(enabled)
+            with patch.object(worklog.Path, "is_file", side_effect=AssertionError("opened")), \
+                 patch.object(worklog, "related", side_effect=AssertionError("related")):
+                recovered = self.store.recover(
+                    {"host_id": self.hub, "workspace_root": request},
+                    actor_id=self.actor, actor_kind="human")
+            self.assertEqual(recovered["count"], 1, (enabled, request, recovered))
+
     def test_drive_roots_match_exactly(self):
         drive = "C:/Users/liu/src"
         bank = self.project(self.hub, drive, "drive")

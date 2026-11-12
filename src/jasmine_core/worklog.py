@@ -54,6 +54,8 @@ _PLACEHOLDER_RE = re.compile(r"\[(粘贴内容|附件|附加内容)\]")
 _SPACE_RE = re.compile(r"\s+")
 #: A normalized drive path (`C:/...`). Backslashes are not this form.
 _DRIVE_ROOT = re.compile(r"^[A-Za-z]:/")
+#: Either slash. `related()` must not walk these as POSIX paths.
+_DRIVE_ANY = re.compile(r"^[A-Za-z]:[\\/]")
 
 
 def _clients_enabled() -> bool:
@@ -63,12 +65,11 @@ def _clients_enabled() -> bool:
 
 
 def _root_key(root: str) -> str:
-    """Compare paths without opening them. A trailing slash is not a different root."""
-    if root.startswith("/") and not root.startswith("//"):
-        return root if root == "/" else root.rstrip("/")
-    if _DRIVE_ROOT.match(root):
-        return root if len(root) == 3 else root.rstrip("/")
-    return root
+    """Compare paths without opening them. Drive letters use `normalize_root`."""
+    try:
+        return _require_root(root)
+    except errors.InvalidRequest:
+        return root
 
 
 # -- workspace families --------------------------------------------------------
@@ -120,7 +121,7 @@ def related(root: str, family: str) -> bool:
     in `~` or `/` is never everyone's previous work. Drive paths are exact
     roots, not POSIX relatives.
     """
-    if _DRIVE_ROOT.match(root) or _DRIVE_ROOT.match(family):
+    if _DRIVE_ANY.match(root) or _DRIVE_ANY.match(family):
         return False
     other = family_root(root)
     if other == family:
@@ -372,7 +373,9 @@ class WorklogStore:
         alias = self._confirmed_project(host_id, root) if clients else None
         written = []
         with db.transaction(self.conn):
-            if not clients:
+            if not clients and _DRIVE_ROOT.match(root):
+                candidates = self._candidates(None, host_id, now, limit=None, exact_root=root)
+            elif not clients:
                 candidates = self._candidates(family_root(root), host_id, now, limit=None)
             elif alias is not None:
                 candidates = self._candidates(None, host_id, now, limit=None, only_projects={alias})

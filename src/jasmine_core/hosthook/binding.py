@@ -127,7 +127,7 @@ def _private_bytes(path: Path, what: str, *, limit: int = MAX_FILE_BYTES) -> byt
 def _private_bytes_windows(path: Path, what: str, limit: int) -> bytes:
     """Owner is the current user; every DACL trustee is that user or SYSTEM."""
     try:
-        handle, regular, owner, trustees, size = _windows_key_security(os.fspath(path))
+        kernel32, handle, regular, owner, trustees, size = _windows_key_security(os.fspath(path))
     except OSError as exc:
         raise BindingError(f"{what} is not readable") from exc
     try:
@@ -140,12 +140,17 @@ def _private_bytes_windows(path: Path, what: str, limit: int) -> bytes:
                 f"{what} must be a regular file owned by this user and only that user or SYSTEM")
         if size > limit:
             raise BindingError(f"{what} is too large")
-        try:
-            return _windows_read(handle, size)
-        except OSError as exc:
-            raise BindingError(f"{what} is not readable") from exc
+        if size == 0:
+            return b""
+        import ctypes
+        from ctypes import wintypes
+        raw = ctypes.create_string_buffer(size)
+        got = wintypes.DWORD()
+        if not kernel32.ReadFile(handle, raw, size, ctypes.byref(got), None):
+            raise BindingError(f"{what} is not readable") from OSError(ctypes.get_last_error())
+        return raw.raw[:got.value]
     finally:
-        _windows_close(handle)
+        kernel32.CloseHandle(handle)
 
 
 def read_key(path: Path) -> str:
@@ -385,7 +390,7 @@ def _windows_key_security(path: str):
         if not kernel32.GetFileInformationByHandle(handle, ctypes.byref(info)):
             raise OSError(ctypes.get_last_error())
         if info.dwFileAttributes & (_DIRECTORY | _REPARSE_POINT):
-            return handle, False, "", None, 0
+            return kernel32, handle, False, "", None, 0
         owner = ctypes.c_void_p()
         group = ctypes.c_void_p()
         dacl = ctypes.c_void_p()
@@ -403,23 +408,7 @@ def _windows_key_security(path: str):
             if sd.value:
                 kernel32.LocalFree(sd)
         size = (info.nFileSizeHigh << 32) | info.nFileSizeLow
-        return handle, True, owner_sid, trustees, size
+        return kernel32, handle, True, owner_sid, trustees, size
     except Exception:
         kernel32.CloseHandle(handle)
         raise
-
-
-def _windows_read(handle, size: int) -> bytes:
-    if size == 0:
-        return b""
-    ctypes, wintypes, kernel32, _adv = _win_api()
-    raw = ctypes.create_string_buffer(size)
-    got = wintypes.DWORD()
-    if not kernel32.ReadFile(handle, raw, size, ctypes.byref(got), None):
-        raise OSError(ctypes.get_last_error())
-    return raw.raw[:got.value]
-
-
-def _windows_close(handle) -> None:
-    _ctypes, _wintypes, kernel32, _adv = _win_api()
-    kernel32.CloseHandle(handle)
