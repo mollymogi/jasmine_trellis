@@ -30,9 +30,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--create-project", action="store_true")
     parser.add_argument("--actor-id", help="required with --create-project; ignored otherwise")
     args = parser.parse_args(argv)
-    if not args.confirm:
-        print("confirmation requires --confirm", file=sys.stderr)
-        return 2
     conn = db.connect(args.db)
     try:
         project_id = confirm_workspace(

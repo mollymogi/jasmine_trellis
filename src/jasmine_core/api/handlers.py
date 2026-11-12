@@ -564,7 +564,7 @@ def resolve_workspace(request: Request, core: Core, principal: auth.Principal,
         raise errors.InvalidRequest("resolve accepts no query")
     outcome = resolve_request(core.conn, _state_body(
         request, {"host_id", "root", "origin", "remote_kind"}))
-    if outcome.conflict:
+    if outcome.status == "alias_conflict":
         raise errors.AliasConflict(outcome.matched_by)
     return Response(200, outcome.as_dict())
 

@@ -36,7 +36,6 @@ class ResolveOutcome:
     project_id: str | None
     alias_conflict: bool
     matched_by: str | None
-    conflict: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -99,11 +98,9 @@ def canonical_remote_key(value: str | None) -> str | None:
         if kind != "url" or not key:
             raise errors.InvalidRequest("remote_key is not a git remote", field="remote_key")
         return key
-    if any(char in text for char in "@/\\?# \t"):
-        raise errors.InvalidRequest("remote_key is not canonical", field="remote_key")
     host, sep, path = text.partition("/")
-    if not sep or not host or not path:
-        raise errors.InvalidRequest("remote_key must be host/path", field="remote_key")
+    if not sep or not host or not path or _forbidden_key_part(host) or _forbidden_key_part(path):
+        raise errors.InvalidRequest("remote_key is not canonical", field="remote_key")
     cleaned = _repo_path(path)
     if cleaned is None:
         raise errors.InvalidRequest("remote_key must be host/path", field="remote_key")
@@ -111,7 +108,11 @@ def canonical_remote_key(value: str | None) -> str | None:
 
 
 def resolve_request(conn, body: dict[str, Any]) -> ResolveOutcome:
-    """Read-only resolve. Raises :class:`errors.AliasConflict` is the caller's job."""
+    """Read-only resolve. A conflict is ``status == "alias_conflict"``.
+
+    This function does not raise that conflict. The HTTP handler maps that
+    status to :class:`errors.AliasConflict`.
+    """
     missing = [name for name in ("host_id", "root", "origin", "remote_kind") if name not in body]
     if missing:
         raise errors.InvalidRequest("missing fields: " + ", ".join(missing), fields=missing)
@@ -250,7 +251,7 @@ def backfill_aliases(conn, *, host_id: str,
             conflicts.append(
                 "conflict: path " + root + " has projects " + ",".join(project_ids))
             continue
-        plans.append((root, project_ids[0], reader(root)))
+        plans.append((root, project_ids[0], _accepted_remote_key(reader(root))))
     with db.transaction(conn):
         for root, project_id, key in plans:
             registered = _remote_project(conn, key) if key else None
@@ -309,13 +310,13 @@ def _resolve(conn, *, host_id: str, root: str, remote_key: str | None,
         if not remote_key:
             if _alias_agrees(conn, alias):
                 return ResolveOutcome("ok", alias["project_id"], False, matched_by)
-            return ResolveOutcome("alias_conflict", None, True, matched_by, conflict=True)
+            return ResolveOutcome("alias_conflict", None, True, matched_by)
         same_key = bool(alias["remote_key"]) and remote_key == alias["remote_key"]
         if same_key and _alias_agrees(conn, alias):
             return ResolveOutcome("ok", alias["project_id"], False, matched_by)
         # A non-empty key that is new, or that belongs to another project, does
         # not keep the old project_id and does not update workspace_remotes.
-        return ResolveOutcome("alias_conflict", None, True, matched_by, conflict=True)
+        return ResolveOutcome("alias_conflict", None, True, matched_by)
     if remote_key and remote_project is not None:
         return ResolveOutcome("confirmation_required", None, True, matched_by)
     return ResolveOutcome("confirmation_required", None, False, matched_by)
@@ -438,8 +439,26 @@ def _classify_scp(text: str) -> tuple[str, str | None] | None:
     return "url", f"{host.lower()}/{path}"
 
 
+def _forbidden_key_part(part: str) -> bool:
+    # Slash stays: a canonical key's path is host/group/repo, not a single segment.
+    return any(char in part for char in "@\\?# \t")
+
+
+def _accepted_remote_key(value: str | None) -> str | None:
+    """Reduce a backfill origin to a stored key. A raw origin is not printed."""
+    if not value:
+        return None
+    try:
+        return canonical_remote_key(value)
+    except errors.InvalidRequest:
+        return None
+
+
 def _repo_path(path: str) -> str | None:
     cleaned = path.strip().replace("\\", "/")
+    # Query and fragment can carry a token. Drop them before the .git suffix,
+    # or `Repo.git?token=…` would keep both the token and `.git`.
+    cleaned = cleaned.split("?", 1)[0].split("#", 1)[0]
     cleaned = cleaned.lstrip("/").rstrip("/")
     if cleaned.endswith(".git"):
         cleaned = cleaned[:-4].rstrip("/")

@@ -16,13 +16,15 @@ from jasmine_core import auth, db, ids, registry
 from jasmine_core.api.request import Request
 from jasmine_core.api.server import Application
 from jasmine_core.migrations import migrate
-from jasmine_core.workspace_alias import classify_origin
+from jasmine_core.workspace_alias import canonical_remote_key, classify_origin
 from test_bound_host import SECRET, write_secret
 
 ACTOR = "act_01K742SG00CBKP25A9ETPBTRMJ"
 SCOPES = ["objects:write", "events:write", "memory:recall"]
 SECRET_ORIGIN = "https://user:ghp_secret@github.com/Org/Repo.git"
+SCP_TOKEN_ORIGIN = "git@github.com:Org/Repo.git?token=ghp_secret"
 CANONICAL = "github.com/Org/Repo"
+PORT_KEY = "gitlab.example:2222/group/repo"
 VECTORS = (
     ("git@github.com:Org/Repo.git", "url", "github.com/Org/Repo"),
     ("ssh://git@github.com/Org/Repo.git", "url", "github.com/Org/Repo"),
@@ -31,6 +33,8 @@ VECTORS = (
     (SECRET_ORIGIN, "url", "github.com/Org/Repo"),
     ("https://gitlab.com/group/sub/repo.git", "url", "gitlab.com/group/sub/repo"),
     ("ssh://git@gitlab.example:2222/group/repo.git", "url", "gitlab.example:2222/group/repo"),
+    (SCP_TOKEN_ORIGIN, "url", "github.com/Org/Repo"),
+    ("git@github.com:Org/Repo.git#fragment", "url", "github.com/Org/Repo"),
     ("file:///home/a/repo", "local", None),
     ("/home/a/repo", "local", None),
     ("", "absent", None),
@@ -58,6 +62,14 @@ class CanonicalOriginTests(unittest.TestCase):
         self.assertEqual((kind, key), ("url", "github.com/Org/Repo"))
         kind, key = classify_origin("https://GitLab.com/Group/Sub/Repo.git")
         self.assertEqual((kind, key), ("url", "gitlab.com/Group/Sub/Repo"))
+
+    def test_stored_canonical_keys_round_trip(self) -> None:
+        self.assertEqual(canonical_remote_key("github.com/Org/Repo"), CANONICAL)
+        self.assertEqual(canonical_remote_key("github.com/Org/Repo.git"), CANONICAL)
+        self.assertEqual(canonical_remote_key(PORT_KEY), PORT_KEY)
+        self.assertEqual(canonical_remote_key(PORT_KEY + ".git"), PORT_KEY)
+        self.assertEqual(canonical_remote_key(SCP_TOKEN_ORIGIN), CANONICAL)
+        self.assertNotIn("ghp_secret", canonical_remote_key(SCP_TOKEN_ORIGIN))
 
 
 class WorkspaceAliasTests(unittest.TestCase):
@@ -313,6 +325,51 @@ class WorkspaceAliasTests(unittest.TestCase):
             self.host, "/srv/bank", None, "absent", token=self.key["token"])
         self.assertEqual(status, 403, body)
         self.assertEqual(body["error"]["code"], "tailnet_disabled")
+
+    def test_confirm_accepts_a_stored_canonical_key(self) -> None:
+        project_id = self.project("bank")
+        first = self.confirm(self.host, "/srv/port", PORT_KEY + ".git", project_id)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        stored = self.conn.execute("SELECT remote_key FROM workspace_remotes").fetchone()["remote_key"]
+        self.assertEqual(stored, PORT_KEY)
+        again = self.confirm(self.other, "/srv/port-b", stored, project_id)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(self.remote_count(), 1)
+        plain = self.confirm(self.host, "/srv/plain", CANONICAL, project_id)
+        self.assertEqual(plain.returncode, 0, plain.stderr)
+        dotted = self.confirm(self.other, "/srv/plain-b", CANONICAL + ".git", project_id)
+        self.assertEqual(dotted.returncode, 0, dotted.stderr)
+        keys = {row["remote_key"] for row in self.conn.execute("SELECT remote_key FROM workspace_remotes")}
+        self.assertEqual(keys, {PORT_KEY, CANONICAL})
+
+    def test_scp_query_token_is_not_stored_or_printed(self) -> None:
+        project_id = self.project("bank")
+        confirmed = self.confirm(self.host, "/srv/scp", SCP_TOKEN_ORIGIN, project_id)
+        self.assertEqual(confirmed.returncode, 0, confirmed.stderr)
+        self.assertNotIn("ghp_secret", confirmed.stdout + confirmed.stderr)
+        stored = self.conn.execute("SELECT remote_key FROM workspace_remotes").fetchone()["remote_key"]
+        self.assertEqual(stored, CANONICAL)
+        self.assertNotIn("ghp_secret", self.stored_text())
+        repo = self.data_dir / "scp-repo"
+        repo.mkdir()
+        self.project("local", str(repo))
+        from jasmine_core.workspace_alias import backfill_aliases
+
+        conflicts = backfill_aliases(
+            self.conn, host_id=self.host,
+            origin_for=lambda root: SCP_TOKEN_ORIGIN if root == str(repo) else None)
+        text = "\n".join(conflicts)
+        self.assertNotIn("ghp_secret", text)
+        self.assertNotIn("token=", text)
+        self.assertIn(CANONICAL, text)
+        keys = {row["remote_key"] for row in self.conn.execute("SELECT remote_key FROM workspace_remotes")}
+        self.assertEqual(keys, {CANONICAL})
+        self.assertEqual(
+            self.conn.execute(
+                "SELECT project_id FROM workspace_remotes WHERE remote_key=?", (CANONICAL,)
+            ).fetchone()["project_id"],
+            project_id)
+        self.assertNotIn("ghp_secret", self.stored_text())
 
     def test_confirm_refuses_a_remote_owned_by_another_project(self) -> None:
         first = self.project("first")
