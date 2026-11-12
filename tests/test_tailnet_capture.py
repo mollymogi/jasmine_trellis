@@ -189,6 +189,36 @@ class TailnetBind(unittest.TestCase):
         self.assertEqual(bound.project_id, self.confirmed)
         self.assertEqual([row[0] for row in script.posts], ["/v1/workspaces/resolve"])
 
+    def test_git_failure_does_not_post_resolve(self) -> None:
+        device = load_device(_device(self.root, ORIGIN, self.host))
+        for exc in (TimeoutError("git"), OSError("git"), ValueError("unclassifiable")):
+            with self.subTest(exc=type(exc).__name__):
+                with patch("jasmine_core.capture.worklog_client.git_remote_origin", side_effect=exc), \
+                        patch("jasmine_core.capture.codex_session.CoreClient") as client:
+                    with self.assertRaises(type(exc)):
+                        bind_workspace({"cwd": str(self.root)}, device)
+                    client.assert_not_called()
+
+    def test_claude_prompt_keeps_resume_when_resolve_is_not_ok(self) -> None:
+        from jasmine_core.capture import claude_session
+        device = load_device(_device(self.root, ORIGIN, self.host))
+        root = str(self.root)
+        native = {"event": "UserPromptSubmit", "sid": "sid", "turn": "turn", "cwd": root,
+                  "text": "刚才在做什么"}
+        script = _Script({"status": "confirmation_required", "project_id": None, "alias_conflict": True})
+        with patch.object(claude_session, "_native", return_value=native), \
+                patch.object(claude_session, "_session_verified", return_value=("turn", root)), \
+                patch.object(claude_session, "_recent", return_value=("resume block", {"status": "ok"})), \
+                patch("jasmine_core.capture.worklog_client.git_remote_origin", return_value=(None, "absent")), \
+                patch("jasmine_core.capture.codex_session.CoreClient", script.client()), \
+                patch("jasmine_core.capture.codex_session.read_key", return_value="k"):
+            text, receipt = claude_session.memory_hint_device(
+                {"hook_event_name": "UserPromptSubmit"}, device, self.root)
+        self.assertEqual(text, "resume block")
+        self.assertEqual(receipt["status"], "failed")
+        self.assertEqual(receipt["error_type"], "ValueError")
+        self.assertEqual([row[0] for row in script.posts], ["/v1/workspaces/resolve"])
+
     def test_loopback_conflict_does_not_create_a_project(self) -> None:
         with self.assertRaises(ApiError):
             self._bind("http://127.0.0.1:9", ApiError(409, {"error": {"code": "alias_conflict"}}))
@@ -233,17 +263,36 @@ class TailnetClock(unittest.TestCase):
         self.assertIn("timeout=3", inspect.getsource(grok_session._publish))
 
     def test_git_remote_stays_at_half_a_second(self) -> None:
+        scrubbed = {"PATH": os.environ.get("PATH", ""), "GIT_TERMINAL_PROMPT": "0"}
         with patch("jasmine_core.capture.worklog_client.subprocess.run",
                    side_effect=subprocess.TimeoutExpired("git", 0.5)) as run:
-            self.assertEqual(git_remote_origin("/tmp/not-a-repo"), (None, "absent"))
+            with self.assertRaises(subprocess.TimeoutExpired):
+                git_remote_origin("/tmp/not-a-repo")
         self.assertLessEqual(run.call_args.kwargs["timeout"], 0.5)
+        self.assertEqual(run.call_args.kwargs["env"], scrubbed)
         self.assertEqual(run.call_args.args[0][:4], ["git", "-C", "/tmp/not-a-repo", "remote"])
+        with patch("jasmine_core.capture.worklog_client.subprocess.run", side_effect=OSError("git")):
+            with self.assertRaises(OSError):
+                git_remote_origin("/tmp/not-a-repo")
+        with patch("jasmine_core.capture.worklog_client.subprocess.run",
+                   return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout=b"\x00")):
+            with self.assertRaises(ValueError):
+                git_remote_origin("/tmp/not-a-repo")
         token = arm_hook_deadline(time.monotonic() + 0.2)
         try:
             with patch("jasmine_core.capture.worklog_client.subprocess.run",
                        return_value=subprocess.CompletedProcess(args=[], returncode=1, stdout=b"")) as run:
                 self.assertEqual(git_remote_origin("/tmp/not-a-repo"), (None, "absent"))
             self.assertLessEqual(run.call_args.kwargs["timeout"], 0.2)
+            self.assertEqual(run.call_args.kwargs["env"], scrubbed)
+        finally:
+            reset_hook_deadline(token)
+        token = arm_hook_deadline(time.monotonic() - 1)
+        try:
+            with patch("jasmine_core.capture.worklog_client.subprocess.run") as run:
+                with self.assertRaises(TimeoutError):
+                    git_remote_origin("/tmp/not-a-repo")
+            run.assert_not_called()
         finally:
             reset_hook_deadline(token)
 

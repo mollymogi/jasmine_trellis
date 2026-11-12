@@ -337,7 +337,11 @@ def _memory_hint_device(native,device,claude_home,*,now=time.monotonic):
     else:
         remaining=deadline-now()
         if remaining<=0.05:return recent_text,{'status':'skipped','reason':'no_time_left','native_session_id':n['sid'],**extra}
-    binding=bind_workspace({**n,'cwd':root},device,source=SOURCE,timeout=remaining)
+    try:
+        binding=bind_workspace({**n,'cwd':root},device,source=SOURCE,timeout=remaining)
+    except Exception as exc:
+        # Resolve did not yield a project. Keep the resume block; do not create one.
+        return recent_text,{'status':'failed','error_type':type(exc).__name__,'native_session_id':n['sid'],**extra}
     text,receipt=memory_hint.request(binding,project_id=binding.project_id,native_session_id=n['sid'],prompt=n['text'],deadline=wall if tailnet else deadline)
     text='\n\n'.join(t for t in (recent_text,text) if t) or None
     return text,{**receipt,'native_session_id':n['sid'],'verified_turn':verified_turn,**extra}

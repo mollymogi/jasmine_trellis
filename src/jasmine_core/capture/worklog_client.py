@@ -84,6 +84,11 @@ def asks_about_recent_work(prompt: Any) -> bool:
 
 def workspace_state(root: str | Path, *, timeout: float = GIT_SECONDS) -> dict[str, Any]:
     """Branch, HEAD and changed files, from one bounded `git status`."""
+    deadline = hook_deadline()
+    if deadline is not None:
+        timeout = min(timeout, deadline - time.monotonic())
+        if timeout <= 0:
+            return {"git": True, "complete": False}
     try:
         proc = subprocess.run(
             ["git", "-C", str(root), "status", "--porcelain=v2", "--branch", "--untracked-files=normal"],
@@ -117,31 +122,39 @@ def workspace_state(root: str | Path, *, timeout: float = GIT_SECONDS) -> dict[s
             "complete": complete}
 
 
+def _git_env() -> dict[str, str]:
+    """PATH only, so GIT_DIR and GIT_WORK_TREE cannot point git at another repo."""
+    return {"PATH": os.environ.get("PATH", ""), "GIT_TERMINAL_PROMPT": "0"}
+
+
 def git_remote_origin(root: str | Path, *, timeout: float = GIT_SECONDS) -> tuple[str | None, str]:
-    """Raw `git remote get-url origin`, or ``(None, "absent")`` on failure. Capped at 0.5s."""
+    """Raw `git remote get-url origin`. Absent only when git exits non-zero or prints nothing.
+
+    A timeout, ``OSError``, or an origin ``classify_origin`` rejects raises. Callers
+    must not post resolve in that case. The cap stays 0.5s and also stops at a hook deadline.
+    """
     limit = timeout
     deadline = hook_deadline()
     if deadline is not None:
         limit = min(limit, deadline - time.monotonic())
     if limit <= 0:
-        return None, "absent"
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(root), "remote", "get-url", "origin"],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-            timeout=limit, env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
-    except (OSError, subprocess.TimeoutExpired):
-        return None, "absent"
+        raise TimeoutError("git remote budget exhausted")
+    proc = subprocess.run(
+        ["git", "-C", str(root), "remote", "get-url", "origin"],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+        timeout=limit, env=_git_env())
     if proc.returncode != 0 or not proc.stdout.strip():
         return None, "absent"
     text = proc.stdout.decode("utf-8", "replace").strip()
+    if not text:
+        return None, "absent"
     try:
         from ..workspace_alias import classify_origin
         kind, _key = classify_origin(text)
-    except Exception:
-        return None, "absent"
+    except Exception as exc:
+        raise ValueError("git origin is not classifiable") from exc
     if kind not in ("url", "local"):
-        return None, "absent"
+        raise ValueError("git origin is not classifiable")
     return text, kind
 
 
