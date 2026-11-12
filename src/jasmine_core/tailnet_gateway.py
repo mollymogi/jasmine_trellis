@@ -1,9 +1,4 @@
-"""Loopback allowlist in front of Core.
-
-Stdlib only. The process binds 127.0.0.1 and reads the gateway secret once at
-startup. Core's own loopback rejection is unchanged; this module never binds
-a non-loopback address and never opens Tailscale Serve.
-"""
+"""Loopback allowlist in front of Core."""
 
 from __future__ import annotations
 
@@ -32,7 +27,6 @@ GATEWAY_PORT = 18788
 MAX_BODY_BYTES = 384 * 1024
 SECRET_NAME = "tailnet-gateway.key"
 GATEWAY_HEADER = "X-Jasmine-Gateway"
-_LOGGABLE_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE"})
 _ALLOW: frozenset[tuple[str, str]] = frozenset({
     ("GET", "/v1/health"),
     ("POST", "/v1/workspaces/resolve"),
@@ -90,6 +84,10 @@ def load_gateway_secret(data_dir: Path) -> str:
         text = text[:-1]
     if not text:
         raise GatewayStartupError("gateway secret is empty")
+    try:
+        text.encode("latin-1")
+    except UnicodeEncodeError as exc:
+        raise GatewayStartupError("gateway secret must be latin-1") from exc
     return text
 
 
@@ -109,10 +107,6 @@ def parse_upstream(url: str) -> tuple[str, int]:
     return GATEWAY_HOST, parts.port
 
 
-def _safe_method(method: str | None) -> str:
-    return method if method in _LOGGABLE_METHODS else "UNKNOWN"
-
-
 def path_template(path: str) -> str:
     """Allowlisted paths log as themselves. Anything else stays a fixed template.
 
@@ -129,7 +123,7 @@ def _host_id_of(body: bytes) -> str | None:
         return None
     try:
         parsed = json.loads(body)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except Exception:
         return None
     if not isinstance(parsed, dict):
         return None
@@ -174,6 +168,18 @@ class _Handler(BaseHTTPRequestHandler):
         self.connection.settimeout(30)
         super().handle_one_request()
 
+    def handle_expect_100(self) -> bool:
+        # A 100 Continue tells the client to send the body. Skip it when that
+        # body will be refused unread, or the 413 blocks on a full window.
+        raw = self.headers.get("Content-Length")
+        if self.headers.get("Transfer-Encoding"):
+            return True
+        if raw is not None and (not raw.isdigit() or len(raw) > 10 or int(raw) > MAX_BODY_BYTES):
+            return True
+        self.send_response_only(100)
+        self.end_headers()
+        return True
+
     def do_GET(self) -> None:  # noqa: N802
         self._proxy("GET")
 
@@ -212,22 +218,22 @@ class _Handler(BaseHTTPRequestHandler):
             or "\x00" in raw_target
             or _ENCODED_BREAK_RE.search(raw_target)
         ):
-            self._finish(400, "bad_target", b"", started, read_body=False)
+            self._finish(400, "bad_target", b"", started)
             return
         parts = urlsplit(raw_target)
         if parts.scheme or parts.netloc:
-            self._finish(400, "bad_target", b"", started, read_body=False)
+            self._finish(400, "bad_target", b"", started)
             return
         length, problem = self._declared_length()
         if problem == "body_too_large":
-            self._finish(413, "body_too_large", b"", started, read_body=False)
+            self._finish(413, "body_too_large", b"", started)
             return
         if problem:
-            self._finish(400, problem, b"", started, read_body=False)
+            self._finish(400, problem, b"", started)
             return
         body = self.rfile.read(length) if length else b""
         if (method, parts.path) not in _ALLOW:
-            self._finish(403, "not_allowlisted", body, started, read_body=True)
+            self._finish(403, "not_allowlisted", body, started)
             return
         forward = parts.path if not parts.query else f"{parts.path}?{parts.query}"
         self._forward(method, forward, body, started)
@@ -258,7 +264,7 @@ class _Handler(BaseHTTPRequestHandler):
         authorization = self.headers.get("Authorization")
         if authorization is not None:
             if "\r" in authorization or "\n" in authorization or "\x00" in authorization:
-                self._finish(400, "bad_authorization", body, started, read_body=True)
+                self._finish(400, "bad_authorization", body, started)
                 return
             headers["Authorization"] = authorization
         content_type = self.headers.get("Content-Type")
@@ -268,6 +274,10 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             try:
                 connection.request(method, target, body=body if body else None, headers=headers)
+            except (UnicodeEncodeError, ValueError):
+                self._finish(400, "bad_request", body, started)
+                return
+            try:
                 upstream = connection.getresponse()
                 payload = upstream.read()
                 status = upstream.status
@@ -284,32 +294,27 @@ class _Handler(BaseHTTPRequestHandler):
                 ):
                     response_headers["X-Request-Id"] = request_id
             except (OSError, HTTPException):
-                self._finish(502, "upstream_unavailable", body, started, read_body=True, method=method)
+                self._finish(502, "upstream_unavailable", body, started)
                 return
         finally:
             connection.close()
         self._send(status, payload, response_headers)
         self._access(method, path_template(urlsplit(target).path), status, started, None, _host_id_of(body))
 
-    def _finish(
-        self,
-        status: int,
-        reason: str,
-        body: bytes,
-        started: float,
-        *,
-        read_body: bool,
-        method: str | None = None,
-    ) -> None:
+    def _finish(self, status: int, reason: str, body: bytes, started: float) -> None:
         payload = json.dumps(
             {"error": {"code": reason, "message": reason}},
             separators=(",", ":"),
         ).encode("ascii")
         self._send(status, payload, {"Content-Type": _JSON_TYPE}, close=True)
-        # 413 must not inspect the body. Callers pass read_body False and no bytes.
-        host_id = _host_id_of(body) if read_body and status != 413 else None
-        logged = method or self.command
-        self._access(logged, path_template(urlsplit(self.path or "").path), status, started, reason, host_id)
+        self._access(
+            self.command,
+            path_template(urlsplit(self.path or "").path),
+            status,
+            started,
+            reason,
+            _host_id_of(body),
+        )
 
     def _send(self, status: int, payload: bytes, headers: dict[str, str], *, close: bool = True) -> None:
         self.close_connection = close
@@ -328,7 +333,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _access(
         self,
-        method: str | None,
+        method: str,
         template: str,
         status: int,
         started: float,
@@ -338,7 +343,7 @@ class _Handler(BaseHTTPRequestHandler):
         latency_ms = max(0, int((time.monotonic() - started) * 1000))
         fields = [
             f"ts={_utc_now()}",
-            f"method={_safe_method(method)}",
+            f"method={method}",
             f"path={template}",
             f"status={status}",
             f"latency_ms={latency_ms}",
@@ -393,7 +398,6 @@ def open_gateway(
     server.upstream = upstream_address  # type: ignore[attr-defined]
     server.access_log_fd = log_fd  # type: ignore[attr-defined]
     server.access_log_lock = threading.Lock()  # type: ignore[attr-defined]
-    server.access_log_path = log_path  # type: ignore[attr-defined]
     return server
 
 

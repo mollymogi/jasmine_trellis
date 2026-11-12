@@ -173,6 +173,14 @@ class GatewayTest(unittest.TestCase):
         self.assertIn("0600", str(caught.exception))
         path.chmod(0o600)
         self.assertEqual(load_gateway_secret(self.data), SECRET)
+        path.write_bytes("secret-\u20ac\n".encode())
+        path.chmod(0o600)
+        with self.assertRaises(Exception) as caught:
+            load_gateway_secret(self.data)
+        self.assertIn("latin-1", str(caught.exception))
+        self.assertNotIn("\u20ac", str(caught.exception))
+        path.write_bytes((SECRET + "\n").encode())
+        path.chmod(0o600)
         info = os.stat_result((stat.S_IFREG | 0o600, 1, 1, 1, os.getuid() + 1, os.getgid(), 4, 0, 0, 0))
         with self.assertRaises(Exception) as caught:
             _require_private_secret(info)
@@ -353,6 +361,57 @@ class GatewayTest(unittest.TestCase):
             status_line = connection.recv(64)
         self.assertTrue(status_line.startswith(b"HTTP/1.1 413 "))
         self.assertEqual(len(self.stub.seen), before)  # type: ignore[attr-defined]
+
+    def test_expect_continue_is_skipped_when_the_body_will_be_refused(self) -> None:
+        header = (
+            "POST /v1/events HTTP/1.1\r\n"
+            f"Host: {GATEWAY_HOST}\r\n"
+            f"Content-Length: {MAX_BODY_BYTES + 1}\r\n"
+            "Expect: 100-continue\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+        )
+        before = len(self.stub.seen)  # type: ignore[attr-defined]
+        with socket.create_connection((GATEWAY_HOST, self.port), timeout=2) as connection:
+            connection.sendall(header.encode("ascii"))
+            connection.settimeout(2)
+            response = bytearray()
+            while chunk := connection.recv(4096):
+                response.extend(chunk)
+        self.assertFalse(response.startswith(b"HTTP/1.1 100"))
+        self.assertTrue(response.startswith(b"HTTP/1.1 413 "))
+        self.assertEqual(len(self.stub.seen), before)  # type: ignore[attr-defined]
+        self.assertEqual(self.log_lines()[-1]["reason"], "body_too_large")
+
+    def test_non_ascii_target_is_400_without_a_traceback(self) -> None:
+        request = (
+            b"GET /v1/health?q=\xff HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Connection: close\r\n"
+            b"\r\n"
+        )
+        before = len(self.stub.seen)  # type: ignore[attr-defined]
+        with socket.create_connection((GATEWAY_HOST, self.port), timeout=2) as connection:
+            connection.sendall(request)
+            connection.settimeout(2)
+            response = bytearray()
+            while chunk := connection.recv(4096):
+                response.extend(chunk)
+        self.assertTrue(response.startswith(b"HTTP/1.1 400 "))
+        self.assertIn(b"bad_request", response)
+        self.assertEqual(len(self.stub.seen), before)  # type: ignore[attr-defined]
+        self.assertEqual(self.log_lines()[-1]["reason"], "bad_request")
+        self.assertEqual(self.log_lines()[-1]["status"], "400")
+
+    def test_deeply_nested_json_still_writes_an_access_line(self) -> None:
+        body = (b"[" * 10000) + (b"]" * 10000)
+        self.assertLess(len(body), MAX_BODY_BYTES)
+        status, _ = self.request("POST", "/v1/projects", body, {"Content-Type": "application/json"})
+        self.assertEqual(status, 403)
+        line = self.log_lines()[-1]
+        self.assertEqual(line["status"], "403")
+        self.assertEqual(line["reason"], "not_allowlisted")
+        self.assertNotIn("host_id", line)
 
     def test_credential_shaped_paths_are_not_logged(self) -> None:
         status, _ = self.request("GET", "/v1/sk-fixturepathsecret")
