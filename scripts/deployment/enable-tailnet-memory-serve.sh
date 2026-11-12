@@ -89,9 +89,7 @@ finally:
 
 core_env_text() {
   if [[ -n "${JASMINE_CORE_ENV_FILE:-}" ]]; then
-    python3 -c 'import pathlib, sys
-print(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"), end="")' \
-      "$JASMINE_CORE_ENV_FILE"
+    cat -- "$JASMINE_CORE_ENV_FILE"
     return
   fi
   local pids=""
@@ -100,7 +98,11 @@ print(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"), end="")' \
   fi
   local pid text=""
   for pid in $pids; do
-    text+=$'\n'"$(ps eww -p "$pid" 2>/dev/null || true)"
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      text+=$'\n'"$(ps -axEww -o command= -p "$pid" 2>/dev/null || true)"
+    else
+      text+=$'\n'"$(ps eww -p "$pid" 2>/dev/null || true)"
+    fi
   done
   printf '%s' "$text"
 }
@@ -133,33 +135,17 @@ forbidden = re.compile(r"(^|[^0-9])(18787|15180|18084)([^0-9]|$)")
 backend = re.compile(r"(^|[^0-9])127\.0\.0\.1:18788([^0-9]|$)")
 
 
-def funnel_on(text: str) -> bool:
-    lowered = text.lower()
-    if "funnel" not in lowered:
-        return False
-    scrubbed = re.sub(
-        r"no funnel|without funnel|funnel is (off|disabled)|funnel (off|disabled)|"
-        r"allowfunnel[\"']?\s*[:=]\s*false",
-        "",
-        lowered,
-    )
-    return "funnel" in scrubbed
-
-
-def emit(kind: str, message: str) -> None:
-    print(f"{kind} {message}")
-
-
 def flag_set(text: str) -> bool:
-    patterns = (
-        r"JASMINE_TAILNET_CLIENTS=(?:\"([^\"]*)\"|'([^']*)'|(\S+))",
-        r"JASMINE_TAILNET_CLIENTS\s*=>\s*(?:\"([^\"]*)\"|'([^']*)'|(\S+))",
-    )
-    for pattern in patterns:
-        for match in re.finditer(pattern, text):
-            value = next(group for group in match.groups() if group is not None)
-            if value.strip():
-                return True
+    """A real assignment only. The name on a command line is not the environ."""
+    for token in text.split():
+        if not token.startswith("JASMINE_TAILNET_CLIENTS="):
+            continue
+        value = token.split("=", 1)[1].strip().strip("\"'")
+        if value:
+            return True
+    for match in re.finditer(r"JASMINE_TAILNET_CLIENTS\s*=>\s*(\S+)", text):
+        if match.group(1).strip().strip("\"'"):
+            return True
     return False
 
 
@@ -168,41 +154,54 @@ def indicates_windows(name: str) -> bool:
     return "windows" in folded or folded.startswith("win-")
 
 
+def status_failed_read(text: str) -> bool:
+    return status_failed and text.strip().lower() != "no serve config"
+
+
 def status_blocked(text: str) -> list[str]:
     reasons = []
-    if status_failed and text.strip().lower() != "no serve config":
+    # A failed read is not "funnel off". Empty output from a failed command
+    # stays a failure even though the word funnel is absent.
+    if status_failed_read(text):
         reasons.append("tailscale serve status failed")
-    if funnel_on(text):
+        return reasons
+    if not text.strip():
+        reasons.append("tailscale serve status was empty")
+        return reasons
+    if "funnel" in text.lower():
         reasons.append("tailscale serve status has Funnel")
     if forbidden.search(text):
         reasons.append("tailscale serve status points at 18787, :15180, or :18084")
-    if not text.strip():
-        reasons.append("tailscale serve status was empty")
     return reasons
 
 
 if phase == "post":
+    # Exit 2: status command failed, caller must not turn Serve off.
+    # Exit 1: status shows Funnel or a backend other than 127.0.0.1:18788.
+    if status_failed_read(status):
+        print("tailscale serve status failed", file=sys.stderr)
+        sys.exit(2)
     reasons = status_blocked(status)
     if not backend.search(status):
         reasons.append("tailscale serve backend is not 127.0.0.1:18788")
     if reasons:
         for reason in reasons:
-            emit("ERR", reason)
+            print(reason, file=sys.stderr)
         sys.exit(1)
-    emit("OUT", "backend: 127.0.0.1:18788")
-    emit("OUT", "funnel: off")
+    print("backend: 127.0.0.1:18788")
+    print("funnel: off")
     sys.exit(0)
 
 errors = []
 if listener == "up":
-    emit("OUT", "listener: 127.0.0.1:18788 listening")
+    print("listener: 127.0.0.1:18788 listening")
 elif mode == "apply":
     errors.append("127.0.0.1:18788 is not listening")
 else:
-    emit("OUT", "listener: 127.0.0.1:18788 not listening (not required for dry-run)")
+    print("listener: 127.0.0.1:18788 not listening (not required for dry-run)")
 
 if flag_set(env_text):
-    emit("OUT", "core_env: JASMINE_TAILNET_CLIENTS set")
+    print("core_env: JASMINE_TAILNET_CLIENTS set")
 else:
     errors.append("hub Core environment does not have JASMINE_TAILNET_CLIENTS set")
 
@@ -210,7 +209,7 @@ blocked = status_blocked(status)
 if blocked:
     errors.extend(blocked)
 else:
-    emit("OUT", "serve_status: no Funnel and no forbidden backend")
+    print("serve_status: no Funnel and no forbidden backend")
 
 if not db_path:
     errors.append("hub database is required (--db) to read tailnet_clients")
@@ -242,12 +241,12 @@ else:
                 errors.append("no active Linux client in tailnet_clients")
             else:
                 shown = ", ".join(f"{name} ({host_id})" for host_id, name in linux)
-                emit("OUT", f"linux_client: {shown}")
-                emit("OUT", "windows: not enrolled")
+                print(f"linux_client: {shown}")
+                print("windows: not enrolled")
 
 if errors:
     for reason in errors:
-        emit("ERR", reason)
+        print(reason, file=sys.stderr)
     sys.exit(1)
 sys.exit(0)
 PY
@@ -264,18 +263,7 @@ write_serve_status
 core_env_text >"$TMP/env"
 STATUS_RC="$(cat "$TMP/status_rc")"
 
-set +e
-REPORT="$(classify pre "$LISTENER" "$TMP/status" "$TMP/env" "$STATUS_RC")"
-PRE_RC=$?
-set -e
-while IFS= read -r line; do
-  [[ -z "$line" ]] && continue
-  case "$line" in
-    ERR\ *) printf '%s\n' "${line#ERR }" >&2 ;;
-    OUT\ *) printf '%s\n' "${line#OUT }" ;;
-    *) printf '%s\n' "$line" >&2 ;;
-  esac
-done <<<"$REPORT"
+classify pre "$LISTENER" "$TMP/status" "$TMP/env" "$STATUS_RC" && PRE_RC=0 || PRE_RC=$?
 if [[ "$PRE_RC" -ne 0 ]]; then
   exit 1
 fi
@@ -288,28 +276,19 @@ if [[ "$MODE" == "dry-run" ]]; then
 fi
 
 if ! tailscale serve --bg --https=443 http://127.0.0.1:18788; then
-  tailscale serve off || true
-  echo "tailscale serve failed; ran tailscale serve off" >&2
+  echo "tailscale serve failed" >&2
   exit 1
 fi
 write_serve_status
 STATUS_RC="$(cat "$TMP/status_rc")"
-set +e
-POST="$(classify post up "$TMP/status" "$TMP/env" "$STATUS_RC")"
-POST_RC=$?
-set -e
-while IFS= read -r line; do
-  [[ -z "$line" ]] && continue
-  case "$line" in
-    ERR\ *) printf '%s\n' "${line#ERR }" >&2 ;;
-    OUT\ *) printf '%s\n' "${line#OUT }" ;;
-    *) printf '%s\n' "$line" >&2 ;;
-  esac
-done <<<"$POST"
-if [[ "$POST_RC" -ne 0 ]]; then
+classify post up "$TMP/status" "$TMP/env" "$STATUS_RC" && POST_RC=0 || POST_RC=$?
+if [[ "$POST_RC" -eq 1 ]]; then
   tailscale serve off || true
   echo "backend was not 127.0.0.1:18788 or Funnel appeared; ran tailscale serve off" >&2
   exit 1
+fi
+if [[ "$POST_RC" -ne 0 ]]; then
+  exit "$POST_RC"
 fi
 printf 'applied: tailscale serve --bg --https=443 http://127.0.0.1:18788\n'
 exit 0
