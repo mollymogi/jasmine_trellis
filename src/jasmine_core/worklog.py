@@ -117,8 +117,11 @@ def related(root: str, family: str) -> bool:
 
     Its own family, or a folder up to NEARBY_LEVELS above or below it. The home
     directory and its parents never count as an ancestor, so a session started
-    in `~` or `/` is never everyone's previous work.
+    in `~` or `/` is never everyone's previous work. Drive paths are exact
+    roots, not POSIX relatives.
     """
+    if _DRIVE_ROOT.match(root) or _DRIVE_ROOT.match(family):
+        return False
     other = family_root(root)
     if other == family:
         return True
@@ -349,7 +352,8 @@ class WorklogStore:
             if session_id is None:
                 raise errors.NotFound("session", native)
             return self._write(session_id, project_id, host_id, reason, root, state,
-                               actor_id=actor_id, actor_kind=actor_kind)
+                               actor_id=actor_id, actor_kind=actor_kind,
+                               read_family=not _clients_enabled())
 
     def recover(self, body: dict[str, Any], *, actor_id: str, actor_kind: str,
                 now: datetime | None = None,
@@ -377,7 +381,7 @@ class WorklogStore:
             if not clients:
                 candidates = self._candidates(family_root(root), host_id, now, limit=None)
             elif alias is not None:
-                candidates = self._candidates(None, host_id, now, limit=None, only_project=alias)
+                candidates = self._candidates(None, host_id, now, limit=None, only_projects={alias})
             else:
                 candidates = self._candidates(None, host_id, now, limit=None, exact_root=root)
             # Covered, active or excluded sessions must not hide older eligible
@@ -453,11 +457,6 @@ class WorklogStore:
             (host_id, _root_key(root))).fetchone()
         return None if row is None else row["project_id"]
 
-    def _confirmed_ids(self, host_id: str) -> set[str]:
-        rows = self.conn.execute(
-            "SELECT project_id FROM workspace_aliases WHERE host_id=? AND confirmed=1", (host_id,))
-        return {row["project_id"] for row in rows}
-
     def _family_projects(self, family: str | None, may_read: Callable[[str], bool] | None = None) -> dict[str, str]:
         """Projects whose workspace is in `family`; every workspace when `family` is None."""
         found = {}
@@ -491,19 +490,16 @@ class WorklogStore:
 
     def _candidates(self, family: str | None, host_id: str, now: datetime, *, limit: int | None,
                     may_read: Callable[[str], bool] | None = None,
-                    agent: str | None = None, only_project: str | None = None,
-                    only_projects: set[str] | None = None, exact_root: str | None = None,
-                    across_hosts: bool = False) -> list[dict[str, Any]]:
+                    agent: str | None = None, only_projects: set[str] | None = None,
+                    exact_root: str | None = None, across_hosts: bool = False,
+                    request_root: str | None = None) -> list[dict[str, Any]]:
         """Sessions with user text in the window, newest activity first.
 
         `family` None means every workspace on the host; `agent` keeps only the
-        sessions whose events came from that agent's source. `only_project`
-        skips nearby directories. `across_hosts` drops the host filter for that
-        one project.
+        sessions whose events came from that agent's source. `only_projects`
+        skips nearby directories. `across_hosts` drops the host filter.
         """
-        if only_project is not None:
-            projects = self._projects_by_id([only_project], may_read)
-        elif only_projects is not None:
+        if only_projects is not None:
             projects = self._projects_by_id(only_projects, may_read)
         elif exact_root is not None:
             projects = self._projects_by_root(exact_root, may_read)
@@ -520,9 +516,18 @@ class WorklogStore:
             agent_params = (AGENT_SOURCE_PREFIX[agent] + "%",)
         host_clause = "" if across_hosts else " AND s.host_id=?"
         host_params = () if across_hosts else (host_id,)
+        # The display name and the other machine's alias root are only meaningful
+        # once this request crosses hosts. Same-host rows keep the project path.
+        extra = ""
+        if across_hosts:
+            extra = (
+                ", (SELECT display_name FROM tailnet_clients c WHERE c.host_id=s.host_id) AS display_name"
+                ", (SELECT a.root FROM workspace_aliases a"
+                " WHERE a.host_id=s.host_id AND a.project_id=s.project_id AND a.confirmed=1"
+                " ORDER BY a.root LIMIT 1) AS alias_root")
         rows = self.conn.execute(
-            f"SELECT s.session_id, s.project_id, MAX(e.seq) AS last_seq, MAX(e.occurred_at) AS last_at,"
-            f" (SELECT display_name FROM tailnet_clients c WHERE c.host_id=s.host_id) AS display_name"
+            f"SELECT s.session_id, s.project_id, s.host_id, MAX(e.seq) AS last_seq,"
+            f" MAX(e.occurred_at) AS last_at{extra}"
             f" FROM sessions s JOIN events e ON e.session_id=s.session_id"
             f" AND e.event_type IN ('user.prompt','assistant.message')"
             f" WHERE s.project_id IN ({marks}){host_clause}{agent_clause}"
@@ -531,10 +536,14 @@ class WorklogStore:
             (*projects, *host_params, *agent_params, cutoff, limit if limit is not None else -1)).fetchall()
         found = []
         for row in rows:
-            item = {**dict(row), "root": projects[row["project_id"]]}
-            if not across_hosts:
-                item.pop("display_name", None)
-            found.append(item)
+            if across_hosts:
+                if row["host_id"] == host_id and request_root:
+                    shown = request_root
+                else:
+                    shown = row["alias_root"]
+            else:
+                shown = projects[row["project_id"]]
+            found.append({**dict(row), "root": shown})
         return found
 
     def recent(self, body: dict[str, Any], *, may_read: Callable[[str], bool],
@@ -563,11 +572,17 @@ class WorklogStore:
         if alias is not None:
             family = root
             candidates = self._candidates(None, host_id, now, limit=8, may_read=may_read, agent=agent,
-                                          only_project=alias, across_hosts=True)
+                                          only_projects={alias}, across_hosts=True, request_root=root)
         elif clients and scope == "global":
+            from .workspace_alias import confirmed_project_ids
+
             family = None
             candidates = self._candidates(None, host_id, now, limit=8, may_read=may_read, agent=agent,
-                                          only_projects=self._confirmed_ids(host_id))
+                                          only_projects=confirmed_project_ids(self.conn, host_id))
+        elif scope != "global" and _DRIVE_ROOT.match(root):
+            family = root
+            candidates = self._candidates(None, host_id, now, limit=8, may_read=may_read, agent=agent,
+                                          exact_root=root)
         else:
             family = None if scope == "global" else family_root(root)
             candidates = self._candidates(family, host_id, now, limit=8, may_read=may_read, agent=agent)
@@ -586,7 +601,9 @@ class WorklogStore:
                     record["workspace_state"] = json.loads(checkpoint["record_json"]).get("workspace_state")
             if exclude and record.get("native_session_id") == exclude:
                 continue
-            record["workspace_root"] = candidate["root"]
+            record["host_id"] = candidate["host_id"]
+            if candidate.get("root"):
+                record["workspace_root"] = candidate["root"]
             if alias is not None and candidate.get("display_name"):
                 record["display_name"] = candidate["display_name"]
             shown.append(record)
@@ -594,6 +611,9 @@ class WorklogStore:
                 break
         if not shown:
             return {"status": "empty", "text": None, "sessions": []}
+        # This request's git state is not a diff against another machine.
+        if shown[0].get("host_id") != host_id:
+            current = None
         text = render(shown, family=None if scope == "global" else family, now=now, current_state=current,
                       agent=agent, fold_family=alias is None)
         return {"status": "ok", "text": text, "non_authoritative": True,
@@ -677,7 +697,7 @@ def _different_root(record: dict[str, Any], family: str, *, fold_family: bool) -
         return False
     if fold_family and other.startswith("/") and not other.startswith("//"):
         return family_root(other) != family
-    return other != family
+    return _root_key(other) != _root_key(family)
 
 
 def render(records: list[dict[str, Any]], *, family: str | None, now: datetime,

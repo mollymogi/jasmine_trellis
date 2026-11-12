@@ -651,12 +651,15 @@ class CrossHostResume(unittest.TestCase):
         self.assertIn("mini-screen", block["text"])
         self.assertNotIn("client-host-row", block["text"])
         self.assertNotIn("hub-host-row", block["text"])
+        self.assertNotIn(self.base, block["text"])
+        self.assertNotIn("上一次的会话在", block["text"])
         self.assertEqual(set(block["sessions"][0]), {"session_id", "agent", "checkpoint_id"})
         # The hub opening its own confirmed root uses the same project, not nearby folders.
         with patch.object(worklog, "related", side_effect=AssertionError("nearby")):
             here = self.recent(self.hub, self.base)
         self.assertNotIn("nearby-child-prompt", here["text"])
         self.assertIn("sibling-host-prompt", here["text"])
+        self.assertIn(f"上一次的会话在 {self.client_root}", here["text"])
 
     def test_unconfirmed_hub_directory_keeps_nearby_folders(self):
         bank = self.project(self.hub, self.base, "bank")
@@ -738,6 +741,83 @@ class CrossHostResume(unittest.TestCase):
             {"host_id": self.hub, "workspace_root": self.base},
             actor_id=self.actor, actor_kind="human")
         self.assertEqual(folded["count"], 2, folded)
+
+    def test_another_hosts_checkpoint_is_not_diffed_against_this_workspace(self):
+        bank = self.project(self.hub, self.base, "bank")
+        self.alias(self.hub, self.base, bank, display_name="mini-screen")
+        self.alias(self.client, self.client_root, bank, display_name="linux-desk")
+        self.prompt(self.client, bank, "client-prompt", minutes_ago=10, native="client")
+        self.prompt(self.hub, bank, "hub-prompt", minutes_ago=40, native="hub")
+        then = {"git": True, "branch": "main", "head": "a" * 40, "dirty": ["a.py"],
+                "dirty_count": 1, "complete": True}
+        now = {**then, "head": "b" * 40, "dirty": ["b.md"], "dirty_count": 1}
+        self.flag(True)
+        recorded = self.store.record({
+            "host_id": self.client, "project_id": bank, "native_session_id": "client",
+            "reason": "SESSION_END", "workspace_root": self.client_root, "workspace_state": then,
+        }, actor_id=self.actor, actor_kind="human")
+        self.assertEqual(recorded["session_checkpoint"]["family_root"], self.client_root)
+        opened = self.recent(self.hub, self.base, workspace_state=now)
+        self.assertIn("linux-desk", opened["text"])
+        self.assertIn(f"上一次的会话在 {self.client_root}", opened["text"])
+        self.assertNotIn("自那以后", opened["text"])
+        same = self.recent(self.client, self.client_root, workspace_state=now)
+        self.assertIn("自那以后工作区的变化", same["text"])
+        self.assertIn("HEAD aaaaaaa", same["text"])
+        self.assertNotIn(self.base, same["text"])
+
+    def test_a_host_without_an_alias_omits_the_project_directory(self):
+        bank = self.project(self.hub, self.base, "bank")
+        stranger = ids.new_id("hst")
+        with db.transaction(self.conn):
+            registry.Registry(self.conn).upsert_host(stranger, display_name="stranger-host-row")
+            self.conn.execute(
+                "INSERT INTO tailnet_clients (host_id, display_name, status, created_at, revoked_at)"
+                " VALUES (?, 'stranger-desk', 'active', ?, NULL)",
+                (stranger, clock.now_rfc3339()))
+        self.alias(self.hub, self.base, bank, display_name="mini-screen")
+        self.prompt(stranger, bank, "stranger-prompt", minutes_ago=5, native="stranger")
+        self.prompt(self.hub, bank, "hub-prompt", minutes_ago=20, native="hub")
+        self.flag(True)
+        text = self.recent(self.hub, self.base)["text"]
+        self.assertIn("stranger-desk", text)
+        self.assertIn("stranger-prompt", text)
+        self.assertNotIn("上一次的会话在", text)
+        self.assertNotIn("stranger-host-row", text)
+
+    def test_record_does_not_read_git_while_clients_are_on(self):
+        bank = self.project(self.hub, self.base, "bank")
+        self.prompt(self.hub, bank, "hub-prompt", minutes_ago=15, native="hub")
+        body = {"host_id": self.hub, "project_id": bank, "native_session_id": "hub",
+                "reason": "SESSION_END", "workspace_root": "/home/liu/app"}
+        self.flag(True)
+        with patch.object(worklog, "family_root", side_effect=AssertionError("read git")):
+            recorded = self.store.record(body, actor_id=self.actor, actor_kind="human")
+        self.assertEqual(recorded["session_checkpoint"]["family_root"], "/home/liu/app")
+        self.flag(False)
+        self.prompt(self.hub, bank, "again", minutes_ago=14, native="hub-2")
+        with patch.object(worklog, "family_root", return_value="/resolved/repo") as folded:
+            again = self.store.record({**body, "native_session_id": "hub-2"},
+                                      actor_id=self.actor, actor_kind="human")
+        folded.assert_called()
+        self.assertEqual(again["session_checkpoint"]["family_root"], "/resolved/repo")
+
+    def test_drive_roots_match_exactly(self):
+        drive = "C:/Users/liu/src"
+        bank = self.project(self.hub, drive, "drive")
+        child = self.project(self.hub, drive + "/child", "child")
+        posix = self.project(self.hub, self.base, "posix")
+        self.prompt(self.hub, bank, "drive-prompt", minutes_ago=10, native="drive")
+        self.prompt(self.hub, child, "drive-child-prompt", minutes_ago=5, native="child")
+        self.prompt(self.hub, posix, "posix-prompt", minutes_ago=1, native="posix")
+        for enabled in (False, True):
+            self.flag(enabled)
+            with patch.object(worklog, "related", side_effect=AssertionError("related")):
+                block = self.recent(self.hub, drive + "/")
+            self.assertIn("drive-prompt", block["text"], enabled)
+            self.assertNotIn("drive-child-prompt", block["text"])
+            self.assertNotIn("posix-prompt", block["text"])
+            self.assertNotIn("上一次的会话在", block["text"])
 
 
 def load_tests(loader, tests, pattern):
