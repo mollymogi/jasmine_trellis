@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import stat
 import tempfile
 import unittest
@@ -64,7 +65,6 @@ class BoundHostTests(unittest.TestCase):
         self.addCleanup(self._restore_flag)
         write_secret(self.data_dir, SECRET)
         self.app = Application(self.db_path)
-        self.assertEqual(self.app.data_dir, self.data_dir.resolve())
         self.assertEqual(data_dir_for_db(self.db_path), self.data_dir.resolve())
         self.assertEqual(self.app.gateway_secret, SECRET)
 
@@ -196,6 +196,9 @@ class BoundHostTests(unittest.TestCase):
             "/v1/session-checkpoints/recover": {
                 "host_id": self.other, "workspace_root": "/tmp/jasmine-bound-host",
             },
+            "/v1/tasks": {"title": "nope", "host_id": self.other},
+            "/v1/checkpoints": {"host_id": self.other},
+            f"/v1/tasks/{ids.new_id('tsk')}/resume": {"host_id": self.other},
         }
         for path, body in bodies.items():
             status, payload = self.call(
@@ -273,6 +276,44 @@ class GatewaySecretStartupTests(unittest.TestCase):
         text = "\n".join(logs)
         self.assertIn("refusing to start", text)
         self.assertNotIn(SECRET, text)
+
+    def test_non_ascii_header_mismatches_and_latin1_secret_matches(self) -> None:
+        secret = "caf\u00e9-gate"
+        write_secret(self.data_dir, secret)
+        conn = db.connect(self.db_path)
+        migrate(conn)
+        conn.close()
+        app = Application(self.db_path)
+        loaded = app.gateway_secret
+        self.assertTrue(
+            loaded is not None
+            and secrets.compare_digest(loaded.encode("latin-1"), secret.encode("latin-1"))
+        )
+
+        def health(gateway: str) -> tuple[int, dict]:
+            response = app.handle(Request(
+                method="GET", path="/v1/health",
+                headers={"x-jasmine-gateway": gateway},
+            ))
+            body = response.body if isinstance(response.body, dict) else {}
+            return response.status, body
+
+        status, body = health(secret)
+        self.assertEqual(status, 200)
+        self.assertEqual(body.get("status"), "ok")
+        status, body = health("caf\u00e9-nope")
+        self.assertEqual(status, 403)
+        self.assertEqual(body["error"]["code"], "gateway_secret_mismatch")
+        status, body = health("\U0001f642")
+        self.assertEqual(status, 403)
+        self.assertEqual(body["error"]["code"], "gateway_secret_mismatch")
+        self.assertNotEqual(status, 500)
+        audited = db.connect(self.db_path)
+        blob = " ".join(row[0] or "" for row in audited.execute("SELECT detail_json FROM audit_log"))
+        audited.close()
+        self.assertFalse(secret in blob)
+        self.assertFalse("caf\u00e9-nope" in blob)
+        self.assertFalse("\U0001f642" in blob)
 
 
 if __name__ == "__main__":

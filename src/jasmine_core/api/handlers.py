@@ -92,7 +92,7 @@ def _collection_routes() -> list[Route]:
     for kind, plural in PLURAL.items():
         routes.append(Route("POST", re.compile(rf"^/v1/{plural}$"),
                             _make_create(kind), "objects:write",
-                            checks_bound_host=kind in {"project", "session"}))
+                            checks_bound_host=kind in {"project", "task", "session"}))
         routes.append(Route("GET", re.compile(rf"^/v1/{plural}$"),
                             _make_list(kind), "objects:read"))
         routes.append(Route("GET", re.compile(rf"^/v1/{plural}/([^/]+)$"),
@@ -117,10 +117,12 @@ def _base_routes() -> list[Route]:
         Route("GET", re.compile(r"^/v1/context/([^/]+)$"), get_context, "context:read"),
         Route("GET", re.compile(r"^/v1/context/([^/]+)/delivery$"), get_context_delivery, "context:read"),
         Route("POST", re.compile(r"^/v1/context/([^/]+)/check-current$"), check_context_current, "context:build"),
-        Route("POST", re.compile(r"^/v1/checkpoints$"), create_checkpoint, "checkpoint:write"),
+        Route("POST", re.compile(r"^/v1/checkpoints$"), create_checkpoint, "checkpoint:write",
+              checks_bound_host=True),
         Route("GET", re.compile(r"^/v1/tasks/([^/]+)/checkpoints/latest$"), latest_checkpoint, "checkpoint:read"),
         Route("GET", re.compile(r"^/v1/checkpoints/([^/]+)$"), get_checkpoint, "checkpoint:read"),
-        Route("POST", re.compile(r"^/v1/tasks/([^/]+)/resume$"), build_resume, "resume:build"),
+        Route("POST", re.compile(r"^/v1/tasks/([^/]+)/resume$"), build_resume, "resume:build",
+              checks_bound_host=True),
         # ADR 0039: session Checkpoints are written by capture's system key, and
         # the resume block is read with the hint's `memory:recall`-only key.
         Route("POST", re.compile(r"^/v1/session-checkpoints$"), create_session_checkpoint, "events:write",
@@ -191,6 +193,20 @@ ROUTES: tuple[Route, ...]
 so it can only be built once they exist."""
 
 
+def _gateway_header_matches(header: str, secret: str) -> bool:
+    """Compare as latin-1 bytes. A header that is not latin-1 is a mismatch, not a 500.
+
+    ``secrets.compare_digest`` on ``str`` raises ``TypeError`` for any code point
+    above 127. The secret file is latin-1, and HTTP header values are iso-8859-1.
+    """
+    try:
+        presented = header.encode("latin-1")
+        expected = secret.encode("latin-1")
+    except UnicodeEncodeError:
+        return False
+    return secrets.compare_digest(presented, expected)
+
+
 def tailnet_clients_enabled() -> bool:
     """True only when the hub process was started with the clients flag set."""
     value = os.environ.get("JASMINE_TAILNET_CLIENTS")
@@ -209,7 +225,7 @@ def admit_gateway(core: Core, request: Request) -> None:
         core.tailnet_request = False
         return
     secret = core.gateway_secret
-    if secret is None or not secrets.compare_digest(header, secret):
+    if secret is None or not _gateway_header_matches(header, secret):
         core.tailnet_request = False
         raise errors.GatewaySecretMismatch("gateway secret does not match")
     core.tailnet_request = True

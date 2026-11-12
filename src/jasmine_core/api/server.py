@@ -211,12 +211,10 @@ def load_optional_gateway_secret(data_dir: Path) -> str | None:
 class Application:
     """Owns the database path and hands each request its own connection."""
 
-    def __init__(self, db_path: str | Path, *, log: Log | None = None,
-                 data_dir: str | Path | None = None) -> None:
+    def __init__(self, db_path: str | Path, *, log: Log | None = None) -> None:
         self.db_path = Path(db_path)
         self.log = log or (lambda message: print(f"jasmine-core: {message}", file=sys.stderr))
-        self.data_dir = Path(data_dir) if data_dir is not None else data_dir_for_db(self.db_path)
-        self.gateway_secret = load_optional_gateway_secret(self.data_dir)
+        self.gateway_secret = load_optional_gateway_secret(data_dir_for_db(self.db_path))
         self._local = threading.local()
 
     def _connection(self):
