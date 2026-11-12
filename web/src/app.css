@@ -1197,6 +1197,10 @@ main {
 
 .usage-detail > * { min-width: 0; max-width: 100%; }
 
+.usage-detail__more { display: flex; align-items: center; gap: 10px; margin: 4px 0 0; }
+
+.usage-detail__count { font-size: 12px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+
 .usage-detail__head { margin: 0; font-size: 12px; color: var(--muted-foreground); overflow-wrap: anywhere; }
 
 .usage-detail__meta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; font-size: 12px; }

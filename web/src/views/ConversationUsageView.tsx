@@ -73,6 +73,11 @@ const PAGE_SIZES = [25, 50, 100] as const
 const DEFAULT_PAGE_SIZE = 25
 const SESSION_COLUMNS = 9
 
+/** Turns revealed at a time inside one expanded session. A long Codex or Claude session
+ *  can hold thousands of turns; rendering them all turns a drill-down into a page the
+ *  reader has to scroll through, so the list grows on request. */
+const TURNS_PER_PAGE = 40
+
 /** 1.2k / 3.4M; exact values stay available in the cell title. */
 function formatTokens(value: number): string {
   if (!Number.isFinite(value) || value < 0) return '—'
@@ -866,6 +871,8 @@ function SessionTurns({
 function SessionTurnBody({ detail }: { detail: UsageSessionDetail }): JSX.Element {
   const turns = [...detail.turns].sort((a, b) => a.index - b.index)
   const max = Math.max(1, ...turns.map((turn) => turn.total_tokens))
+  const [shown, setShown] = useState(TURNS_PER_PAGE)
+  const visible = turns.slice(0, shown)
   return (
     <>
       <dl className="usage-detail__meta">
@@ -945,12 +952,22 @@ function SessionTurnBody({ detail }: { detail: UsageSessionDetail }): JSX.Elemen
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {turns.map((turn) => (
+                {visible.map((turn) => (
                   <TurnRow key={turn.index} turn={turn} />
                 ))}
               </TableBody>
             </Table>
           </TableScroll>
+          {visible.length < turns.length ? (
+            <p className="usage-detail__more">
+              <Button size="sm" variant="outline" onClick={() => setShown((n) => n + TURNS_PER_PAGE)}>
+                再显示 {Math.min(TURNS_PER_PAGE, turns.length - visible.length)} 轮
+              </Button>
+              <span className="usage-detail__count">
+                已显示 {visible.length} / {turns.length} 轮
+              </span>
+            </p>
+          ) : null}
         </>
       )}
     </>
