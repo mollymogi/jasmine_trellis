@@ -9,6 +9,7 @@ import plistlib
 import socket
 import stat
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -21,11 +22,14 @@ from jasmine_core.tailnet_gateway import (
     GATEWAY_HOST,
     GATEWAY_PORT,
     MAX_BODY_BYTES,
+    GatewayStartupError,
     _GatewayServer,
     _Handler,
     _require_private_secret,
     load_gateway_secret,
+    main as gateway_main,
     open_gateway,
+    parse_upstream,
     secret_path,
 )
 
@@ -158,6 +162,51 @@ class GatewayTest(unittest.TestCase):
         with self.assertRaises(Exception) as caught:
             _GatewayServer(("0.0.0.0", 0), _Handler)
         self.assertIn("refusing to bind", str(caught.exception))
+
+    def test_existing_access_log_directory_mode_is_not_changed(self) -> None:
+        shared = self.tmp / "shared"
+        shared.mkdir()
+        shared.chmod(0o755)
+        server = open_gateway(
+            self.data, f"http://{GATEWAY_HOST}:9", port=0, access_log=shared / "gw.log",
+        )
+        try:
+            self.assertEqual(stat.S_IMODE(shared.stat().st_mode), 0o755)
+            self.assertEqual(stat.S_IMODE((shared / "gw.log").stat().st_mode), 0o600)
+        finally:
+            descriptor = getattr(server, "access_log_fd", None)
+            if descriptor is not None:
+                os.close(descriptor)
+                server.access_log_fd = None  # type: ignore[attr-defined]
+            server.server_close()
+
+    def test_created_access_log_directory_is_private(self) -> None:
+        nested = self.tmp / "nested" / "logs"
+        server = open_gateway(
+            self.data, f"http://{GATEWAY_HOST}:9", port=0, access_log=nested / "gw.log",
+        )
+        try:
+            self.assertEqual(stat.S_IMODE(nested.stat().st_mode), 0o700)
+            self.assertEqual(stat.S_IMODE((nested / "gw.log").stat().st_mode), 0o600)
+        finally:
+            descriptor = getattr(server, "access_log_fd", None)
+            if descriptor is not None:
+                os.close(descriptor)
+                server.access_log_fd = None  # type: ignore[attr-defined]
+            server.server_close()
+
+    def test_malformed_upstream_is_a_startup_refusal(self) -> None:
+        for upstream in ("http://127.0.0.1:abc", "http://[::1", "http://127.0.0.1:70000"):
+            with self.assertRaises(GatewayStartupError) as caught:
+                parse_upstream(upstream)
+            self.assertIn("upstream must be", str(caught.exception))
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as exited:
+                gateway_main(["--data-dir", str(self.data), "--upstream", "http://127.0.0.1:abc"])
+        self.assertEqual(exited.exception.code, 3)
+        self.assertIn("refusing to start", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
 
     def test_secret_must_exist_be_owned_by_this_user_and_be_mode_0600(self) -> None:
         missing = self.tmp / "missing-data"
@@ -433,6 +482,38 @@ class GatewayTest(unittest.TestCase):
         self.assertEqual(len(self.stub.seen), before)  # type: ignore[attr-defined]
         self.assertEqual(self.log_lines()[-1]["reason"], "bad_request")
         self.assertEqual(self.log_lines()[-1]["status"], "400")
+
+    def test_unparseable_target_is_400_and_still_logged(self) -> None:
+        # http.server collapses a leading "//" (gh-87389), so an absolute-form
+        # target is the shape that still hands urlsplit an unbalanced bracket.
+        for raw in ("http://[::1", "http://]x"):
+            before = len(self.stub.seen)  # type: ignore[attr-defined]
+            request = (
+                f"GET {raw} HTTP/1.1\r\n"
+                f"Host: {GATEWAY_HOST}\r\n"
+                "Connection: close\r\n"
+                "\r\n"
+            ).encode("ascii")
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                with socket.create_connection((GATEWAY_HOST, self.port), timeout=2) as connection:
+                    connection.sendall(request)
+                    connection.settimeout(2)
+                    response = bytearray()
+                    while chunk := connection.recv(4096):
+                        response.extend(chunk)
+                # handle_error() runs after the socket closes; give it a moment
+                # so the no-traceback assertion inspects this request's stderr.
+                time.sleep(0.1)
+            self.assertTrue(response.startswith(b"HTTP/1.1 400 "), raw)
+            self.assertIn(b"bad_target", response)
+            self.assertEqual(len(self.stub.seen), before)  # type: ignore[attr-defined]
+            line = self.log_lines()[-1]
+            self.assertEqual(line["status"], "400")
+            self.assertEqual(line["reason"], "bad_target")
+            self.assertEqual(line["path"], "unlisted")
+            self.assertNotIn("Invalid IPv6 URL", stderr.getvalue())
+            self.assertNotIn("Traceback", stderr.getvalue())
 
     def test_deeply_nested_json_still_writes_an_access_line(self) -> None:
         body = (b"[" * 10000) + (b"]" * 10000)
