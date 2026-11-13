@@ -916,7 +916,7 @@ def recover_session_checkpoints(request, core, principal, match):
     result = core.worklog.recover(body, actor_id=principal.actor_id,
                                   actor_kind=core.actor_kind(principal.actor_id),
                                   projects=projects,
-                                  bound_host_id=principal.bound_host_id)
+                                  bound_host_id=principal.bound_host_id if core.tailnet_request else None)
     return Response(200, result)
 
 

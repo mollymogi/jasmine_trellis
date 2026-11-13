@@ -2,11 +2,13 @@
 import json
 import os
 import subprocess
+import threading
 import time
 import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
@@ -243,6 +245,51 @@ class TailnetBind(unittest.TestCase):
 
 
 class TailnetClock(unittest.TestCase):
+    def test_absolute_deadline_covers_headers_and_success_or_error_bodies(self) -> None:
+        for status in (200, 403):
+            for trickle in (False, True):
+                with self.subTest(status=status, trickle=trickle):
+                    stop = threading.Event()
+
+                    class SlowHandler(BaseHTTPRequestHandler):
+                        def do_GET(self):
+                            body = b'{"error":{"code":"slow"}}'
+                            if not trickle and stop.wait(0.65):
+                                return
+                            self.send_response(status)
+                            self.send_header("Content-Length", str(len(body)))
+                            self.end_headers()
+                            try:
+                                if trickle:
+                                    for byte in body:
+                                        if stop.wait(0.2):
+                                            return
+                                        self.wfile.write(bytes([byte]))
+                                        self.wfile.flush()
+                                elif not stop.wait(0.65):
+                                    self.wfile.write(body)
+                            except OSError:
+                                pass  # The timed-out client may have closed already.
+
+                        def log_message(self, *args):
+                            pass
+
+                    server = ThreadingHTTPServer(("127.0.0.1", 0), SlowHandler)
+                    worker = threading.Thread(target=server.serve_forever, daemon=True)
+                    worker.start()
+                    started = time.monotonic()
+                    token = arm_hook_deadline(started + 1.0)
+                    try:
+                        with self.assertRaises(TimeoutError):
+                            CoreClient(f"http://127.0.0.1:{server.server_port}").get("/slow")
+                        self.assertLess(time.monotonic() - started, 1.25)
+                    finally:
+                        reset_hook_deadline(token)
+                        stop.set()
+                        server.shutdown()
+                        server.server_close()
+                        worker.join(timeout=2)
+
     def test_a_dead_route_waits_once_for_the_remaining_budget(self) -> None:
         calls = []
 

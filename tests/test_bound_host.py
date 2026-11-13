@@ -98,6 +98,17 @@ class BoundHostTests(unittest.TestCase):
     def event_count(self) -> int:
         return self.conn.execute("SELECT COUNT(*) AS n FROM events").fetchone()["n"]
 
+    def test_loopback_recovery_does_not_enforce_the_key_pin(self) -> None:
+        for enabled in ("1", "0"):
+            with self.subTest(tailnet_clients=enabled):
+                os.environ["JASMINE_TAILNET_CLIENTS"] = enabled
+                status, body = self.call(
+                    "POST", "/v1/session-checkpoints/recover",
+                    {"host_id": self.other, "workspace_root": "/tmp/jasmine-bound-host"},
+                    token=self.pinned_key["token"])
+                self.assertEqual(status, 200, body)
+                self.assertEqual(body["count"], 0)
+
     def audit_text(self) -> str:
         rows = self.conn.execute("SELECT error_code, detail_json, path FROM audit_log").fetchall()
         return json.dumps([dict(row) for row in rows])
