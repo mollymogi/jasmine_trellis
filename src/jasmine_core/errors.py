@@ -263,7 +263,7 @@ class GatewayKeyNotPinned(CoreError):
 
 
 class HostMismatch(CoreError):
-    """A tailnet request named a host_id other than the key's bound host."""
+    """A tailnet request omitted host_id, or named one other than the key's bound host."""
 
     status = 403
     code = "host_mismatch"
