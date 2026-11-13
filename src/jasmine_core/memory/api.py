@@ -523,5 +523,5 @@ def routes(route_cls) -> tuple:
         route_cls("GET", re.compile(r"^/v1/memory/health$"), memory_health, "memory:read"),
         route_cls("POST", re.compile(r"^/v1/memory/reflect$"), reflect, "memory:reflect"),
         route_cls("POST", re.compile(r"^/v1/memory/hint$"), hint, "memory:recall",
-                  checks_bound_host=True),
+                  checks_bound_host=True, checks_alias="project"),
     )

@@ -23,6 +23,9 @@ EXPECTED_TABLES = {
     "context_packs", "context_request_keys",
     "checkpoints", "checkpoint_request_keys", "resume_results", "resume_request_keys",
     "session_checkpoints",
+    "tailnet_clients",
+    "workspace_remotes",
+    "workspace_aliases",
     "core_meta",
     "schema_migrations",
     "hosts",
@@ -95,7 +98,7 @@ class MigrationFromEmptyDatabase(DbTestCase):
          "m0008_resolutions", "m0009_continuity", "m0010_context",
          "m0011_memory", "m0012_web_confirmations", "m0013_host_hooks", "m0014_conversation_processing",
          "m0015_observed_memory", "m0016_not_recallable",
-         "m0017_session_checkpoints", "m0018_api_key_bound_host"])
+         "m0017_session_checkpoints", "m0018_api_key_bound_host", "m0019_workspace_aliases"])
         self.assertEqual(_tables(self.conn), EXPECTED_TABLES)
         self.assertEqual(current_version(self.conn), expected_version())
         self.assertEqual(current_version(self.conn), SCHEMA_VERSION)

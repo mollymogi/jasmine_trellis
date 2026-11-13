@@ -85,6 +85,9 @@ class Route:
     required_scopes: tuple[str, ...] = ()
     #: Tailnet requests on this route must match body host_id to the key pin.
     checks_bound_host: bool = False
+    #: Tailnet writes must name a confirmed alias: "project" reads project_id,
+    #: "root" reads workspace_root. Loopback requests skip this.
+    checks_alias: str | None = None
 
 
 def _collection_routes() -> list[Route]:
@@ -92,7 +95,8 @@ def _collection_routes() -> list[Route]:
     for kind, plural in PLURAL.items():
         routes.append(Route("POST", re.compile(rf"^/v1/{plural}$"),
                             _make_create(kind), "objects:write",
-                            checks_bound_host=kind in {"project", "task", "session"}))
+                            checks_bound_host=kind in {"project", "task", "session"},
+                            checks_alias="project" if kind == "session" else None))
         routes.append(Route("GET", re.compile(rf"^/v1/{plural}$"),
                             _make_list(kind), "objects:read"))
         routes.append(Route("GET", re.compile(rf"^/v1/{plural}/([^/]+)$"),
@@ -126,12 +130,12 @@ def _base_routes() -> list[Route]:
         # ADR 0039: session Checkpoints are written by capture's system key, and
         # the resume block is read with the hint's `memory:recall`-only key.
         Route("POST", re.compile(r"^/v1/session-checkpoints$"), create_session_checkpoint, "events:write",
-              checks_bound_host=True),
+              checks_bound_host=True, checks_alias="project"),
         Route("POST", re.compile(r"^/v1/session-checkpoints/recover$"), recover_session_checkpoints,
-              "events:write", checks_bound_host=True),
+              "events:write", checks_bound_host=True, checks_alias="root"),
         Route("GET", re.compile(r"^/v1/session-checkpoints$"), list_session_checkpoints, "events:read"),
         Route("POST", re.compile(r"^/v1/continuity/recent$"), recent_activity, "memory:recall",
-              checks_bound_host=True),
+              checks_bound_host=True, checks_alias="root"),
         Route("GET", re.compile(r"^/v1/resumes/([^/]+)$"), get_resume, "resume:read"),
         Route("GET", re.compile(r"^/v1/resolutions/preview$"), resolution_preview, "resolutions:read"),
         Route("POST", re.compile(r"^/v1/resolve/([^/]+)$"), resolve_interpretation, "resolutions:process"),
@@ -152,7 +156,8 @@ def _base_routes() -> list[Route]:
         Route("GET", re.compile(r"^/v1/auth/keys$"), list_keys, "admin"),
         Route("POST", re.compile(r"^/v1/auth/keys/([^/]+)/revoke$"), revoke_key, "admin"),
         Route("GET", re.compile(r"^/v1/audit$"), list_audit, "admin"),
-        Route("POST", re.compile(r"^/v1/events$"), create_event, "events:write", checks_bound_host=True),
+        Route("POST", re.compile(r"^/v1/events$"), create_event, "events:write",
+              checks_bound_host=True, checks_alias="project"),
         Route("GET", re.compile(r"^/v1/events$"), list_events, "events:read"),
         Route("GET", re.compile(r"^/v1/events/([^/]+)$"), get_event, "events:read"),
         Route("GET", re.compile(r"^/v1/rules$"), list_rules, "authority:read"),
@@ -173,6 +178,8 @@ def _base_routes() -> list[Route]:
         Route("POST", re.compile(r"^/v1/evidence/confirm$"), confirm_evidence, "evidence:confirm"),
         Route("GET", re.compile(r"^/v1/evidence/([^/]+)$"), get_evidence, "evidence:read"),
         Route("GET", re.compile(r"^/v1/tasks/([^/]+)/evidence$"), list_task_evidence, "evidence:read"),
+        Route("POST", re.compile(r"^/v1/workspaces/resolve$"), resolve_workspace, "objects:write",
+              checks_bound_host=True),
         Route("POST", re.compile(r"^/v1/workspaces/fingerprint$"), capture_fingerprint, "fingerprint:scan"),
         Route("POST", re.compile(r"^/v1/workspaces/compare$"), compare_fingerprints, "fingerprint:read"),
         Route("POST", re.compile(r"^/v1/tasks/([^/]+)/steps$"), create_step, "state:write"),
@@ -256,6 +263,28 @@ def admit_bound_host(core: Core, request: Request, principal: auth.Principal, ro
     bound = principal.bound_host_id or ""
     if not isinstance(presented, str) or presented != bound:
         raise errors.HostMismatch("host_id does not match the key")
+
+
+def admit_workspace_alias(core: Core, request: Request, principal: auth.Principal, route: Route) -> None:
+    """A tailnet write may only name a project this host has already confirmed.
+
+    ``may_read`` is not this check. An unset clients flag never reaches here:
+    ``admit_gateway`` already refused the request with ``tailnet_disabled``.
+    """
+    if not core.tailnet_request or not route.checks_alias:
+        return
+    from ..workspace_alias import project_confirmed, root_confirmed
+
+    body = request.json_body() if request.body else {}
+    host_id = principal.bound_host_id or ""
+    if route.checks_alias == "project":
+        project_id = body.get("project_id")
+        if not isinstance(project_id, str) or not project_confirmed(core.conn, host_id, project_id):
+            raise errors.ProjectNotAliased("project is not confirmed for this host")
+        return
+    root = body.get("workspace_root")
+    if not isinstance(root, str) or not root_confirmed(core.conn, host_id, root):
+        raise errors.ProjectNotAliased("workspace is not confirmed for this host")
 
 
 def resolve(method: str, path: str) -> tuple[Route, re.Match[str]]:
@@ -527,6 +556,20 @@ def list_task_evidence(request: Request, core: Core, principal: auth.Principal,
     _require_id(task_id, "tsk", "task_id")
     records = core.evidence.list_task(task_id)
     return Response(200, {"evidence": records, "count": len(records)})
+
+
+def resolve_workspace(request: Request, core: Core, principal: auth.Principal,
+                      match: re.Match[str]) -> Response:
+    """Map a canonical remote to a confirmed project. Never creates one."""
+    from ..workspace_alias import resolve_request
+
+    if request.query:
+        raise errors.InvalidRequest("resolve accepts no query")
+    outcome = resolve_request(core.conn, _state_body(
+        request, {"host_id", "root", "origin", "remote_kind"}))
+    if outcome.status == "alias_conflict":
+        raise errors.AliasConflict(outcome.matched_by)
+    return Response(200, outcome.as_dict())
 
 
 def capture_fingerprint(request: Request, core: Core, principal: auth.Principal,
@@ -863,8 +906,17 @@ def create_session_checkpoint(request, core, principal, match):
 def recover_session_checkpoints(request, core, principal, match):
     if request.query:
         raise errors.InvalidRequest("session checkpoint recovery accepts no query")
-    result = core.worklog.recover(request.json_body(), actor_id=principal.actor_id,
-                                  actor_kind=core.actor_kind(principal.actor_id))
+    body = request.json_body()
+    projects = None
+    if core.tailnet_request:
+        from ..workspace_alias import confirmed_alias
+        alias = confirmed_alias(core.conn, principal.bound_host_id or "",
+                                body.get("workspace_root"))
+        projects = {alias[0]: alias[1]} if alias is not None else {}
+    result = core.worklog.recover(body, actor_id=principal.actor_id,
+                                  actor_kind=core.actor_kind(principal.actor_id),
+                                  projects=projects,
+                                  bound_host_id=principal.bound_host_id)
     return Response(200, result)
 
 
@@ -890,10 +942,24 @@ def recent_activity(request, core, principal, match):
     """The resume block for a new session (ADR 0039 B). Read-only."""
     if request.query:
         raise errors.InvalidRequest("recent activity accepts no query")
+    body = request.json_body()
     access = memory_api.services(core).access
-    result = core.worklog.recent(
-        request.json_body(),
-        may_read=lambda project_id: access.may_read(project_id=project_id, actor_id=principal.actor_id))
+    projects = None
+    if core.tailnet_request:
+        from ..workspace_alias import confirmed_alias, confirmed_aliases
+        host_id = principal.bound_host_id or ""
+        if body.get("scope") == "global":
+            projects = confirmed_aliases(core.conn, host_id)
+        else:
+            alias = confirmed_alias(core.conn, host_id, body.get("workspace_root"))
+            projects = {alias[0]: alias[1]} if alias is not None else {}
+
+    def may_read(project_id: str) -> bool:
+        if not access.may_read(project_id=project_id, actor_id=principal.actor_id):
+            return False
+        return projects is None or project_id in projects
+
+    result = core.worklog.recent(body, may_read=may_read, projects=projects)
     return Response(200, result)
 
 
