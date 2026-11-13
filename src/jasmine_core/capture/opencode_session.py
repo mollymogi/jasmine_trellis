@@ -35,6 +35,7 @@ from ..hosthook.binding import load_device
 from . import memory_hint, worklog_client
 from .codex_session import RECENT_SECONDS, append_receipt, workspace_root
 from .grok_session import _publish, bind_workspace
+from .hook_budget import arm_tailnet, disarm
 
 SOURCE = "opencode-native-conversation-v1"
 AGENT = "opencode"
@@ -130,6 +131,15 @@ def session_origin(n: dict[str, Any], data_home: Path) -> dict[str, Any] | None:
 
 
 def capture_device(native: Any, device, data_home: Path) -> dict[str, Any]:
+    event = native.get("event") if isinstance(native, dict) else None
+    token = arm_tailnet(device.core_url, event)
+    try:
+        return _capture_device(native, device, data_home)
+    finally:
+        disarm(token)
+
+
+def _capture_device(native: Any, device, data_home: Path) -> dict[str, Any]:
     n = normalize(native)
     if n is None:
         return {"status": "ignored", "reason": "unsupported_or_empty"}
@@ -181,9 +191,11 @@ def main() -> int:
     os.umask(0o077)
     native: Any = {}
     context = None
+    budget = None
     try:
         native = json.load(sys.stdin)
         device = load_device(args.device_binding)
+        budget = arm_tailnet(device.core_url, native.get("event") if isinstance(native, dict) else None)
         receipt = capture_device(native, device, args.opencode_data or default_data_home())
         if receipt.get("status") == "accepted" and receipt.get("event_type"):
             try:
@@ -195,6 +207,8 @@ def main() -> int:
         receipt = {"status": "failed", "agent": AGENT, "error_type": type(exc).__name__,
                    "native_event": native.get("event") if isinstance(native, dict) else None}
         print("Jasmine OpenCode capture failed; inspect private receipts.", file=sys.stderr)
+    finally:
+        disarm(budget)
     receipt["checked_at"] = datetime.now(timezone.utc).isoformat()
     if context:
         receipt["context_chars"] = len(context)

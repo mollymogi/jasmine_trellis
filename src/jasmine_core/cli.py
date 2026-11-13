@@ -112,7 +112,8 @@ def cmd_bootstrap(args: argparse.Namespace) -> int:
             reg.upsert_actor(actor_id, kind=args.actor_kind, display_name=args.actor_name or actor_id,
                              home_host_id=host_id)
         issued = auth.Auth(conn).issue_key(actor_id=actor_id, label=args.label,
-                                           scopes=list(args.scopes))
+                                           scopes=list(args.scopes),
+                                           bound_host_id=args.bound_host_id or host_id)
     finally:
         conn.close()
     print(json.dumps({
@@ -120,11 +121,48 @@ def cmd_bootstrap(args: argparse.Namespace) -> int:
         "host_id": host_id,
         "actor_id": actor_id,
         "key_id": issued["key_id"],
+        "bound_host_id": issued["bound_host_id"],
         "token": issued["token"],
         "scopes": issued["scopes"],
         "warning": issued["warning"],
-        "next": "export JASMINE_CORE_TOKEN=<token> JASMINE_CORE_HOST_ID=" + host_id,
+        "next": "export JASMINE_CORE_TOKEN=<token> JASMINE_CORE_HOST_ID=" + issued["bound_host_id"],
     }, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_bind_key(args: argparse.Namespace) -> int:
+    """Pin an existing API key to a host, keeping its token.
+
+    `bootstrap` and `prepare-agent-capture.py` pin the keys they issue, but a
+    key created before the pin existed already lives in a client key file.
+    This pins it in place, by key id or by token file, instead of rotating
+    every capture client before the gateway can be enabled.
+    """
+    from . import auth
+
+    path = _resolve_db(args.db)
+    conn = db.connect(path)
+    try:
+        migrate(conn, log=_log)
+        issuer = auth.Auth(conn)
+        if args.token_file is not None:
+            key_file = Path(args.token_file).expanduser()
+            try:
+                token = key_file.read_text(encoding="utf-8").strip()
+            except OSError as exc:
+                raise errors.InvalidRequest(
+                    f"cannot read the token file: {exc.strerror}", field="token_file"
+                ) from exc
+            except UnicodeDecodeError as exc:
+                raise errors.InvalidRequest(
+                    "the token file is not valid UTF-8", field="token_file"
+                ) from exc
+            result = issuer.bind_token(token, args.host_id)
+        else:
+            result = issuer.bind_key(args.key_id, args.host_id)
+    finally:
+        conn.close()
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 
@@ -454,7 +492,23 @@ def build_parser() -> argparse.ArgumentParser:
     boot_parser.add_argument("--actor-kind", default="human", choices=list(AUTH_ACTOR_KINDS))
     boot_parser.add_argument("--label", default="capture")
     boot_parser.add_argument("--scopes", nargs="+", default=["events:write", "events:read"])
+    boot_parser.add_argument(
+        "--bound-host-id",
+        help="hst_ id this key is pinned to through the gateway (default: the bootstrap host)",
+    )
     boot_parser.set_defaults(func=cmd_bootstrap)
+
+    bind_parser = sub.add_parser(
+        "bind-key", help="pin an existing API key to a host so the gateway accepts it"
+    )
+    bind_parser.add_argument("--db")
+    bind_parser.add_argument("--host-id", required=True,
+                             help="the hst_ id whose requests this key may make")
+    key_source = bind_parser.add_mutually_exclusive_group(required=True)
+    key_source.add_argument("--key-id", help="the key_ id from the credentials metadata")
+    key_source.add_argument("--token-file",
+                            help="a client key file whose token identifies the key to pin")
+    bind_parser.set_defaults(func=cmd_bind_key)
 
     register_parser = sub.add_parser("register", help="register or update a host or an actor")
     register_parser.add_argument("--db")

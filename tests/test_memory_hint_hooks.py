@@ -121,6 +121,12 @@ class MemoryHintHooks(ClaudeCapture):
                                 prompt="hello there", deadline=128.15, client_factory=StubClient)
         self.assertEqual(StubClient.calls[-1]["timeout"], 0.25)
 
+    def test_request_carries_the_binding_host_for_the_pin(self):
+        device = self.enable()
+        memory_hint.request(device, project_id=self.project, native_session_id="n",
+                            prompt="hello there", client_factory=StubClient)
+        self.assertEqual(StubClient.calls[-1]["body"]["host_id"], device.host_id)
+
     def test_real_core_answers_the_hint_key_without_an_engine(self):
         device = self.enable()
         text, receipt = memory_hint.request(device, project_id=self.project, native_session_id="n",

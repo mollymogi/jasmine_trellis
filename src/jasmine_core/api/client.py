@@ -8,12 +8,30 @@ only ever needs to post one event.
 from __future__ import annotations
 
 import json
+import queue
+import threading
+import time
 import urllib.error
 import urllib.request
+from contextvars import ContextVar, Token
 from typing import Any
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8787"
 TIMEOUT_SECONDS = 5.0
+#: Armed only for a tailnet hook. Loopback leaves this unset and keeps its own timeouts.
+_HOOK_DEADLINE: ContextVar[float | None] = ContextVar("jasmine_hook_deadline", default=None)
+
+
+def arm_hook_deadline(deadline: float) -> Token:
+    return _HOOK_DEADLINE.set(deadline)
+
+
+def reset_hook_deadline(token: Token) -> None:
+    _HOOK_DEADLINE.reset(token)
+
+
+def hook_deadline() -> float | None:
+    return _HOOK_DEADLINE.get()
 
 
 class ApiError(Exception):
@@ -58,11 +76,62 @@ class CoreClient:
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
         req = urllib.request.Request(f"{self.base_url}{path}", data=data, headers=headers, method=method)
+        timeout = self.timeout
+        deadline = _HOOK_DEADLINE.get()
+        if deadline is not None:
+            # One attempt. A dead route waits at most the time still on the hook clock.
+            timeout = deadline - time.monotonic()
+            if timeout <= 0:
+                raise TimeoutError("hook budget exhausted")
+        if deadline is None:
+            return self._exchange(req, timeout)
+
+        # Socket timeouts apply to each blocking operation, not the whole exchange
+        # (including DNS, headers and error bodies). Bound the caller's wait too.
+        result: queue.Queue = queue.Queue(maxsize=1)
+
+        def exchange() -> None:
+            try:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("hook budget exhausted")
+                result.put((True, self._exchange(req, remaining, deadline)))
+            except BaseException as exc:
+                result.put((False, exc))
+
+        threading.Thread(target=exchange, daemon=True, name="jasmine-hook-http").start()
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as response:
-                return json.loads(response.read().decode("utf-8"))
+            ok, value = result.get(timeout=max(0, deadline - time.monotonic()))
+        except queue.Empty:
+            raise TimeoutError("hook budget exhausted") from None
+        if time.monotonic() >= deadline:
+            raise TimeoutError("hook budget exhausted")
+        if not ok:
+            raise value
+        return value
+
+    @staticmethod
+    def _read(response, deadline: float | None) -> bytes:
+        if deadline is None:
+            return response.read()
+        chunks = []
+        while True:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("hook budget exhausted")
+            # read1 returns after one underlying read, so a trickling peer cannot
+            # keep a detached worker alive indefinitely inside read().
+            chunk = response.read1(65536)
+            if not chunk:
+                return b"".join(chunks)
+            chunks.append(chunk)
+
+    def _exchange(self, req, timeout: float, deadline: float | None = None) -> Any:
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                return json.loads(self._read(response, deadline).decode("utf-8"))
         except urllib.error.HTTPError as exc:
-            raw = exc.read().decode("utf-8", errors="replace")
+            with exc:
+                raw = self._read(exc, deadline).decode("utf-8", errors="replace")
             try:
                 payload = json.loads(raw)
             except json.JSONDecodeError:

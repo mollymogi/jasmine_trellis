@@ -4,6 +4,8 @@ import json
 import os
 import subprocess
 import sys
+import time
+from types import SimpleNamespace
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
@@ -14,9 +16,34 @@ from jasmine_core import auth, db
 from jasmine_core.capture import dsh_session, install_dsh, memory_hint
 from jasmine_core.hosthook.binding import load_device
 from jasmine_core.hosthook.install import InstallError
+from jasmine_core.api.client import hook_deadline
+from jasmine_core.hosthook.binding import TAILNET_CORE_ORIGIN
 
 
 class DshCapture(ConversationCapture):
+    def test_tailnet_launcher_shares_prompt_deadline_through_work_record(self):
+        observed = []
+        def capture(*args):
+            observed.append(hook_deadline())
+            return {"status": "accepted", "event_type": "user.prompt"}
+        def work(*args):
+            observed.append(hook_deadline())
+            return "resume block"
+        before = time.monotonic()
+        with patch("sys.argv", ["dsh", "--device-binding", "unused", "--receipts", "unused",
+                                "--dsh-home", "unused"]), \
+             patch("sys.stdin", io.StringIO('{"event":"user.prompt"}')), \
+             patch.object(dsh_session, "load_device", return_value=SimpleNamespace(core_url=TAILNET_CORE_ORIGIN)), \
+             patch.object(dsh_session, "capture_device", side_effect=capture), \
+             patch.object(dsh_session, "work_record", side_effect=work), \
+             patch.object(dsh_session, "append_receipt"), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(dsh_session.main(), 0)
+        self.assertEqual(observed[0], observed[1])
+        self.assertGreaterEqual(observed[0], before + 4.0)
+        self.assertLessEqual(observed[0], time.monotonic() + 4.0)
+        self.assertIsNone(hook_deadline())
+        self.assertEqual(json.loads(out.getvalue())["context"], "resume block")
+
     def setUp(self):
         super().setUp()
         conn = db.connect(self.db_path)

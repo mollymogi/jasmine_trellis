@@ -1,7 +1,6 @@
 """Opt-in native Grok Hook capture; no history scraping or conversation wrapper."""
 from __future__ import annotations
 import argparse
-from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -18,7 +17,8 @@ from ..canonical import canonical_json
 from ..evidence import _deterministic_event_id
 from ..hosthook.binding import Binding, load_device, read_key, _private_bytes, BindingError
 from . import memory_hint, worklog_client
-from .codex_session import RECENT_SECONDS, append_receipt, workspace_root
+from .codex_session import RECENT_SECONDS, append_receipt, bind_workspace as _bind_workspace, workspace_root
+from .hook_budget import arm_tailnet, disarm
 
 SOURCE = 'grok-native-conversation-v1'
 EVENTS = {'SessionStart':'session.started','UserPromptSubmit':'user.prompt','Stop':'assistant.message','SessionEnd':'session.ended'}
@@ -78,12 +78,7 @@ def session_origin(n, home):
     except (OSError,ValueError,TypeError,KeyError,AttributeError): return None
 
 def bind_workspace(n, device, source=SOURCE, *, timeout=2):
-    root=workspace_root(n['cwd']);source=source+'-workspace'
-    identity=canonical_json([source,device.host_id,str(root)])
-    project=CoreClient(device.core_url,read_key(device.api_key_file),timeout=timeout).post('/v1/projects',{
-        'name':root.name or str(root),'description':str(root),'host_id':device.host_id,
-        'source_system':source,'source_event_id':identity,'event_id':_deterministic_event_id(source,identity)})['object']['project_id']
-    return replace(device,project_id=project,task_id=None,step_id=None,inject_context=False)
+    return _bind_workspace(n, device, source=source, timeout=timeout)
 
 def _start_path(device,sid): return device.spool_dir/'grok-starts'/(sid+'.json')
 def _stage_start(device,n):
@@ -120,6 +115,14 @@ def _publish(n,binding,origin,source=SOURCE,agent="grok"):
         'event_type':EVENTS[n['event']],'replayed':response['replayed'],'origin':origin,'text_sha256':hashlib.sha256(n['text'].encode()).hexdigest()}
 
 def capture_device(native,device,grok_home):
+    event = NAMES.get(native.get('hookEventName'), native.get('hookEventName')) if isinstance(native, dict) else None
+    token = arm_tailnet(device.core_url, event)
+    try:
+        return _capture_device(native, device, grok_home)
+    finally:
+        disarm(token)
+
+def _capture_device(native,device,grok_home):
     n=normalize(native)
     if n is None:return {'status':'ignored','reason':'unsupported_or_non_user_origin'}
     origin=session_origin(n,grok_home)
@@ -185,6 +188,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--device-binding',required=True,type=Path);p.add_argument('--receipts',required=True,type=Path)
     p.add_argument('--grok-home',type=Path,default=Path.home()/'.grok');args=p.parse_args();os.umask(0o077)
     native={}
+    budget=None
     try:
         native=json.load(sys.stdin)
         if not isinstance(native,dict):raise ValueError('native event must be an object')
@@ -195,6 +199,7 @@ def main():
             if receipt is not None:
                 receipt['checked_at']=datetime.now(timezone.utc).isoformat();append_receipt(args.receipts,receipt)
             print(out);return 0
+        budget=arm_tailnet(device.core_url, NAMES.get(native.get('hookEventName'), native.get('hookEventName')))
         receipt=capture_device(native,device,args.grok_home)
         if receipt.get('status')=='accepted' and receipt.get('event_type'):
             try:work_record(native,device,receipt,prompt=native.get('prompt') if receipt['event_type']=='user.prompt' else None)
@@ -202,6 +207,8 @@ def main():
     except Exception as exc:
         receipt={'status':'failed','agent':'grok','error_type':type(exc).__name__,'native_hook_event':native.get('hookEventName') if isinstance(native,dict) else None}
         print('Jasmine Grok capture failed; inspect private receipts.',file=sys.stderr)
+    finally:
+        disarm(budget)
     receipt['checked_at']=datetime.now(timezone.utc).isoformat();append_receipt(args.receipts,receipt)
     # Never block a prompt or request a continuation. Grok ignores context printed
     # here; the staged block reaches the model through PreToolUse instead.

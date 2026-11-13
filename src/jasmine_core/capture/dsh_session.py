@@ -30,6 +30,7 @@ from typing import Any
 from ..canonical import canonical_json
 from ..hosthook.binding import load_device
 from . import memory_hint, worklog_client
+from .hook_budget import arm_tailnet, disarm
 from .codex_session import RECENT_SECONDS, append_receipt, workspace_root
 from .grok_session import _publish, bind_workspace
 
@@ -179,9 +180,11 @@ def main() -> int:
     os.umask(0o077)
     native: Any = {}
     context = None
+    budget = None
     try:
         native = json.load(sys.stdin)
         device = load_device(args.device_binding)
+        budget = arm_tailnet(device.core_url, native.get("event") if isinstance(native, dict) else None)
         receipt = capture_device(native, device, args.dsh_home)
         if receipt.get("status") == "accepted" and receipt.get("event_type"):
             try:
@@ -193,6 +196,8 @@ def main() -> int:
         receipt = {"status": "failed", "agent": AGENT, "error_type": type(exc).__name__,
                    "native_event": native.get("event") if isinstance(native, dict) else None}
         print("Jasmine dsh capture failed; inspect private receipts.", file=sys.stderr)
+    finally:
+        disarm(budget)
     receipt["checked_at"] = datetime.now(timezone.utc).isoformat()
     if context:
         receipt["context_chars"] = len(context)
