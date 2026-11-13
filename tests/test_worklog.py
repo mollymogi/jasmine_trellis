@@ -840,6 +840,23 @@ class CrossHostResume(unittest.TestCase):
         folded.assert_called()
         self.assertEqual(again["session_checkpoint"]["family_root"], "/resolved/repo")
 
+    def test_flag_off_global_scope_includes_drive_projects(self):
+        self.flag(False)
+        for root in ("C:/src/AgentApp", "C:\\src\\AgentApp"):
+            with self.subTest(root=root):
+                bank = self.project(self.hub, root, "drive")
+                session = self.prompt(self.hub, bank, "global-drive-prompt", minutes_ago=5,
+                                      native="global-drive")
+                sibling = self.prompt(self.client, bank, "sibling-drive-prompt", minutes_ago=1,
+                                      native="sibling-drive")
+                block = self.recent(self.hub, root, scope="global")
+                self.assertEqual(block["status"], "ok", block)
+                shown = {row["session_id"] for row in block["sessions"]}
+                self.assertIn(session, shown)
+                self.assertNotIn(sibling, shown)
+                self.assertIn("global-drive-prompt", block["text"])
+                self.assertNotIn("sibling-drive-prompt", block["text"])
+
     def test_backslash_drive_description_matches_either_request(self):
         raw = "C:\\src\\AgentApp"
         canonical = "C:/src/AgentApp"

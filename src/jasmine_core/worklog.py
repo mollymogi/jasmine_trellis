@@ -460,7 +460,8 @@ class WorklogStore:
         found = {}
         for row in self.conn.execute("SELECT project_id, description FROM projects"):
             root = row["description"]
-            if isinstance(root, str) and root.startswith("/") and (family is None or related(root, family)):
+            if (isinstance(root, str) and (root.startswith("/") or _DRIVE_ANY.match(root))
+                    and (family is None or related(root, family))):
                 if may_read is None or may_read(row["project_id"]):
                     found[row["project_id"]] = root
         return found
