@@ -125,7 +125,7 @@ def cmd_bootstrap(args: argparse.Namespace) -> int:
         "token": issued["token"],
         "scopes": issued["scopes"],
         "warning": issued["warning"],
-        "next": "export JASMINE_CORE_TOKEN=<token> JASMINE_CORE_HOST_ID=" + host_id,
+        "next": "export JASMINE_CORE_TOKEN=<token> JASMINE_CORE_HOST_ID=" + issued["bound_host_id"],
     }, ensure_ascii=False, indent=2))
     return 0
 
@@ -152,6 +152,10 @@ def cmd_bind_key(args: argparse.Namespace) -> int:
             except OSError as exc:
                 raise errors.InvalidRequest(
                     f"cannot read the token file: {exc.strerror}", field="token_file"
+                ) from exc
+            except UnicodeDecodeError as exc:
+                raise errors.InvalidRequest(
+                    "the token file is not valid UTF-8", field="token_file"
                 ) from exc
             result = issuer.bind_token(token, args.host_id)
         else:
