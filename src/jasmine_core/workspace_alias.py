@@ -58,8 +58,11 @@ def normalize_root(value: Any, *, field: str = "root") -> str:
     if value.startswith("\\\\") or value.startswith("//"):
         raise errors.InvalidRequest(f"{field} must be an absolute path", field=field)
     if _DRIVE_RE.match(value):
-        drive = value[0].upper() + ":" + value[2:].replace("\\", "/")
-        return drive if len(drive) <= 3 else drive.rstrip("/")
+        # A drive root keeps exactly one separator: `C:\`, `C:/`, `C://` and
+        # every all-separator spelling are all stored as `C:/`, never as a
+        # bare `C:` that would no longer name an absolute root.
+        rest = value[2:].replace("\\", "/").lstrip("/")
+        return value[0].upper() + ":/" + rest.rstrip("/")
     if not value.startswith("/"):
         raise errors.InvalidRequest(f"{field} must be an absolute path", field=field)
     if value != "/":
