@@ -47,15 +47,28 @@ class ResolveOutcome:
         }
 
 
-def normalize_root(value: Any) -> str:
-    """POSIX absolute path as stored. Do not resolve it and do not open it."""
-    if (not isinstance(value, str) or "\x00" in value or not value.startswith("/")
-            or value.startswith("//") or len(value) > _MAX_ROOT):
-        raise errors.InvalidRequest("root must be an absolute path", field="root")
+def normalize_root(value: Any, *, field: str = "root") -> str:
+    """Absolute path as stored. A drive root becomes ``C:/...``. Never opened.
+
+    UNC and ``\\\\?\\`` are rejected. A POSIX trailing slash is removed except
+    on ``/``. ``..`` is not resolved.
+    """
+    if not isinstance(value, str) or not value or "\x00" in value or len(value) > _MAX_ROOT:
+        raise errors.InvalidRequest(f"{field} must be an absolute path", field=field)
+    if value.startswith("\\\\") or value.startswith("//"):
+        raise errors.InvalidRequest(f"{field} must be an absolute path", field=field)
+    if _DRIVE_RE.match(value):
+        # A drive root keeps exactly one separator: `C:\`, `C:/`, `C://` and
+        # every all-separator spelling are all stored as `C:/`, never as a
+        # bare `C:` that would no longer name an absolute root.
+        rest = value[2:].replace("\\", "/").lstrip("/")
+        return value[0].upper() + ":/" + rest.rstrip("/")
+    if not value.startswith("/"):
+        raise errors.InvalidRequest(f"{field} must be an absolute path", field=field)
     if value != "/":
         value = value.rstrip("/")
     if not value.startswith("/"):
-        raise errors.InvalidRequest("root must be an absolute path", field="root")
+        raise errors.InvalidRequest(f"{field} must be an absolute path", field=field)
     return value
 
 

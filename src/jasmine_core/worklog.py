@@ -54,6 +54,8 @@ _PLACEHOLDER_RE = re.compile(r"\[(粘贴内容|附件|附加内容)\]")
 _SPACE_RE = re.compile(r"\s+")
 #: A normalized drive path (`C:/...`). Backslashes are not this form.
 _DRIVE_ROOT = re.compile(r"^[A-Za-z]:/")
+#: Either slash. `related()` must not walk these as POSIX paths.
+_DRIVE_ANY = re.compile(r"^[A-Za-z]:[\\/]")
 
 
 def _clients_enabled() -> bool:
@@ -63,12 +65,11 @@ def _clients_enabled() -> bool:
 
 
 def _root_key(root: str) -> str:
-    """Compare paths without opening them. A trailing slash is not a different root."""
-    if root.startswith("/") and not root.startswith("//"):
-        return root if root == "/" else root.rstrip("/")
-    if _DRIVE_ROOT.match(root):
-        return root if len(root) == 3 else root.rstrip("/")
-    return root
+    """Compare paths without opening them. Drive letters use `normalize_root`."""
+    try:
+        return _require_root(root)
+    except errors.InvalidRequest:
+        return root
 
 
 # -- workspace families --------------------------------------------------------
@@ -120,7 +121,7 @@ def related(root: str, family: str) -> bool:
     in `~` or `/` is never everyone's previous work. Drive paths are exact
     roots, not POSIX relatives.
     """
-    if _DRIVE_ROOT.match(root) or _DRIVE_ROOT.match(family):
+    if _DRIVE_ANY.match(root) or _DRIVE_ANY.match(family):
         return False
     other = family_root(root)
     if other == family:
@@ -140,20 +141,14 @@ def related(root: str, family: str) -> bool:
     return False
 
 
-def _rejected_root(value: str) -> bool:
-    """UNC and ``\\\\?\\`` stay rejected. POSIX absolutes and ``C:/...`` do not."""
-    if value.startswith("\\\\") or value.startswith("//"):
-        return True
-    if value.startswith("/"):
-        return False
-    return not (_DRIVE_ROOT.match(value) and "\\" not in value)
-
-
 def _require_root(value: Any, field: str = "workspace_root") -> str:
-    if (not isinstance(value, str) or not value or len(value) > MAX_ROOT_CHARS or "\x00" in value
-            or _rejected_root(value)):
-        raise errors.InvalidRequest(f"{field} must be an absolute path", field=field)
-    return value
+    """Path stored for checkpoint, recover, and recent. A drive root becomes ``C:/...``.
+
+    The hub does not open that path. UNC and ``\\\\?\\`` are rejected.
+    """
+    from .workspace_alias import normalize_root
+
+    return normalize_root(value, field=field)
 
 
 # -- workspace state (reported by the hook, compared here) ---------------------
@@ -381,6 +376,8 @@ class WorklogStore:
         with db.transaction(self.conn):
             if projects is not None:
                 candidates = self._candidates(None, host_id, now, limit=None, projects=projects)
+            elif not clients and _DRIVE_ROOT.match(root):
+                candidates = self._candidates(None, host_id, now, limit=None, exact_root=root)
             elif not clients:
                 candidates = self._candidates(family_root(root), host_id, now, limit=None)
             elif alias is not None:
