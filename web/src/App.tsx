@@ -27,6 +27,7 @@ import {
 } from './views/MemoryViews'
 import { MemoryReflectView } from './views/MemoryWrites'
 import { ConversationView } from './views/ConversationView'
+import { ConversationUsageView } from './views/ConversationUsageView'
 import { EventView } from './views/EventView'
 import { EvidenceView } from './views/EvidenceView'
 import { InterpretationsView } from './views/InterpretationsView'
@@ -88,7 +89,7 @@ export function App(): JSX.Element {
           <SidebarTrigger />
           <span className="text-sm text-muted-foreground">{currentLabel(route)}</span>
         </header>
-        {!['conversation','interpretations','interpretation','rules','reviews','review','memoryItems','memoryItem'].includes(route.name) ? <details className="readonly-banner">
+        {!['usage','conversation','interpretations','interpretation','rules','reviews','review','memoryItems','memoryItem'].includes(route.name) ? <details className="readonly-banner">
           <summary className="cursor-pointer">单机版 0.2.0 · 部分功能尚未开放</summary>
           <p role="note">
             已提供：项目与 Task/Step 管理、Rule 与 Review 审批、Evidence 读取和人工确认、Checkpoint/Context/Resume 读取、Validation 记录下钻。
@@ -130,6 +131,8 @@ function renderRoute(route: Route): JSX.Element {
   switch (route.name) {
     case 'overview':
       return <OverviewView />
+    case 'usage':
+      return <ConversationUsageView />
     case 'project':
       return <ProjectView projectId={route.projectId} />
     case 'task':

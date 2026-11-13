@@ -13,6 +13,7 @@ import { useConversationEvents } from '../app/useConversationEvents'
 import { useSessionPreviews } from '../app/useSessionPreviews'
 import { isConversationMessage } from '../components/ConversationMessage'
 import { ConversationThread } from '../components/ConversationThread'
+import { ConversationUsage, useConversationUsage } from '../components/ConversationUsage'
 import { ConversationNavigator } from '../components/ConversationNavigator'
 import { Pager } from '../components/Pager'
 import { Empty, ErrorPanel, Loading, Panel } from '../components/States'
@@ -62,7 +63,7 @@ const EVENT_TYPES = [
 export function ConversationView({ projectId, taskId, sessionId }: {
   projectId: string | null; taskId: string | null; sessionId: string | null
 }): JSX.Element {
-  const { endpoints } = useSession()
+  const { endpoints, token } = useSession()
   const discovery = useAgentDiscovery()
   const [expandedProjects, setExpandedProjects] = useState<string[]>([])
   const [navigationMode, setNavigationMode] = useState<'agent' | 'time'>('agent')
@@ -127,6 +128,7 @@ export function ConversationView({ projectId, taskId, sessionId }: {
   }, validSession)
   const messages = events.items.filter(isConversationMessage)
   const systemEvents = events.items.filter(event => !isConversationMessage(event))
+  const usage = useConversationUsage(validSession ? events.items : [], token)
   const tasks = usePagedResource(activeProject ? offsetLoader<{ task_id: string; title: string }>({
     limit: DEFAULT_OBJECT_LIMIT,
     fetch: async (offset, limit, signal) => {
@@ -155,10 +157,13 @@ export function ConversationView({ projectId, taskId, sessionId }: {
         onToggleProject={id => setExpandedProjects(previous => previous.includes(id) ? previous.filter(value => value !== id) : [...previous, id])}
         loading={projects.loading || sessions.loading} />
       <div className="stack conversation-reader">
-        {validSession ? <ConversationThread key={JSON.stringify([activeProject, activeSession, eventType, sourceSystem])}
-          messages={messages} systemEvents={systemEvents} taskId={selectedSession?.task_id ?? taskId}
-          loading={events.loading} error={events.error} loadedAt={events.loadedAt} onReload={events.reload} />
-          : <Panel title="对话">{sessions.loading || !sessionId && projectSessions.length > 0 ? <Loading what="会话" />
+        {validSession ? <>
+          <ConversationUsage usage={usage} />
+          <ConversationThread key={JSON.stringify([activeProject, activeSession, eventType, sourceSystem])}
+            messages={messages} systemEvents={systemEvents} taskId={selectedSession?.task_id ?? taskId}
+            loading={events.loading} error={events.error} loadedAt={events.loadedAt} onReload={events.reload}
+            usageTurns={usage.detail?.turns ?? null} />
+          </> : <Panel title="对话">{sessions.loading || !sessionId && projectSessions.length > 0 ? <Loading what="会话" />
             : sessionId ? <p className="state state--error">该会话不在当前项目或任务范围内，或尚未读取到对应会话。不会合并展示其他会话。</p>
             : <Empty what="会话" hint={activeProject ? '此项目尚未采集到会话。' : '请从左侧选择一个已登记项目。'} />}</Panel>}
         <details className="conversation-filters"><summary>筛选与来源详情</summary>

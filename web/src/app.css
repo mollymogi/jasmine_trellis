@@ -1023,3 +1023,248 @@ main {
  .memory-catalog-table .rule-secondary{display:inline;margin-left:8px;}
  .memory-explainer-hint{display:none;}
 }
+
+/* Token 消耗 (`/_local/usage`).
+   A dashboard-local read of the Agent session files: the page's job is to keep "not read"
+   visibly different from "zero". Figures are compacted for scanning (1.2k / 3.4M); the
+   session table is client-paged because the whole inventory is already in memory. */
+
+.usage-page { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+.usage-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(134px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.usage-tile {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.usage-tile dt { font-size: 12px; color: var(--muted-foreground); }
+
+.usage-tile dd {
+  margin: 2px 0 0;
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.usage-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--muted-foreground);
+}
+
+.usage-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; }
+
+@media (max-width: 1100px) {
+  .usage-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.usage-num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.usage-unknown { color: var(--muted-foreground); }
+
+.usage-models {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+
+/* The bar repeats the number next to it; the number is the source of truth. */
+.usage-share { display: flex; align-items: center; gap: 8px; min-width: 120px; }
+
+.usage-share__track {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--muted);
+  overflow: hidden;
+}
+
+.usage-share__fill { display: block; height: 100%; border-radius: 999px; background: var(--primary); }
+
+.usage-share__value {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.usage-trend { display: flex; align-items: flex-end; gap: 4px; overflow-x: auto; padding-top: 8px; }
+
+.usage-trend__col {
+  flex: 1 0 34px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 34px;
+}
+
+.usage-trend__barwrap { width: 100%; height: 120px; display: flex; align-items: flex-end; }
+
+.usage-trend__bar {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background: var(--primary);
+}
+
+.usage-trend__label {
+  font-size: 10px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.usage-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.usage-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.usage-toolbar select,
+.usage-toolbar input {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.usage-search input { min-width: 180px; }
+
+.usage-session-row { cursor: pointer; }
+
+.usage-session-row[data-expanded='true'] { background: var(--muted); }
+
+/* The toggle is the keyboard-accessible path; clicking anywhere on the row also works. */
+.usage-session-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 6px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.usage-detail-row td { background: var(--muted); padding: 0; }
+
+/* The session list is the only table with an in-row drill-down: an expanded row carries a
+   nine-column turn table inside one `colSpan` cell. Under the default auto layout that
+   child sizes the parent's columns, so expanding a row stretched 输入/输出 to half the
+   screen. Fixed layout takes the widths from the header instead, and the detail block
+   below is the scroll container, so a narrow window scrolls the turns sideways. */
+.usage-sessions-table { table-layout: fixed; }
+
+.usage-sessions-table thead th:nth-child(1) { width: 118px; }
+.usage-sessions-table thead th:nth-child(3) { width: 190px; }
+.usage-sessions-table thead th:nth-child(4) { width: 68px; }
+.usage-sessions-table thead th:nth-child(5),
+.usage-sessions-table thead th:nth-child(6),
+.usage-sessions-table thead th:nth-child(7),
+.usage-sessions-table thead th:nth-child(8) { width: 92px; }
+.usage-sessions-table thead th:nth-child(9) { width: 78px; }
+
+.usage-detail { display: flex; flex-direction: column; gap: 10px; max-width: 100%; min-width: 0; overflow-x: auto; padding: 12px; }
+
+.usage-detail > * { min-width: 0; max-width: 100%; }
+
+.usage-detail__more { display: flex; align-items: center; gap: 10px; margin: 4px 0 0; }
+
+.usage-detail__count { font-size: 12px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+
+.usage-detail__head { margin: 0; font-size: 12px; color: var(--muted-foreground); overflow-wrap: anywhere; }
+
+.usage-detail__meta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; font-size: 12px; }
+
+.usage-detail__meta div { display: flex; gap: 6px; }
+
+.usage-detail__meta dt { color: var(--muted-foreground); }
+
+.usage-detail__meta dd { margin: 0; font-variant-numeric: tabular-nums; }
+
+.usage-spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 48px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  overflow-x: auto;
+}
+
+.usage-spark__bar {
+  flex: 1 0 6px;
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--primary);
+}
+
+.usage-pager {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.usage-pager__controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+.usage-pager__controls label { display: flex; align-items: center; gap: 6px; }
+
+.usage-pager__controls select {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.usage-source-ok { font-size: 12px; color: var(--muted-foreground); }
+
+.usage-source-gap { font-size: 12px; color: var(--destructive); }
+
+.usage-warnings { margin: 4px 0 0; padding-left: 18px; font-size: 12px; line-height: 1.8; }
+
+@media (max-width: 760px) {
+  .usage-tiles { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+  .usage-tile dd { font-size: 16px; }
+  .usage-search input { min-width: 120px; }
+  .usage-pager { justify-content: flex-start; }
+}

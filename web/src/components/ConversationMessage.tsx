@@ -2,6 +2,7 @@ import type { RawEvent } from '../api/types'
 import { UserRound } from 'lucide-react'
 import { AgentLogo } from './AgentLogo'
 import { agentIdentity } from '../lib/agentIdentity'
+import { formatTokenCount, usageTurnTitle, type MatchedUsageTurn } from '../lib/conversationUsage'
 import { formatTimestamp, payloadText } from '../lib/text'
 import { EventRow } from './EventRow'
 import { RawText } from './RawText'
@@ -13,12 +14,16 @@ export function isConversationMessage(event: RawEvent): boolean {
   )
 }
 
-export function ConversationMessage({ event, taskId, onOpenSource, dateLabel }: {
-  event: RawEvent; taskId: string | null; onOpenSource?: () => void; dateLabel?: string
+/** `usageMatch` is optional and only ever supplied by the conversation reader; the
+ * turn is rendered as a badge when it is both known and non-zero, and nothing is
+ * rendered otherwise so a missing number never reads as "no tokens". */
+export function ConversationMessage({ event, taskId, onOpenSource, dateLabel, usageMatch }: {
+  event: RawEvent; taskId: string | null; onOpenSource?: () => void; dateLabel?: string; usageMatch?: MatchedUsageTurn
 }) {
   const user = event.event_type === 'user.prompt'
   const agent = agentIdentity(event)
   const name = user ? '你' : agent.label
+  const matchedUsage = !user && usageMatch && usageMatch.turn.total_tokens > 0 ? usageMatch : null
   const date = new Date(event.occurred_at)
   const time = Number.isNaN(date.getTime()) ? event.occurred_at : new Intl.DateTimeFormat('zh-CN', {
     hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
@@ -34,6 +39,9 @@ export function ConversationMessage({ event, taskId, onOpenSource, dateLabel }: 
         <div className="chat-message__head">
           <strong>{name}</strong>
           <time dateTime={event.occurred_at} title={formatTimestamp(event.occurred_at)}>{time}</time>
+          {matchedUsage ? <span className="chat-message__usage" title={usageTurnTitle(matchedUsage)}>
+            {matchedUsage.mode === 'ordinal' ? '≈ ' : ''}{formatTokenCount(matchedUsage.turn.total_tokens)} tokens
+          </span> : null}
         </div>
         <RawText appearance="chat" value={payloadText(event.payload) ?? ''} label={user ? '用户消息' : '助手回复'} maxCollapsed={Number.POSITIVE_INFINITY} />
       <details className="chat-message__source" onToggle={event => {

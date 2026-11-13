@@ -1,0 +1,176 @@
+/* Conversation token usage: one compact panel above the transcript and a small
+ * per-turn badge inside a message head. Number layout uses tabular figures so the
+ * totals do not jitter while the panel re-renders on the 3-second event poll.
+ * Owned by ConversationUsage.tsx; the rest of the conversation chrome stays in
+ * app.css.
+ */
+
+.usage-panel {
+  box-sizing: border-box;
+  min-height: 104px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  min-width: 0;
+}
+
+.usage-panel__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.usage-panel__head h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.usage-panel__source {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.usage-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.usage-metric {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.usage-metric dt {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.usage-metric dd {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.usage-panel__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0;
+  min-height: 15px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-panel__cost {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.usage-panel__warning {
+  color: var(--muted-foreground);
+  border-bottom: 1px dotted var(--border);
+  cursor: help;
+}
+
+/* Skeleton: identical box, so a landing response never moves the transcript. */
+.usage-panel--loading .usage-metric {
+  gap: 5px;
+}
+
+.usage-skeleton {
+  display: block;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--muted-foreground) 16%, transparent);
+  animation: usage-pulse 1.4s ease-in-out infinite;
+}
+
+.usage-skeleton--label {
+  height: 10px;
+  width: 60%;
+}
+
+.usage-skeleton--value {
+  height: 16px;
+  width: 80%;
+}
+
+.usage-skeleton--meta {
+  height: 11px;
+  width: 180px;
+  max-width: 60%;
+}
+
+@keyframes usage-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+/* Per-turn badge, rendered only for an assistant message whose turn is known. */
+.chat-message__usage {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.chat-message--assistant .chat-message__usage {
+  margin-left: auto;
+}
+
+@media (max-width: 900px) {
+  .usage-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .usage-panel {
+    padding: 10px 12px;
+  }
+
+  .usage-metrics {
+    gap: 6px;
+  }
+
+  .usage-metric dd {
+    font-size: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .usage-skeleton {
+    animation: none;
+  }
+}
