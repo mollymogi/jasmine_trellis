@@ -412,6 +412,20 @@ class BoundHostTests(unittest.TestCase):
         self.assertEqual(principal.bound_host_id, self.host)
         self.assertNotIn(self.open_key["token"], output)
 
+    def test_bind_key_refuses_a_token_file_that_is_not_utf8(self) -> None:
+        key_file = self.data_dir / "malformed.key"
+        key_file.write_bytes(b"\xff\xfe\x00not a token")
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = cli.main([
+                "bind-key", "--db", str(self.db_path),
+                "--token-file", str(key_file), "--host-id", self.host,
+            ])
+        self.assertEqual(code, 3)
+        self.assertNotIn("Traceback", err.getvalue())
+        self.assertIn("invalid_request", err.getvalue())
+        self.assertIsNone(self._last_used(self.open_key["key_id"]))
+
     def test_bind_key_refuses_an_unknown_malformed_or_revoked_key(self) -> None:
         issuer = auth.Auth(self.conn)
         with self.assertRaises(errors.NotFound) as unknown:

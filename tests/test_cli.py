@@ -127,5 +127,37 @@ class MigrateCommand(unittest.TestCase):
             self._run(["migrate"])
 
 
+class BootstrapCommand(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory(prefix="jasmine-core-bootstrap-")
+        self.addCleanup(self._tmp.cleanup)
+        self.db_path = Path(self._tmp.name) / "data" / "core.db"
+
+    def _run(self, argv: list[str]) -> tuple[int, str]:
+        import contextlib
+        import io
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = cli.main(argv)
+        return code, out.getvalue()
+
+    def test_bootstrap_exports_the_host_the_key_is_pinned_to(self) -> None:
+        code, out = self._run(["bootstrap", "--db", str(self.db_path)])
+        self.assertEqual(code, 0)
+        first = json.loads(out)
+        self.assertEqual(first["bound_host_id"], first["host_id"])
+        self.assertIn("JASMINE_CORE_HOST_ID=" + first["host_id"], first["next"])
+        code, out = self._run([
+            "bootstrap", "--db", str(self.db_path), "--bound-host-id", first["host_id"],
+        ])
+        self.assertEqual(code, 0)
+        second = json.loads(out)
+        self.assertNotEqual(second["host_id"], first["host_id"])
+        self.assertEqual(second["bound_host_id"], first["host_id"])
+        self.assertIn("JASMINE_CORE_HOST_ID=" + first["host_id"], second["next"])
+        self.assertNotIn("JASMINE_CORE_HOST_ID=" + second["host_id"], second["next"])
+
+
 if __name__ == "__main__":
     unittest.main()
