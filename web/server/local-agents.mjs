@@ -1,7 +1,7 @@
 /** Discovery is read-only. A separate POST may enable/disable the fixed native
  * adapters only under a private operator profile and a pinned management key. */
 import http from 'node:http'
-import { loadCaptureProfile, captureStates, canManageCapture, controlCapture, MEMORY_HINT_AGENTS } from './agent-capture-control.mjs'
+import { loadCaptureProfile, captureStates, canManageCapture, controlCapture, CAPTURE_AGENTS, MEMORY_HINT_AGENTS } from './agent-capture-control.mjs'
 import { statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
@@ -12,11 +12,16 @@ const CATALOG = [
   { id: 'grok', name: 'Grok', command: 'grok', dirs: ['.grok/bin'], adapter: true },
   { id: 'opencode', name: 'OpenCode', command: 'opencode', dirs: ['.opencode/bin'], apps: ['OpenCode.app'], adapter: true },
   { id: 'antigravity', name: 'Antigravity', command: 'agy', apps: ['Antigravity.app'], adapter: true },
+  { id: 'dsh', name: 'DeepSeek', command: 'dsh', adapter: true },
   { id: 'gemini', name: 'Gemini CLI', command: 'gemini' },
   { id: 'aider', name: 'Aider', command: 'aider' },
   { id: 'cursor', name: 'Cursor', command: 'cursor', apps: ['Cursor.app'] },
   { id: 'windsurf', name: 'Windsurf', command: 'windsurf', apps: ['Windsurf.app'] },
 ]
+/** One expression for both dashboard hosts, so a new adapter cannot work on only one. */
+export const LOCAL_AGENTS_WRITE_ROUTE = new RegExp(
+  `^/_local/agents/(${CAPTURE_AGENTS.join('|')})/(capture|memory-hint)$`,
+)
 export function discoverAgents({ home = homedir(), envPath = process.env.PATH ?? '', stat = statSync } = {}) {
   const dirs = [...new Set([...envPath.split(delimiter).filter(p => p.startsWith('/')), '/opt/homebrew/bin', '/usr/local/bin', join(home, '.local/bin'), join(home, '.npm-global/bin')])]
   const exists = (path, app = false) => {
@@ -41,7 +46,7 @@ export async function serveLocalAgents(req, res, origin, discover = discoverAgen
     send(res, 403, { error: 'local_origin_required' }); return
   }
   const path=new URL(req.url,'http://local.invalid').pathname
-  const match=path.match(/^\/_local\/agents\/(codex|claude|grok|opencode|antigravity)\/(capture|memory-hint)$/)
+  const match=path.match(LOCAL_AGENTS_WRITE_ROUTE)
   const write=!!match,agent=match?.[1],memoryHint=match?.[2]==='memory-hint'
   if(memoryHint&&!MEMORY_HINT_AGENTS.includes(agent)){send(res,404,{error:'memory_hint_unavailable'});return}
   if(req.method!==(write?'POST':'GET')) {send(res,405,{error:'method_not_allowed'});return}

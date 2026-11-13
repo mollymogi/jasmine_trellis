@@ -1,18 +1,20 @@
 /** Operator-pinned installation only. Browser input cannot choose code, paths or keys. */
-import { constants, openSync, closeSync, fstatSync, readFileSync, existsSync, writeSync, readSync } from 'node:fs'
+import { constants, openSync, closeSync, fstatSync, readFileSync, existsSync, writeSync, readSync, readdirSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 const execute = promisify(execFile)
-const LABELS={grok:'Jasmine daily Grok conversation capture',claude:'Jasmine daily Claude conversation capture',codex:'Jasmine daily conversation capture',opencode:'Jasmine daily OpenCode conversation capture',antigravity:'Jasmine daily Antigravity conversation capture'}
+const LABELS={grok:'Jasmine daily Grok conversation capture',claude:'Jasmine daily Claude conversation capture',codex:'Jasmine daily conversation capture',opencode:'Jasmine daily OpenCode conversation capture',antigravity:'Jasmine daily Antigravity conversation capture',dsh:'Jasmine daily DeepSeek Harness conversation capture'}
 // Antigravity: one named entry in ~/.gemini/config/hooks.json, one handler per event (ADR 0042).
 const ANTIGRAVITY_HOOK='jasmine-trellis',ANTIGRAVITY_EVENTS=['SessionStart','PreInvocation','Stop']
 // OpenCode has no hook file: capture is one owned plugin file (ADR 0040).
 const OPENCODE_MARKER='// JASMINE_TRELLIS_OPENCODE_PLUGIN=1'
+const DSH_MARKER='// JASMINE_TRELLIS_DSH_PLUGIN=1'
+const DSH_PACKAGE='@local/jasmine-trellis'
 export const CAPTURE_AGENTS=Object.keys(LABELS)
 // ADR 0036 phase A: the prompt-time Memory hint, per Agent, off by default.
-export const MEMORY_HINT_AGENTS=['codex','claude','grok','opencode','antigravity']
+export const MEMORY_HINT_AGENTS=['codex','claude','grok','opencode','antigravity','dsh']
 const HINT_LABEL='Jasmine Memory hint for Claude'
 const EVENTS=['SessionStart','UserPromptSubmit','Stop','SessionEnd']
 const inflight=new Map()
@@ -114,7 +116,20 @@ export function captureStates(profile,authorization) {
  for(const agent of CAPTURE_AGENTS){
   const adapter=adapterFor(profile,agent)
   let configured=false,drift=false,blocked=false,doc=null
-  if(adapter&&agent==='opencode'){
+  if(adapter&&agent==='dsh'){
+   const file=join(adapter.home,'jasmine-trellis/index.js')
+   try{
+    const text=readPluginFile(file)
+    const config=JSON.parse(text.match(/^const CONFIG = (\{.*\});$/m)?.[1]??'null')
+    const root=join(adapter.home,'profiles')
+    const names=existsSync(root)?readdirSync(root).filter(name=>!name.startsWith('.')&&name!=='node_modules'):[]
+    const linked=names.filter(name=>existsSync(join(root,name,'package.json'))).every(name=>{
+     try{const manifest=readHookDocument(join(root,name,'package.json'));return manifest?.dsh?.profile?.bundles?.includes(DSH_PACKAGE)&&manifest?.dependencies?.[DSH_PACKAGE]==='link:'+join(adapter.home,'jasmine-trellis')}catch{return false}
+    })
+    configured=text.includes(DSH_MARKER)&&config?.python===adapter.python&&config?.launcher===adapter.launcher&&config?.device_binding===adapter.device_binding&&config?.receipts===adapter.receipts&&config?.dsh_home===adapter.home&&linked
+    drift=!configured
+   }catch{drift=existsSync(file)}
+  }else if(adapter&&agent==='opencode'){
    const file=join(adapter.home,'plugins/jasmine-trellis.js')
    try{
     const text=readPluginFile(file)
