@@ -790,7 +790,8 @@ describe('remaining detail reader turn limits', () => {
       })
       for (const maxDetailTurns of [1, 2]) {
         const service = createUsageService({ home, run, limits: { maxDetailTurns } })
-        const detail = await service.readUsageSession(agent, SESSION)
+        const nativeSessionId = agent === 'dsh' ? `session-${SESSION}` : SESSION
+        const detail = await service.readUsageSession(agent, nativeSessionId)
         expect(detail?.totals.total_tokens).toBe(30)
         expect(detail?.totals.turns).toBe(2)
         expect(detail?.turns).toHaveLength(maxDetailTurns)
