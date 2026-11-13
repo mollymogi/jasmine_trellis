@@ -36,7 +36,8 @@ def request(binding: Binding, *, project_id: str, native_session_id: str, prompt
         return None, {"status": "skipped", "reason": "no_time_left"}
     try:
         client = client_factory(binding.core_url, read_key(binding.memory_key_file), timeout=remaining)
-        body = {"project_id": project_id, "native_session_id": native_session_id, "prompt": prompt}
+        body = {"project_id": project_id, "host_id": binding.host_id,
+                "native_session_id": native_session_id, "prompt": prompt}
         if session_id is not None:
             body["session_id"] = session_id
         answer = client.post("/v1/memory/hint", body)

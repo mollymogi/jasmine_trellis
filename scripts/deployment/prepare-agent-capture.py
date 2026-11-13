@@ -55,11 +55,13 @@ def _memory_key(runtime,agent,binding,credentials):
     """
     document=json.loads(binding.read_text())
     if document.get('memory_key_file'):return
+    host_id=document.get('host_id')
+    if not ids.is_id(host_id,'hst'):raise ValueError(f'{agent} binding has no host_id')
     path=credentials/f'{agent}-conversation-memory.key'
     metadata=credentials/f'{agent}-conversation-keys.json';meta=_capture_metadata(runtime,agent,document,credentials)
     if not path.exists():
         conn=db.connect(runtime['database'])
-        try:key=auth.Auth(conn).issue_key(actor_id=meta['system_actor_id'],label=agent+' native Memory hint',scopes=['memory:recall'])
+        try:key=auth.Auth(conn).issue_key(actor_id=meta['system_actor_id'],label=agent+' native Memory hint',scopes=['memory:recall'],bound_host_id=host_id)
         finally:conn.close()
         with path.open('x') as stream:stream.write(key['token']+'\n')
         path.chmod(0o600)
@@ -84,8 +86,8 @@ def prepare(base,confirmed=False):
                 if reg.require_actor(browser['actor_id'])['kind']!='human':raise ValueError('browser operator must be a human actor')
                 actor=ids.new_id('act')
                 with db.transaction(conn):reg.upsert_actor(actor,kind='system',display_name=agent.capitalize()+' native conversation capture',home_host_id=reference['host_id'])
-                system=auth.Auth(conn).issue_key(actor_id=actor,label=agent+' native system',scopes=['objects:write','events:write'])
-                human=auth.Auth(conn).issue_key(actor_id=browser['actor_id'],label=agent+' native user prompts',scopes=['events:write'])
+                system=auth.Auth(conn).issue_key(actor_id=actor,label=agent+' native system',scopes=['objects:write','events:write'],bound_host_id=reference['host_id'])
+                human=auth.Auth(conn).issue_key(actor_id=browser['actor_id'],label=agent+' native user prompts',scopes=['events:write'],bound_host_id=reference['host_id'])
                 paths={}
                 for kind,key in [('system',system),('human',human)]:
                     path=credentials/f'{agent}-conversation-{kind}.key'
