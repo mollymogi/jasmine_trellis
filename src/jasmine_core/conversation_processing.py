@@ -30,6 +30,9 @@ COOLDOWN_SECONDS='conversation_processing_cooldown_seconds'
 COOLDOWN_MIN,COOLDOWN_MAX,RATE_LIMIT_ATTEMPTS=300,3600,5
 
 def _future(seconds):return (datetime.now(timezone.utc)+timedelta(seconds=seconds)).isoformat(timespec='microseconds').replace('+00:00','Z')
+def _clients_enabled():
+ value=os.environ.get('JASMINE_TAILNET_CLIENTS')
+ return bool(value and value.strip())
 
 class ConversationProcessing:
  def __init__(self,conn,*,schema_version,processor_actor_id=None,host_id=None,provider=None):
@@ -50,9 +53,19 @@ class ConversationProcessing:
    if db.get_meta(self.conn,CURSOR,None) is None:
     seq=0 if include_existing else self.conn.execute('SELECT COALESCE(MAX(seq),0) FROM events').fetchone()[0]
     db.set_meta(self.conn,CURSOR,str(seq));db.set_meta(self.conn,ACTIVATED,clock.now_rfc3339())
+ def _client_host(self,host_id):
+  if not host_id or host_id==self.host:return False
+  return self.conn.execute('SELECT 1 FROM tailnet_clients WHERE host_id=?',(host_id,)).fetchone() is not None
+ def _admitted_host(self,event):
+  # The hub host keeps today's check. A confirmed alias gates client hosts only.
+  host=event['host_id']
+  if host==self.host:return True
+  if not _clients_enabled():return False
+  if self.conn.execute("SELECT 1 FROM tailnet_clients WHERE host_id=? AND status='active'",(host,)).fetchone() is None:return False
+  return self.conn.execute('SELECT 1 FROM workspace_aliases WHERE host_id=? AND project_id=? AND confirmed=1',(host,event['project_id'])).fetchone() is not None
  def _eligible(self,event):
   return (event['source_system'] in SOURCES and event['event_type'] in ('user.prompt','assistant.message')
-          and event['project_id'] is not None and event['host_id']==self.host
+          and event['project_id'] is not None and self._admitted_host(event)
           and bool(event['payload'].get('text')))
  def _enqueue(self,event,actor):
   if not self._eligible(event):raise errors.InvalidRequest('source is not a local captured conversation message')
@@ -77,7 +90,11 @@ class ConversationProcessing:
   if 'event_id' in body:
    event=self.events.get(body['event_id'])
    if not self._eligible(event) or any(event[name]!=body[name] for name in ('project_id','session_id') if name in body):raise errors.InvalidRequest('source scope mismatch or unsupported producer')
-  clauses=['e.source_system IN ('+','.join('?'*len(SOURCES))+')',"e.event_type IN ('user.prompt','assistant.message')",'e.host_id=?'];params=[*SOURCES,self.host]
+  host_clause,host_params='e.host_id=?',[self.host]
+  if _clients_enabled():
+   host_clause="(e.host_id=? OR (EXISTS (SELECT 1 FROM tailnet_clients t WHERE t.host_id=e.host_id AND t.status='active' AND t.host_id!=?) AND EXISTS (SELECT 1 FROM workspace_aliases a WHERE a.host_id=e.host_id AND a.project_id=e.project_id AND a.confirmed=1)))"
+   host_params=[self.host,self.host]
+  clauses=['e.source_system IN ('+','.join('?'*len(SOURCES))+')',"e.event_type IN ('user.prompt','assistant.message')",host_clause];params=[*SOURCES,*host_params]
   for name,prefix in [('project_id','prj'),('session_id','ses'),('event_id','evt')]:
    if name in body:
     if not ids.is_id(body[name],prefix):raise errors.InvalidRequest('invalid source scope')
@@ -148,6 +165,12 @@ class ConversationProcessing:
     item=out['interpretation'];ident=item['interpretation_id']
    self._save(event_id,owner,interpretation_id=ident)
    if item['status']!='EXTRACTED':raise errors.InvalidRequest('interpreter_failed',provider_code=item.get('error_code') or item['status'])
+   if self._client_host(self.events.get(event_id)['host_id']):
+    self._save(event_id,owner,status='NO_ACTION',lease_owner=None,lease_until=None)
+    with db.transaction(self.conn):
+     self._change(event_id,'NO_ACTION',self.actor,reason='tailnet_memory_only',interpretation_id=ident)
+     if db.get_meta(self.conn,COOLDOWN_SECONDS,None) not in (None,'0'):db.set_meta(self.conn,COOLDOWN_SECONDS,'0')
+    return {'event_id':event_id,'status':'NO_ACTION'}
    # resolve() commits before the queue projection is saved. Recover that
    # durable result before previewing context that may have changed since then.
    request_key='daily-resolve:'+ident

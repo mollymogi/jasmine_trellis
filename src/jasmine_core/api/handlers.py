@@ -11,7 +11,9 @@ is P1, and there is no method that could contradict an append-only Event.
 
 from __future__ import annotations
 
+import os
 import re
+import secrets
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -25,6 +27,7 @@ from ..models import NewEvent, NewObject
 from ..continuity import ContinuityStore
 from ..context.builder import ContextBuilder
 from ..adapter.requirements import NativeAdapterStore
+from ..tailnet_gateway import GATEWAY_HEADER
 from .request import Request, Response
 
 Handler = Callable[[Request, "Core", auth.Principal | None, "re.Match[str]"], Response]
@@ -38,9 +41,12 @@ PARSERS = {"project": NewObject.project, "task": NewObject.task, "session": NewO
 class Core:
     """Process-wide state: one connection, one store, one registry, one audit log."""
 
-    def __init__(self, conn) -> None:
+    def __init__(self, conn, *, gateway_secret: str | None = None) -> None:
         check_version(conn)
         self.conn = conn
+        #: The gateway secret read once at process start. None means the file was absent.
+        self.gateway_secret = gateway_secret
+        self.tailnet_request = False
         self.schema_version = current_version(conn)
         self.objects = objects.ObjectStore(conn, schema_version=self.schema_version)
         self.evidence = evidence.EvidenceStore(conn, schema_version=self.schema_version)
@@ -77,13 +83,20 @@ class Route:
     #: Whether an anonymous caller is allowed. Only liveness and schema reporting.
     public: bool = False
     required_scopes: tuple[str, ...] = ()
+    #: Tailnet requests on this route must match body host_id to the key pin.
+    checks_bound_host: bool = False
+    #: Tailnet writes must name a confirmed alias: "project" reads project_id,
+    #: "root" reads workspace_root. Loopback requests skip this.
+    checks_alias: str | None = None
 
 
 def _collection_routes() -> list[Route]:
     routes: list[Route] = []
     for kind, plural in PLURAL.items():
         routes.append(Route("POST", re.compile(rf"^/v1/{plural}$"),
-                            _make_create(kind), "objects:write"))
+                            _make_create(kind), "objects:write",
+                            checks_bound_host=kind in {"project", "task", "session"},
+                            checks_alias="project" if kind == "session" else None))
         routes.append(Route("GET", re.compile(rf"^/v1/{plural}$"),
                             _make_list(kind), "objects:read"))
         routes.append(Route("GET", re.compile(rf"^/v1/{plural}/([^/]+)$"),
@@ -108,17 +121,21 @@ def _base_routes() -> list[Route]:
         Route("GET", re.compile(r"^/v1/context/([^/]+)$"), get_context, "context:read"),
         Route("GET", re.compile(r"^/v1/context/([^/]+)/delivery$"), get_context_delivery, "context:read"),
         Route("POST", re.compile(r"^/v1/context/([^/]+)/check-current$"), check_context_current, "context:build"),
-        Route("POST", re.compile(r"^/v1/checkpoints$"), create_checkpoint, "checkpoint:write"),
+        Route("POST", re.compile(r"^/v1/checkpoints$"), create_checkpoint, "checkpoint:write",
+              checks_bound_host=True),
         Route("GET", re.compile(r"^/v1/tasks/([^/]+)/checkpoints/latest$"), latest_checkpoint, "checkpoint:read"),
         Route("GET", re.compile(r"^/v1/checkpoints/([^/]+)$"), get_checkpoint, "checkpoint:read"),
-        Route("POST", re.compile(r"^/v1/tasks/([^/]+)/resume$"), build_resume, "resume:build"),
+        Route("POST", re.compile(r"^/v1/tasks/([^/]+)/resume$"), build_resume, "resume:build",
+              checks_bound_host=True),
         # ADR 0039: session Checkpoints are written by capture's system key, and
         # the resume block is read with the hint's `memory:recall`-only key.
-        Route("POST", re.compile(r"^/v1/session-checkpoints$"), create_session_checkpoint, "events:write"),
+        Route("POST", re.compile(r"^/v1/session-checkpoints$"), create_session_checkpoint, "events:write",
+              checks_bound_host=True, checks_alias="project"),
         Route("POST", re.compile(r"^/v1/session-checkpoints/recover$"), recover_session_checkpoints,
-              "events:write"),
+              "events:write", checks_bound_host=True, checks_alias="root"),
         Route("GET", re.compile(r"^/v1/session-checkpoints$"), list_session_checkpoints, "events:read"),
-        Route("POST", re.compile(r"^/v1/continuity/recent$"), recent_activity, "memory:recall"),
+        Route("POST", re.compile(r"^/v1/continuity/recent$"), recent_activity, "memory:recall",
+              checks_bound_host=True, checks_alias="root"),
         Route("GET", re.compile(r"^/v1/resumes/([^/]+)$"), get_resume, "resume:read"),
         Route("GET", re.compile(r"^/v1/resolutions/preview$"), resolution_preview, "resolutions:read"),
         Route("POST", re.compile(r"^/v1/resolve/([^/]+)$"), resolve_interpretation, "resolutions:process"),
@@ -139,7 +156,8 @@ def _base_routes() -> list[Route]:
         Route("GET", re.compile(r"^/v1/auth/keys$"), list_keys, "admin"),
         Route("POST", re.compile(r"^/v1/auth/keys/([^/]+)/revoke$"), revoke_key, "admin"),
         Route("GET", re.compile(r"^/v1/audit$"), list_audit, "admin"),
-        Route("POST", re.compile(r"^/v1/events$"), create_event, "events:write"),
+        Route("POST", re.compile(r"^/v1/events$"), create_event, "events:write",
+              checks_bound_host=True, checks_alias="project"),
         Route("GET", re.compile(r"^/v1/events$"), list_events, "events:read"),
         Route("GET", re.compile(r"^/v1/events/([^/]+)$"), get_event, "events:read"),
         Route("GET", re.compile(r"^/v1/rules$"), list_rules, "authority:read"),
@@ -160,6 +178,8 @@ def _base_routes() -> list[Route]:
         Route("POST", re.compile(r"^/v1/evidence/confirm$"), confirm_evidence, "evidence:confirm"),
         Route("GET", re.compile(r"^/v1/evidence/([^/]+)$"), get_evidence, "evidence:read"),
         Route("GET", re.compile(r"^/v1/tasks/([^/]+)/evidence$"), list_task_evidence, "evidence:read"),
+        Route("POST", re.compile(r"^/v1/workspaces/resolve$"), resolve_workspace, "objects:write",
+              checks_bound_host=True),
         Route("POST", re.compile(r"^/v1/workspaces/fingerprint$"), capture_fingerprint, "fingerprint:scan"),
         Route("POST", re.compile(r"^/v1/workspaces/compare$"), compare_fingerprints, "fingerprint:read"),
         Route("POST", re.compile(r"^/v1/tasks/([^/]+)/steps$"), create_step, "state:write"),
@@ -178,6 +198,93 @@ def _base_routes() -> list[Route]:
 ROUTES: tuple[Route, ...]
 """Assigned at the bottom of the module: the route table names the handlers,
 so it can only be built once they exist."""
+
+
+def _gateway_header_matches(header: str, secret: str) -> bool:
+    """Compare as latin-1 bytes. A header that is not latin-1 is a mismatch, not a 500.
+
+    ``secrets.compare_digest`` on ``str`` raises ``TypeError`` for any code point
+    above 127. The secret file is latin-1, and HTTP header values are iso-8859-1.
+    """
+    try:
+        presented = header.encode("latin-1")
+        expected = secret.encode("latin-1")
+    except UnicodeEncodeError:
+        return False
+    return secrets.compare_digest(presented, expected)
+
+
+def tailnet_clients_enabled() -> bool:
+    """True only when the hub process was started with the clients flag set."""
+    value = os.environ.get("JASMINE_TAILNET_CLIENTS")
+    return bool(value and value.strip())
+
+
+def admit_gateway(core: Core, request: Request) -> None:
+    """Classify X-Jasmine-Gateway before authentication.
+
+    A missing header is today's loopback request. A present header that does not
+    match the startup secret is neither loopback nor an authenticated tailnet
+    call. The header value is not copied into the error.
+    """
+    header = request.header(GATEWAY_HEADER)
+    if header is None:
+        core.tailnet_request = False
+        return
+    secret = core.gateway_secret
+    if secret is None or not _gateway_header_matches(header, secret):
+        core.tailnet_request = False
+        raise errors.GatewaySecretMismatch("gateway secret does not match")
+    core.tailnet_request = True
+    if request.method == "GET" and request.path == "/v1/health":
+        return
+    if not tailnet_clients_enabled():
+        raise errors.TailnetDisabled("tailnet clients are disabled")
+
+
+def admit_pinned_key(core: Core, principal: auth.Principal) -> None:
+    if core.tailnet_request and principal.bound_host_id is None:
+        raise errors.GatewayKeyNotPinned("this API key is not pinned to a host")
+
+
+def admit_bound_host(core: Core, request: Request, principal: auth.Principal, route: Route) -> None:
+    """Refuse a tailnet body whose host_id is missing or not the key's pin. Do not write.
+
+    Every marked route's body carries `host_id`, so a tailnet body without one
+    is refused rather than admitted: an optional field would let a key pinned
+    to host A read another project's Memory hint without being compared at all.
+    """
+    if not core.tailnet_request or not route.checks_bound_host:
+        return
+    body = request.json_body()
+    if "host_id" not in body:
+        raise errors.HostMismatch("host_id is required on a tailnet request")
+    presented = body["host_id"]
+    bound = principal.bound_host_id or ""
+    if not isinstance(presented, str) or presented != bound:
+        raise errors.HostMismatch("host_id does not match the key")
+
+
+def admit_workspace_alias(core: Core, request: Request, principal: auth.Principal, route: Route) -> None:
+    """A tailnet write may only name a project this host has already confirmed.
+
+    ``may_read`` is not this check. An unset clients flag never reaches here:
+    ``admit_gateway`` already refused the request with ``tailnet_disabled``.
+    """
+    if not core.tailnet_request or not route.checks_alias:
+        return
+    from ..workspace_alias import project_confirmed, root_confirmed
+
+    body = request.json_body() if request.body else {}
+    host_id = principal.bound_host_id or ""
+    if route.checks_alias == "project":
+        project_id = body.get("project_id")
+        if not isinstance(project_id, str) or not project_confirmed(core.conn, host_id, project_id):
+            raise errors.ProjectNotAliased("project is not confirmed for this host")
+        return
+    root = body.get("workspace_root")
+    if not isinstance(root, str) or not root_confirmed(core.conn, host_id, root):
+        raise errors.ProjectNotAliased("workspace is not confirmed for this host")
 
 
 def resolve(method: str, path: str) -> tuple[Route, re.Match[str]]:
@@ -449,6 +556,20 @@ def list_task_evidence(request: Request, core: Core, principal: auth.Principal,
     _require_id(task_id, "tsk", "task_id")
     records = core.evidence.list_task(task_id)
     return Response(200, {"evidence": records, "count": len(records)})
+
+
+def resolve_workspace(request: Request, core: Core, principal: auth.Principal,
+                      match: re.Match[str]) -> Response:
+    """Map a canonical remote to a confirmed project. Never creates one."""
+    from ..workspace_alias import resolve_request
+
+    if request.query:
+        raise errors.InvalidRequest("resolve accepts no query")
+    outcome = resolve_request(core.conn, _state_body(
+        request, {"host_id", "root", "origin", "remote_kind"}))
+    if outcome.status == "alias_conflict":
+        raise errors.AliasConflict(outcome.matched_by)
+    return Response(200, outcome.as_dict())
 
 
 def capture_fingerprint(request: Request, core: Core, principal: auth.Principal,
@@ -785,8 +906,17 @@ def create_session_checkpoint(request, core, principal, match):
 def recover_session_checkpoints(request, core, principal, match):
     if request.query:
         raise errors.InvalidRequest("session checkpoint recovery accepts no query")
-    result = core.worklog.recover(request.json_body(), actor_id=principal.actor_id,
-                                  actor_kind=core.actor_kind(principal.actor_id))
+    body = request.json_body()
+    projects = None
+    if core.tailnet_request:
+        from ..workspace_alias import confirmed_alias
+        alias = confirmed_alias(core.conn, principal.bound_host_id or "",
+                                body.get("workspace_root"))
+        projects = {alias[0]: alias[1]} if alias is not None else {}
+    result = core.worklog.recover(body, actor_id=principal.actor_id,
+                                  actor_kind=core.actor_kind(principal.actor_id),
+                                  projects=projects,
+                                  bound_host_id=principal.bound_host_id if core.tailnet_request else None)
     return Response(200, result)
 
 
@@ -812,10 +942,24 @@ def recent_activity(request, core, principal, match):
     """The resume block for a new session (ADR 0039 B). Read-only."""
     if request.query:
         raise errors.InvalidRequest("recent activity accepts no query")
+    body = request.json_body()
     access = memory_api.services(core).access
-    result = core.worklog.recent(
-        request.json_body(),
-        may_read=lambda project_id: access.may_read(project_id=project_id, actor_id=principal.actor_id))
+    projects = None
+    if core.tailnet_request:
+        from ..workspace_alias import confirmed_alias, confirmed_aliases
+        host_id = principal.bound_host_id or ""
+        if body.get("scope") == "global":
+            projects = confirmed_aliases(core.conn, host_id)
+        else:
+            alias = confirmed_alias(core.conn, host_id, body.get("workspace_root"))
+            projects = {alias[0]: alias[1]} if alias is not None else {}
+
+    def may_read(project_id: str) -> bool:
+        if not access.may_read(project_id=project_id, actor_id=principal.actor_id):
+            return False
+        return projects is None or project_id in projects
+
+    result = core.worklog.recent(body, may_read=may_read, projects=projects)
     return Response(200, result)
 
 

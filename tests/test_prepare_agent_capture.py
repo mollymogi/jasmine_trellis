@@ -38,6 +38,7 @@ class MissingMetadata(unittest.TestCase):
         reg = registry.Registry(conn)
         self.system, self.human, self.other = ids.new_id("act"), ids.new_id("act"), ids.new_id("act")
         with db.transaction(conn):
+            reg.upsert_host(HOST, display_name="codex device")
             reg.upsert_actor(self.system, kind="system", display_name="Codex capture")
             reg.upsert_actor(self.human, kind="human", display_name="browser human")
             reg.upsert_actor(self.other, kind="system", display_name="unrelated system")
@@ -101,6 +102,29 @@ class MissingMetadata(unittest.TestCase):
         self.run_prepare()
         self.assertEqual(self.hint_key_actor().actor_id, self.other)
         self.assertNotIn("reconstructed_from", json.loads(self.metadata.read_text()))
+
+    def test_the_hint_key_is_pinned_to_the_bindings_host(self):
+        self.run_prepare()
+        self.assertEqual(self.hint_key_actor().bound_host_id, HOST)
+
+    def test_a_binding_without_a_host_id_is_refused(self):
+        document = json.loads(self.binding.read_text())
+        document.pop("host_id")
+        self.binding.write_text(json.dumps(document))
+        self.assert_refused("binding has no host_id")
+
+    def test_an_existing_memory_key_still_requires_a_host_id(self):
+        self.memory_key.write_text(self.keys["system"]["token"] + "\n")
+        self.memory_key.chmod(0o600)
+        document = json.loads(self.binding.read_text())
+        document["memory_key_file"] = str(self.memory_key)
+        document.pop("host_id")
+        self.binding.write_text(json.dumps(document))
+        before = (self.binding.read_bytes(), self.memory_key.read_bytes())
+        with self.assertRaisesRegex(ValueError, "binding has no host_id"):
+            self.run_prepare()
+        self.assertFalse(self.metadata.exists())
+        self.assertEqual(before, (self.binding.read_bytes(), self.memory_key.read_bytes()))
 
     def assert_refused(self, message):
         before = self.binding.read_bytes()

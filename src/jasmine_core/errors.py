@@ -246,3 +246,61 @@ class HostHookNamespaceReserved(CoreError):
 
     status = 403
     code = "host_hook_namespace_reserved"
+
+
+class GatewaySecretMismatch(CoreError):
+    """X-Jasmine-Gateway was sent and is not the secret loaded at startup."""
+
+    status = 403
+    code = "gateway_secret_mismatch"
+
+
+class GatewayKeyNotPinned(CoreError):
+    """A tailnet request used a key whose bound_host_id is still NULL."""
+
+    status = 403
+    code = "gateway_key_not_pinned"
+
+
+class HostMismatch(CoreError):
+    """A tailnet request omitted host_id, or named one other than the key's bound host."""
+
+    status = 403
+    code = "host_mismatch"
+
+
+class TailnetDisabled(CoreError):
+    """The gateway header matched, but JASMINE_TAILNET_CLIENTS is unset."""
+
+    status = 403
+    code = "tailnet_disabled"
+
+
+class ProjectNotAliased(CoreError):
+    """A tailnet write named a project this host has no confirmed alias for."""
+
+    status = 403
+    code = "project_not_aliased"
+
+
+class AliasConflict(CoreError):
+    """A confirmed alias does not accept this non-empty remote. No project id is returned."""
+
+    status = 409
+    code = "alias_conflict"
+
+    def __init__(self, matched_by: str | None = None) -> None:
+        super().__init__("alias conflict", alias_conflict=True, created=False)
+        self.matched_by = matched_by
+
+    def to_payload(self, request_id: str) -> dict[str, Any]:
+        payload = super().to_payload(request_id)
+        details = dict(payload["error"]["details"])
+        details["project_id"] = None
+        payload["error"]["details"] = details
+        payload["status"] = "alias_conflict"
+        payload["project_id"] = None
+        payload["created"] = False
+        payload["alias_conflict"] = True
+        payload["matched_by"] = self.matched_by
+        return payload

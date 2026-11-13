@@ -58,6 +58,8 @@ class Principal:
     actor_id: str
     key_id: str
     scopes: frozenset[str]
+    #: NULL means a loopback key. A tailnet request refuses that pin.
+    bound_host_id: str | None = None
 
     def require(self, scope: str) -> None:
         if scope not in self.scopes:
@@ -71,7 +73,8 @@ class Auth:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
-    def issue_key(self, *, actor_id: str, label: str, scopes: list[str]) -> dict[str, Any]:
+    def issue_key(self, *, actor_id: str, label: str, scopes: list[str],
+                  bound_host_id: str | None = None) -> dict[str, Any]:
         if not isinstance(scopes, list) or not all(isinstance(scope, str) for scope in scopes):
             raise errors.InvalidRequest("scopes must be an array of strings", field="scopes")
         unknown = sorted(set(scopes) - set(SCOPES))
@@ -87,6 +90,8 @@ class Auth:
                 raise errors.ForbiddenActorKind("adapter capabilities require a trusted system actor")
         if not scopes:
             raise errors.InvalidRequest("at least one scope is required", field="scopes")
+        if bound_host_id is not None and not ids.is_id(bound_host_id, "hst"):
+            raise errors.InvalidRequest("bound_host_id must be a hst_ id", field="bound_host_id")
         if self._conn.execute("SELECT 1 FROM actors WHERE actor_id = ?", (actor_id,)).fetchone() is None:
             raise errors.NotFound("actor", actor_id)
         kind = self._conn.execute("SELECT kind FROM actors WHERE actor_id = ?", (actor_id,)).fetchone()["kind"]
@@ -121,14 +126,18 @@ class Auth:
         key_id = ids.new_id("key")
         token = secrets.token_urlsafe(TOKEN_BYTES)
         with db.translate_lock_errors(), db.transaction(self._conn):
+            if bound_host_id is not None and self._conn.execute(
+                "SELECT 1 FROM hosts WHERE host_id = ?", (bound_host_id,)
+            ).fetchone() is None:
+                raise errors.NotFound("host", bound_host_id)
             self._conn.execute(
-                "INSERT INTO api_keys (key_id, actor_id, label, scopes, token_sha256, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO api_keys (key_id, actor_id, label, scopes, token_sha256, created_at,"
+                " bound_host_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (key_id, actor_id, label, canonical_json(sorted(scopes)),
-                 sha256_hex(token), clock.now_rfc3339()),
+                 sha256_hex(token), clock.now_rfc3339(), bound_host_id),
             )
         return {"key_id": key_id, "actor_id": actor_id, "label": label,
-                "scopes": sorted(scopes), "token": token,
+                "scopes": sorted(scopes), "token": token, "bound_host_id": bound_host_id,
                 "warning": "the token is shown once and is not recoverable"}
 
     def authenticate(self, header: str | None) -> Principal:
@@ -139,7 +148,8 @@ class Auth:
             raise errors.Unauthenticated("expected an Authorization: Bearer header")
         presented = presented.strip()
         row = self._conn.execute(
-            "SELECT key_id, actor_id, scopes, revoked_at FROM api_keys WHERE token_sha256 = ?",
+            "SELECT key_id, actor_id, scopes, revoked_at, bound_host_id FROM api_keys"
+            " WHERE token_sha256 = ?",
             (sha256_hex(presented),),
         ).fetchone()
         if row is None:
@@ -151,7 +161,8 @@ class Auth:
         # caller with the wrong scope had already written to `api_keys` before
         # the refusal, which is a write Truth does not promise to be unchanged.
         return Principal(actor_id=row["actor_id"], key_id=row["key_id"],
-                         scopes=frozenset(json_scopes(row["scopes"])))
+                         scopes=frozenset(json_scopes(row["scopes"])),
+                         bound_host_id=row["bound_host_id"])
 
     def touch(self, key_id: str) -> None:
         """Record that a key was used, called only after the request is allowed.
@@ -175,7 +186,7 @@ class Auth:
                 "key_id": row["key_id"], "actor_id": row["actor_id"], "label": row["label"],
                 "scopes": sorted(json_scopes(row["scopes"])),
                 "created_at": row["created_at"], "revoked_at": row["revoked_at"],
-                "last_used_at": row["last_used_at"],
+                "last_used_at": row["last_used_at"], "bound_host_id": row["bound_host_id"],
             }
             for row in self._conn.execute("SELECT * FROM api_keys ORDER BY created_at, key_id")
         ]
@@ -190,6 +201,47 @@ class Auth:
             self._conn.execute(
                 "UPDATE api_keys SET revoked_at = ? WHERE key_id = ?", (clock.now_rfc3339(), key_id)
             )
+
+    def bind_key(self, key_id: str, host_id: str) -> dict[str, Any]:
+        """Pin an existing key to a host, keeping its token.
+
+        This is the upgrade path for keys issued before `bound_host_id`
+        existed: those tokens live in client key files, so re-issuing them with
+        `issue_key` would rotate every capture client.
+        """
+        if not ids.is_id(key_id, "key"):
+            raise errors.InvalidRequest("key_id must be a key_ id", field="key_id")
+        if not ids.is_id(host_id, "hst"):
+            raise errors.InvalidRequest("host_id must be a hst_ id", field="host_id")
+        with db.translate_lock_errors(), db.transaction(self._conn):
+            row = self._conn.execute(
+                "SELECT revoked_at, bound_host_id FROM api_keys WHERE key_id = ?", (key_id,)
+            ).fetchone()
+            if row is None:
+                raise errors.NotFound("key", key_id)
+            if row["revoked_at"] is not None:
+                raise errors.InvalidRequest("a revoked key cannot be pinned", field="key_id")
+            if self._conn.execute(
+                "SELECT 1 FROM hosts WHERE host_id = ?", (host_id,)
+            ).fetchone() is None:
+                raise errors.NotFound("host", host_id)
+            previous = row["bound_host_id"]
+            self._conn.execute(
+                "UPDATE api_keys SET bound_host_id = ? WHERE key_id = ?", (host_id, key_id)
+            )
+        return {"key_id": key_id, "bound_host_id": host_id,
+                "previous_bound_host_id": previous}
+
+    def bind_token(self, token: str, host_id: str) -> dict[str, Any]:
+        """Pin the key that a client token identifies, for keys stored in key files."""
+        if not isinstance(token, str) or not token.strip():
+            raise errors.InvalidRequest("token must not be empty", field="token")
+        row = self._conn.execute(
+            "SELECT key_id FROM api_keys WHERE token_sha256 = ?", (sha256_hex(token.strip()),)
+        ).fetchone()
+        if row is None:
+            raise errors.NotFound("key", "the presented token")
+        return self.bind_key(row["key_id"], host_id)
 
 
 def json_scopes(raw: str) -> list[str]:

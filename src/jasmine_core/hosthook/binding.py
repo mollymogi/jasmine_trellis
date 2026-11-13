@@ -26,6 +26,8 @@ from .. import ids
 BINDING_RELATIVE = Path(".jasmine") / "host-binding.json"
 ENV_BINDING = "JASMINE_HOST_BINDING"
 LOOPBACK_URL = re.compile(r"http://(?:127\.0\.0\.1|localhost|\[::1\]):[0-9]{1,5}\Z")
+#: The only non-loopback Core origin a device binding may name. Not an env var.
+TAILNET_CORE_ORIGIN = "https://mercuryliumac-mini.tail07df76.ts.net"
 ALLOWED = {"version", "core_url", "host_id", "project_id", "task_id", "step_id", "api_key_file",
            "human_api_key_file", "on_unavailable", "spool_dir", "timeout_seconds", "inject_context"}
 #: What a project file may say when a device binding applies (everything else is device-owned).
@@ -83,7 +85,31 @@ def find_binding(explicit: str | os.PathLike | None, environ: dict[str, str], cw
     return None
 
 
+#: NT AUTHORITY\SYSTEM. The only trustee allowed besides the current user.
+NT_AUTHORITY_SYSTEM_SID = "S-1-5-18"
+
+
+def windows_dacl_allows(*, owner_sid: str, user_sid: str,
+                        trustees: tuple[str, ...] | list[str] | None) -> bool:
+    """Whether a Windows key-file DACL is only the current user and SYSTEM.
+
+    ``trustees`` is every DACL ACE SID, inherited or not, ALLOW or DENY.
+    ``None`` is a NULL DACL (Everyone). An explicit DENY is not required.
+    This does not read the filesystem.
+    """
+    if not isinstance(owner_sid, str) or not isinstance(user_sid, str) or not user_sid:
+        return False
+    if owner_sid.upper() != user_sid.upper():
+        return False
+    if trustees is None:
+        return False
+    allowed = {user_sid.upper(), NT_AUTHORITY_SYSTEM_SID}
+    return all(isinstance(sid, str) and sid.upper() in allowed for sid in trustees)
+
+
 def _private_bytes(path: Path, what: str, *, limit: int = MAX_FILE_BYTES) -> bytes:
+    if os.name == "nt":
+        return _private_bytes_windows(path, what, limit)
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError as exc:
@@ -98,6 +124,35 @@ def _private_bytes(path: Path, what: str, *, limit: int = MAX_FILE_BYTES) -> byt
             return stream.read(limit + 1)
     finally:
         os.close(descriptor)
+
+
+def _private_bytes_windows(path: Path, what: str, limit: int) -> bytes:
+    """Owner is the current user; every DACL trustee is that user or SYSTEM."""
+    try:
+        kernel32, handle, regular, owner, trustees, size = _windows_key_security(os.fspath(path))
+    except OSError as exc:
+        raise BindingError(f"{what} is not readable") from exc
+    try:
+        try:
+            user = _windows_user_sid() if regular else ""
+        except OSError as exc:
+            raise BindingError(f"{what} is not readable") from exc
+        if not regular or not windows_dacl_allows(owner_sid=owner, user_sid=user, trustees=trustees):
+            raise BindingError(
+                f"{what} must be a regular file owned by this user and only that user or SYSTEM")
+        if size > limit:
+            raise BindingError(f"{what} is too large")
+        if size == 0:
+            return b""
+        import ctypes
+        from ctypes import wintypes
+        raw = ctypes.create_string_buffer(size)
+        got = wintypes.DWORD()
+        if not kernel32.ReadFile(handle, raw, size, ctypes.byref(got), None):
+            raise BindingError(f"{what} is not readable") from OSError(ctypes.get_last_error())
+        return raw.raw[:got.value]
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def read_key(path: Path) -> str:
@@ -161,8 +216,9 @@ def _build(data: dict[str, Any], path: Path, spool_base: Path, device: Path | No
     if data.get("version") != 1:
         raise BindingError("binding version must be 1")
     url = data.get("core_url")
-    if not isinstance(url, str) or not LOOPBACK_URL.match(url):
-        raise BindingError("core_url must be loopback http://HOST:PORT")
+    if not isinstance(url, str) or not (LOOPBACK_URL.match(url) or url == TAILNET_CORE_ORIGIN):
+        raise BindingError("core_url must be loopback http://HOST:PORT or exactly " + TAILNET_CORE_ORIGIN
+                           + " (an exact match: no trailing slash, port, path or query)")
     for name, prefix in (("host_id", "hst"), ("project_id", "prj"), ("task_id", "tsk"), ("step_id", "stp")):
         value = data.get(name)
         if value is None and name != "host_id":
@@ -196,3 +252,166 @@ def _build(data: dict[str, Any], path: Path, spool_base: Path, device: Path | No
                    device_path=device,
                    memory_key_file=_abs_file(memory_key, "memory_key_file") if memory_key else None,
                    memory_hint=memory_hint)
+
+
+_DIRECTORY = 0x10
+_REPARSE_POINT = 0x400
+_OPEN_REPARSE_POINT = 0x00200000  # FILE_FLAG_OPEN_REPARSE_POINT
+_ACE_STANDARD = (0, 1, 9, 10)  # allow/deny, including callback ACEs
+_ACE_OBJECT = (5, 6, 11, 12)
+
+
+def _win_api():
+    """kernel32 and advapi32. Called only when ``os.name == 'nt'``."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel32.LocalFree.restype = ctypes.c_void_p
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+        wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p]
+    kernel32.CreateFileW.restype = ctypes.c_void_p
+    kernel32.ReadFile.argtypes = [
+        ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD), ctypes.c_void_p]
+    kernel32.ReadFile.restype = wintypes.BOOL
+    kernel32.GetFileInformationByHandle.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    kernel32.GetFileInformationByHandle.restype = wintypes.BOOL
+    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+    advapi32.OpenProcessToken.argtypes = [ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p)]
+    advapi32.OpenProcessToken.restype = wintypes.BOOL
+    advapi32.GetTokenInformation.argtypes = [
+        ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+    advapi32.GetTokenInformation.restype = wintypes.BOOL
+    advapi32.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_wchar_p)]
+    advapi32.ConvertSidToStringSidW.restype = wintypes.BOOL
+    advapi32.GetSecurityInfo.argtypes = [
+        ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD,
+        ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.c_void_p)]
+    advapi32.GetSecurityInfo.restype = wintypes.DWORD
+    advapi32.GetAclInformation.argtypes = [ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD]
+    advapi32.GetAclInformation.restype = wintypes.BOOL
+    advapi32.GetAce.argtypes = [ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p)]
+    advapi32.GetAce.restype = wintypes.BOOL
+    return ctypes, wintypes, kernel32, advapi32
+
+
+def _sid_string(ctypes, advapi32, kernel32, sid) -> str:
+    if not sid:
+        return ""
+    text = ctypes.c_wchar_p()
+    if not advapi32.ConvertSidToStringSidW(sid, ctypes.byref(text)):
+        return ""
+    try:
+        return text.value or ""
+    finally:
+        kernel32.LocalFree(ctypes.cast(text, ctypes.c_void_p))
+
+
+def _ace_trustees(ctypes, wintypes, advapi32, kernel32, dacl) -> list[str]:
+    class AclSize(ctypes.Structure):
+        _fields_ = [("AceCount", wintypes.DWORD), ("AclBytesInUse", wintypes.DWORD),
+                    ("AclBytesFree", wintypes.DWORD)]
+
+    class AceHeader(ctypes.Structure):
+        _fields_ = [("AceType", wintypes.BYTE), ("AceFlags", wintypes.BYTE), ("AceSize", wintypes.WORD)]
+
+    info = AclSize()
+    if not advapi32.GetAclInformation(dacl, ctypes.byref(info), ctypes.sizeof(info), 2):
+        raise OSError(ctypes.get_last_error())
+    trustees = []
+    for index in range(info.AceCount):
+        ace = ctypes.c_void_p()
+        if not advapi32.GetAce(dacl, index, ctypes.byref(ace)) or not ace.value:
+            raise OSError(ctypes.get_last_error())
+        header = ctypes.cast(ace, ctypes.POINTER(AceHeader)).contents
+        if header.AceType in _ACE_STANDARD:
+            sid_at = ace.value + 8
+        elif header.AceType in _ACE_OBJECT:
+            flags = ctypes.c_uint.from_address(ace.value + 8).value
+            sid_at = ace.value + 12 + (16 if flags & 1 else 0) + (16 if flags & 2 else 0)
+        else:
+            sid_at = 0  # not a known trustee; the decision rejects it
+        trustees.append(_sid_string(ctypes, advapi32, kernel32, sid_at))
+    return trustees
+
+
+def _windows_user_sid() -> str:
+    ctypes, wintypes, kernel32, advapi32 = _win_api()
+    token = ctypes.c_void_p()
+    if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x0008, ctypes.byref(token)):
+        raise OSError(ctypes.get_last_error())
+    try:
+        needed = wintypes.DWORD(0)
+        advapi32.GetTokenInformation(token, 1, None, 0, ctypes.byref(needed))
+        if not needed.value:
+            raise OSError(ctypes.get_last_error())
+        buf = ctypes.create_string_buffer(needed.value)
+        if not advapi32.GetTokenInformation(token, 1, buf, needed.value, ctypes.byref(needed)):
+            raise OSError(ctypes.get_last_error())
+        sid = ctypes.cast(buf, ctypes.POINTER(ctypes.c_void_p)).contents.value
+        text = _sid_string(ctypes, advapi32, kernel32, sid)
+        if not text:
+            raise OSError("current user sid")
+        return text
+    finally:
+        kernel32.CloseHandle(token)
+
+
+def _windows_key_security(path: str):
+    """Open without following a reparse point. Returns handle, regular, owner, trustees, size."""
+    ctypes, wintypes, kernel32, advapi32 = _win_api()
+
+    class ByHandle(ctypes.Structure):
+        _fields_ = [
+            ("dwFileAttributes", wintypes.DWORD),
+            ("ftCreationTime", wintypes.FILETIME),
+            ("ftLastAccessTime", wintypes.FILETIME),
+            ("ftLastWriteTime", wintypes.FILETIME),
+            ("dwVolumeSerialNumber", wintypes.DWORD),
+            ("nFileSizeHigh", wintypes.DWORD),
+            ("nFileSizeLow", wintypes.DWORD),
+            ("nNumberOfLinks", wintypes.DWORD),
+            ("nFileIndexHigh", wintypes.DWORD),
+            ("nFileIndexLow", wintypes.DWORD),
+        ]
+
+    # Do not follow a symlink or junction. The reparse point itself must fail the check.
+    handle = kernel32.CreateFileW(path, 0x80000000, 0x7, None, 3, _OPEN_REPARSE_POINT, None)
+    invalid = ctypes.c_void_p(-1).value
+    if not handle or handle == invalid:
+        raise OSError(ctypes.get_last_error())
+    try:
+        info = ByHandle()
+        if not kernel32.GetFileInformationByHandle(handle, ctypes.byref(info)):
+            raise OSError(ctypes.get_last_error())
+        if info.dwFileAttributes & (_DIRECTORY | _REPARSE_POINT):
+            return kernel32, handle, False, "", None, 0
+        owner = ctypes.c_void_p()
+        group = ctypes.c_void_p()
+        dacl = ctypes.c_void_p()
+        sacl = ctypes.c_void_p()
+        sd = ctypes.c_void_p()
+        status = advapi32.GetSecurityInfo(
+            handle, 1, 0x1 | 0x4, ctypes.byref(owner), ctypes.byref(group),
+            ctypes.byref(dacl), ctypes.byref(sacl), ctypes.byref(sd))
+        if status != 0:
+            raise OSError(status)
+        try:
+            owner_sid = _sid_string(ctypes, advapi32, kernel32, owner.value)
+            trustees = None if not dacl.value else _ace_trustees(ctypes, wintypes, advapi32, kernel32, dacl)
+        finally:
+            if sd.value:
+                kernel32.LocalFree(sd)
+        size = (info.nFileSizeHigh << 32) | info.nFileSizeLow
+        return kernel32, handle, True, owner_sid, trustees, size
+    except Exception:
+        kernel32.CloseHandle(handle)
+        raise

@@ -19,7 +19,9 @@ __version__ = "0.2.0"
 #: continuity and context). `migrate()` refuses to run when the shipped
 #: migration count and this constant disagree, so a forgotten renumber is a
 #: startup failure rather than a silent schema divergence.
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 19
+#: m0019_workspace_aliases adds tailnet_clients, workspace_remotes, and workspace_aliases.
+#: m0018_api_key_bound_host adds nullable api_keys.bound_host_id.
 #: m0013_host_hooks (ADR 0017) adds the append-only host_hook_deliveries receipt table.
 
 #: m0014 adds the durable daily interpretation queue; Authority and Memory remain unchanged.

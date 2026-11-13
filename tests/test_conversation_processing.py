@@ -1,5 +1,5 @@
 """Daily queue integration over real Core kernels; model is a labeled simulation."""
-import json,unittest,importlib.util,tempfile
+import json,os,unittest,importlib.util,tempfile
 from pathlib import Path
 from unittest.mock import Mock
 from unittest.mock import patch
@@ -15,6 +15,7 @@ from jasmine_core.reviews import ReviewStore
 from jasmine_core.memory.jobs import JobStore
 from jasmine_core.memory.store import MemoryStore
 from jasmine_core.memory.eligibility import SourceRegistry
+from jasmine_core.memory.observed import ObservedCandidateSource
 from jasmine_core.interpreter_provider import ProviderFailure
 
 class Processing(DbTestCase):
@@ -33,6 +34,16 @@ class Processing(DbTestCase):
   self.worker.activate()
  def event(self,text='你好',assistant=False,project=None,source='codex-native-conversation-v1'):
   return EventStore(self.conn,schema_version=SCHEMA_VERSION).append(NewEvent(event_type='assistant.message' if assistant else 'user.prompt',source_system=source,occurred_at=self.clock.now(),actor_id=self.system if assistant else self.human,actor_kind='system' if assistant else 'human',host_id=self.host,project_id=project or self.project,payload={'text':text}))[0]['event_id']
+ def _client(self,status='active'):
+  reg=Registry(self.conn);host=ids.new_id('hst');human=ids.new_id('act');reg.upsert_host(host);reg.upsert_actor(human,kind='human',home_host_id=host)
+  self.conn.execute('INSERT INTO tailnet_clients(host_id,display_name,status,created_at) VALUES(?,?,?,?)',(host,'client',status,'2026-09-29T12:00:00.000000Z'))
+  return host,human
+ def _alias(self,host,project,confirmed=1):
+  self.conn.execute('INSERT INTO workspace_aliases(host_id,root,project_id,remote_key,confirmed,created_at) VALUES(?,?,?,?,?,?)',(host,'/clients/'+host,project,None,confirmed,'2026-09-29T12:00:00.000000Z'))
+ def _client_event(self,host,human,text='客户端原文',assistant=False,project=None,source='codex-native-conversation-v1'):
+  return EventStore(self.conn,schema_version=SCHEMA_VERSION).append(NewEvent(event_type='assistant.message' if assistant else 'user.prompt',source_system=source,occurred_at=self.clock.now(),actor_id=human,actor_kind='system' if assistant else 'human',host_id=host,project_id=project or self.project,payload={'text':text}))[0]['event_id']
+ def _detail(self,event,action):
+  return json.loads(self.conn.execute('SELECT detail_json FROM conversation_processing_changes WHERE event_id=? AND action=? ORDER BY seq DESC',(event,action)).fetchone()['detail_json'])
  def test_greeting_exactly_once_and_no_memory(self):
   ident=self.event();self.assertEqual(self.worker.tick()['status'],'NO_ACTION');self.assertEqual(self.worker.tick()['status'],'idle');self.assertEqual(self.fake.calls,1)
   self.assertEqual(self.worker.list(event_id=ident)['items'][0]['source_text'],'你好');self.assertEqual(self.worker.list(event_id=ident)['items'][0]['project_name'],'Daily');self.assertEqual(self.conn.execute('select count(*) from memory_jobs').fetchone()[0],0)
@@ -126,6 +137,71 @@ class Processing(DbTestCase):
  def test_processing_audit_is_append_only(self):
   self.event();self.worker.tick()
   with self.assertRaises(Exception):self.conn.execute('delete from conversation_processing_changes')
+ def test_unset_flag_hides_client_events_from_eligibility_scan_and_enqueue(self):
+  host,human=self._client();event=self._client_event(host,human);hub=self.event('本机')
+  with patch.dict(os.environ):
+   os.environ.pop('JASMINE_TAILNET_CLIENTS',None)
+   self.assertFalse(self.worker._eligible(self.worker.events.get(event)))
+   self.assertTrue(self.worker._eligible(self.worker.events.get(hub)))
+   self.assertEqual(self.worker.scan(),1)
+   with self.assertRaises(Exception):self.worker.enqueue({'event_id':event},actor_id=self.human)
+   self.assertEqual(self.worker.enqueue({'project_id':self.project},actor_id=self.human)['queued'],0)
+  self.assertEqual(self.worker.list(event_id=event)['count'],0);self.assertEqual(self.worker.list(event_id=hub)['count'],1)
+ def test_flag_on_hub_event_without_an_alias_still_enqueues(self):
+  with patch.dict(os.environ,{'JASMINE_TAILNET_CLIENTS':'1'}):
+   self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM workspace_aliases').fetchone()[0],0)
+   first=self.event('本机扫描');self.assertTrue(self.worker._eligible(self.worker.events.get(first)));self.assertEqual(self.worker.scan(),1)
+   second=self.event('本机补队');self.assertEqual(self.worker.enqueue({'event_id':second},actor_id=self.human)['queued'],1)
+   self.assertEqual(self.worker.enqueue({'project_id':self.project},actor_id=self.human)['queued'],0)
+  self.assertEqual(self.worker.list()['count'],2)
+  self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM workspace_aliases WHERE project_id=?',(self.project,)).fetchone()[0],0)
+ def test_flag_on_client_prompt_needs_an_active_confirmed_alias(self):
+  with patch.dict(os.environ,{'JASMINE_TAILNET_CLIENTS':'1'}):
+   host,human=self._client();bare=self._client_event(host,human,text='未确认')
+   self.assertFalse(self.worker._eligible(self.worker.events.get(bare)))
+   with self.assertRaises(Exception):self.worker.enqueue({'event_id':bare},actor_id=self.human)
+   self.assertEqual(self.worker.enqueue({'project_id':self.project},actor_id=self.human)['queued'],0)
+   self._alias(host,self.project,0);self.assertFalse(self.worker._eligible(self.worker.events.get(bare)))
+   self.conn.execute('UPDATE workspace_aliases SET confirmed=1 WHERE host_id=?',(host,))
+   revoked_host,revoked_human=self._client('revoked');self._alias(revoked_host,self.project)
+   denied=self._client_event(revoked_host,revoked_human,text='已吊销')
+   other=ObjectStore(self.conn,schema_version=SCHEMA_VERSION).create(NewObject.project({'name':'Other client','host_id':self.host}),actor_id=self.human)['object']['project_id']
+   wrong=self._client_event(host,human,text='未别名项目',project=other)
+   foreign=self._client_event(host,human,text='外来生产者',source='foreign-unconfigured-producer')
+   self.assertFalse(self.worker._eligible(self.worker.events.get(denied)))
+   self.assertFalse(self.worker._eligible(self.worker.events.get(wrong)))
+   self.assertFalse(self.worker._eligible(self.worker.events.get(foreign)))
+   with self.assertRaises(Exception):self.worker.enqueue({'event_id':foreign},actor_id=self.human)
+   assistant=self._client_event(host,human,text='助手原文',assistant=True)
+   linked=self._client_event(host,human,text='已确认原文')
+   manual=self._client_event(host,human,text='手动补队')
+   self.assertEqual(self.worker.enqueue({'event_id':manual},actor_id=self.human)['queued'],1)
+   self.assertEqual(self.worker.scan(),2)
+   self.assertEqual(self.worker.enqueue({'event_id':assistant},actor_id=self.human)['queued'],1)
+   self.assertEqual(self.worker.enqueue({'project_id':self.project},actor_id=self.human)['queued'],0)
+  self.assertEqual(self.worker.list(event_id=bare)['count'],1);self.assertEqual(self.worker.list(event_id=linked)['count'],1)
+  self.assertEqual(self.worker.list(event_id=manual)['count'],1);self.assertEqual(self.worker.list(event_id=assistant)['count'],1)
+  self.assertEqual(self.worker.list(event_id=denied)['count'],0);self.assertEqual(self.worker.list(event_id=wrong)['count'],0)
+  self.assertEqual(self.worker.list(event_id=foreign)['count'],0)
+ def test_client_tick_records_observed_memory_without_resolving_rules(self):
+  with patch.dict(os.environ,{'JASMINE_TAILNET_CLIENTS':'1'}):
+   host,human=self._client();self._alias(host,self.project);self.kind='DECISION'
+   event=self._client_event(host,human,text='客户端决定用中文文档')
+   with patch.object(self.worker.resolver,'preview',side_effect=AssertionError('client prompt must not preview')),patch.object(self.worker.resolver,'resolve',side_effect=AssertionError('client prompt must not resolve')):
+    self.assertEqual(self.worker.tick()['status'],'NO_ACTION')
+   item=self.worker.list(event_id=event)['items'][0];self.assertEqual(item['status'],'NO_ACTION');self.assertIsNone(item['resolution_id'])
+   interpretation=self.worker.interpretations.get(item['interpretation_id'])
+   self.assertEqual(interpretation['status'],'EXTRACTED');self.assertEqual(interpretation['source_actor_id'],human);self.assertNotEqual(human,self.human)
+   self.assertEqual(self._detail(event,'NO_ACTION')['reason'],'tailnet_memory_only')
+   admitted=ObservedCandidateSource().examine(self.conn,event,item['interpretation_id'])
+   self.assertEqual([candidate.trust for candidate in admitted.candidates],['USER_STATED'])
+   stored=self.conn.execute('SELECT actor_id,actor_kind FROM events WHERE event_id=?',(event,)).fetchone();self.assertEqual((stored['actor_id'],stored['actor_kind']),(human,'human'))
+   self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM resolutions').fetchone()[0],0)
+   self.assertEqual(self.conn.execute('SELECT home_host_id FROM actors WHERE actor_id=?',(self.system,)).fetchone()[0],self.host)
+   self.kind='NO_STRUCTURE';hub=self.event('你好');self.assertEqual(self.worker.tick()['status'],'NO_ACTION')
+   hub_item=self.worker.list(event_id=hub)['items'][0];self.assertIsNotNone(hub_item['resolution_id'])
+   self.assertNotEqual(self._detail(hub,'NO_ACTION').get('reason'),'tailnet_memory_only')
+   self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM resolutions').fetchone()[0],1)
 
 if __name__=='__main__':unittest.main()
 
