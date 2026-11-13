@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, RefreshCw } from 'lucide-react'
 import type { RawEvent } from '../api/types'
 import type { CoreApiError } from '../api/errors'
+import type { UsageTurn } from '../api/usage'
+import { matchUsageTurns } from '../lib/conversationUsage'
 import { formatTimestamp } from '../lib/text'
 import { ConversationMessage } from './ConversationMessage'
 import { EventRow } from './EventRow'
@@ -10,8 +12,12 @@ import { Button } from './ui/button'
 
 /** The parent keys this reader by scope. Scroll only this viewport; scrolling
  * an ancestor into view would move the entire Dashboard on every poll.
+ *
+ * `usageTurns` is optional: when the caller has session usage, each assistant
+ * message is paired with its turn here (exact id first, positional only when the
+ * source identifies nothing) and the message decides what to render.
  */
-export function ConversationThread({ messages, systemEvents, taskId, loading, error, loadedAt, onReload }: {
+export function ConversationThread({ messages, systemEvents, taskId, loading, error, loadedAt, onReload, usageTurns = null }: {
   messages: RawEvent[]
   systemEvents: RawEvent[]
   taskId: string | null
@@ -19,6 +25,7 @@ export function ConversationThread({ messages, systemEvents, taskId, loading, er
   error: CoreApiError | null
   loadedAt: string | null
   onReload: () => void
+  usageTurns?: UsageTurn[] | null
 }) {
   const viewport = useRef<HTMLDivElement>(null)
   const panel = useRef<HTMLElement>(null)
@@ -28,6 +35,7 @@ export function ConversationThread({ messages, systemEvents, taskId, loading, er
   const [atLatest, setAtLatest] = useState(true)
   const [unread, setUnread] = useState(0)
   const lastId = messages.at(-1)?.event_id
+  const usageByMessage = useMemo(() => matchUsageTurns(messages, usageTurns), [messages, usageTurns])
 
   const fitWindow = useCallback(() => {
     const node = panel.current
@@ -99,6 +107,7 @@ export function ConversationThread({ messages, systemEvents, taskId, loading, er
               const day = date.toLocaleDateString()
               const showDate = !previous || day !== new Date(previous.occurred_at).toLocaleDateString()
               return <ConversationMessage key={event.event_id} event={event} taskId={taskId} onOpenSource={pause}
+                usageMatch={usageByMessage.get(event.event_id)}
                 dateLabel={showDate ? date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }) : undefined} />
             })}
           </ol>

@@ -7,6 +7,7 @@
  */
 
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
+import type { UsageService } from './conversation-usage.mjs'
 
 export type TargetKind = 'api' | 'static' | 'bad'
 
@@ -83,6 +84,11 @@ export function createDashboardServer(options: {
   root: string
   origin: URL
   allowlist?: Allowlist
+  /**
+   * The dashboard-local usage reader, injected by tests so the local endpoints can be
+   * exercised against a fixture home; production leaves it unset and it is created lazily.
+   */
+  usage?: UsageService | null
 }): Server
 
 export const WEB_CONFIRMATIONS_ENV: string
