@@ -56,7 +56,7 @@ def run(cmd: list[str], **kwargs) -> dict:
     return {
         "command": " ".join(cmd),
         "exit_code": proc.returncode,
-        "stdout": proc.stdout[-4000:],
+        "stdout": proc.stdout,
         "stderr": proc.stderr[-4000:],
         "seconds": round(time.time() - started, 3),
     }
