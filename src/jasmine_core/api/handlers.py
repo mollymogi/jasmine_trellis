@@ -903,13 +903,16 @@ def create_session_checkpoint(request, core, principal, match):
 def recover_session_checkpoints(request, core, principal, match):
     if request.query:
         raise errors.InvalidRequest("session checkpoint recovery accepts no query")
-    allowed = None
+    body = request.json_body()
+    projects = None
     if core.tailnet_request:
-        from ..workspace_alias import confirmed_project_ids
-        allowed = confirmed_project_ids(core.conn, principal.bound_host_id or "")
-    result = core.worklog.recover(request.json_body(), actor_id=principal.actor_id,
+        from ..workspace_alias import confirmed_alias
+        alias = confirmed_alias(core.conn, principal.bound_host_id or "",
+                                body.get("workspace_root"))
+        projects = {alias[0]: alias[1]} if alias is not None else {}
+    result = core.worklog.recover(body, actor_id=principal.actor_id,
                                   actor_kind=core.actor_kind(principal.actor_id),
-                                  allowed_projects=allowed)
+                                  projects=projects)
     return Response(200, result)
 
 
@@ -935,18 +938,24 @@ def recent_activity(request, core, principal, match):
     """The resume block for a new session (ADR 0039 B). Read-only."""
     if request.query:
         raise errors.InvalidRequest("recent activity accepts no query")
+    body = request.json_body()
     access = memory_api.services(core).access
-    confirmed = None
+    projects = None
     if core.tailnet_request:
-        from ..workspace_alias import confirmed_project_ids
-        confirmed = confirmed_project_ids(core.conn, principal.bound_host_id or "")
+        from ..workspace_alias import confirmed_alias, confirmed_aliases
+        host_id = principal.bound_host_id or ""
+        if body.get("scope") == "global":
+            projects = confirmed_aliases(core.conn, host_id)
+        else:
+            alias = confirmed_alias(core.conn, host_id, body.get("workspace_root"))
+            projects = {alias[0]: alias[1]} if alias is not None else {}
 
     def may_read(project_id: str) -> bool:
         if not access.may_read(project_id=project_id, actor_id=principal.actor_id):
             return False
-        return confirmed is None or project_id in confirmed
+        return projects is None or project_id in projects
 
-    result = core.worklog.recent(request.json_body(), may_read=may_read)
+    result = core.worklog.recent(body, may_read=may_read, projects=projects)
     return Response(200, result)
 
 
