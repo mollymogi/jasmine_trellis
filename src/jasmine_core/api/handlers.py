@@ -915,7 +915,8 @@ def recover_session_checkpoints(request, core, principal, match):
         projects = {alias[0]: alias[1]} if alias is not None else {}
     result = core.worklog.recover(body, actor_id=principal.actor_id,
                                   actor_kind=core.actor_kind(principal.actor_id),
-                                  projects=projects)
+                                  projects=projects,
+                                  bound_host_id=principal.bound_host_id)
     return Response(200, result)
 
 
