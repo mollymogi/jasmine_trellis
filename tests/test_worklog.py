@@ -10,6 +10,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 import uuid
 from contextlib import redirect_stdout
@@ -499,6 +500,26 @@ class WorklogPieces(unittest.TestCase):
         self.assertIn("新增 b.md", change)
         self.assertIsNone(worklog.compare_states(None, now))
         self.assertIn("未能确认", worklog.compare_states(then, {**now, "complete": False}))
+
+    def test_workspace_state_respects_the_hook_deadline(self):
+        from jasmine_core.api.client import arm_hook_deadline, reset_hook_deadline
+        token = arm_hook_deadline(time.monotonic() - 1)
+        try:
+            with patch.object(worklog_client.subprocess, "run") as run:
+                state = worklog_client.workspace_state("/workspace")
+            run.assert_not_called()
+            self.assertEqual(state, {"git": True, "complete": False})
+        finally:
+            reset_hook_deadline(token)
+        token = arm_hook_deadline(time.monotonic() + 0.2)
+        try:
+            proc = subprocess.CompletedProcess([], 1, stdout=b"")
+            with patch.object(worklog_client.subprocess, "run", return_value=proc) as run:
+                self.assertEqual(worklog_client.workspace_state("/workspace", timeout=0.5), {"git": False})
+            self.assertLessEqual(run.call_args.kwargs["timeout"], 0.2)
+            self.assertGreater(run.call_args.kwargs["timeout"], 0)
+        finally:
+            reset_hook_deadline(token)
 
     def test_workspace_state_marks_truncated_paths_incomplete(self):
         for paths in ([f"file-{i}" for i in range(51)], ["x" * 1025]):
