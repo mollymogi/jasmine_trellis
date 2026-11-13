@@ -11,9 +11,9 @@
  * - A failed or refused read also renders nothing. The conversation itself is
  *   still perfectly readable, so usage is an enhancement, not an error state.
  * - The last successful detail is kept per native session, so switching back to a
- *   conversation shows the numbers immediately while a fresh request is avoided.
- *   The fetch is abortable and a late response for an older session is ignored; it
- *   is never polled, because a finished conversation's cost does not change.
+ *   conversation shows the numbers immediately while a fresh request runs.
+ *   The fetch is abortable and a late response for an older session is ignored.
+ *   Activity changes and a periodic refresh keep active sessions current.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -43,6 +43,13 @@ export function useConversationUsage(events: RawEvent[], token: string | null): 
   const agent = target?.agent ?? null
   const nativeSessionId = target?.nativeSessionId ?? null
 
+  const activity = events.map(event => event.event_id).join('\u0000')
+  const [refresh, setRefresh] = useState(0)
+  useEffect(() => {
+    const timer = setInterval(() => setRefresh(value => value + 1), 60_000)
+    return () => clearInterval(timer)
+  }, [])
+
   useEffect(() => {
     if (!agent || !nativeSessionId) {
       setSnapshot(current => current.key === null && current.status === 'idle'
@@ -52,13 +59,9 @@ export function useConversationUsage(events: RawEvent[], token: string | null): 
     }
     const currentKey = `${agent}:${nativeSessionId}`
     const cached = cache.current.get(currentKey)
-    if (cached) {
-      setSnapshot({ key: currentKey, status: 'ready', detail: cached })
-      return
-    }
     const controller = new AbortController()
     let active = true
-    setSnapshot({ key: currentKey, status: 'loading', detail: null })
+    setSnapshot({ key: currentKey, status: cached ? 'ready' : 'loading', detail: cached ?? null })
     fetchUsageSession(
       { agent, nativeSessionId },
       { signal: controller.signal, token: token ?? undefined },
@@ -74,7 +77,7 @@ export function useConversationUsage(events: RawEvent[], token: string | null): 
       active = false
       controller.abort()
     }
-  }, [agent, nativeSessionId, token])
+  }, [agent, nativeSessionId, token, activity, refresh])
 
   if (snapshot.key === key) return { status: snapshot.status, detail: snapshot.detail }
   if (key === null) return { status: 'idle', detail: null }

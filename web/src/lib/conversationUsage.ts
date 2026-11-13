@@ -86,7 +86,15 @@ export function matchUsageTurns(
   if (!turns || turns.length === 0) return matched
   const byNativeId = new Map<string, UsageTurn>()
   for (const turn of turns) {
-    if (turn.native_turn_id) byNativeId.set(turn.native_turn_id, turn)
+    if (turn.native_turn_id) {
+      const previous = byNativeId.get(turn.native_turn_id)
+      if (!previous) byNativeId.set(turn.native_turn_id, { ...turn })
+      else {
+        for (const field of ['input_tokens', 'cached_read_tokens', 'cache_write_tokens', 'output_tokens', 'reasoning_tokens', 'total_tokens'] as const) {
+          previous[field] += turn[field]
+        }
+      }
+    }
   }
   const assistants = messages.filter(event => event.event_type === 'assistant.message')
   const unidentified: RawEvent[] = []

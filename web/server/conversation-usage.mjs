@@ -145,6 +145,12 @@ const emptyTokens = () => ({
   total_tokens: 0,
 })
 
+/** Record one observed response in an internal breakdown bucket. */
+function addResponse(into, delta) {
+  addTokens(into, delta)
+  into.responseCount = (into.responseCount ?? 0) + 1
+}
+
 /** Get-or-create the token accumulator stored under `key` in `map`. */
 function tokensFor(map, key) {
   let tokens = map.get(key)
@@ -598,11 +604,11 @@ async function scanClaudeGroup(ctx, group, { keepTurns }) {
       reasoning_tokens: numberOrZero(usage.output_tokens_details?.thinking_tokens),
     })
     addTokens(result.tokens, delta)
-    addTokens(tokensFor(result.modelTokens, model), delta)
+    addResponse(tokensFor(result.modelTokens, model), delta)
     result.models.add(model)
     result.turnCount += 1
     const day = localDay(at)
-    if (day) addTokens(tokensFor(result.days, day), delta)
+    if (day) addResponse(tokensFor(result.days, day), delta)
     if (keepTurns && result.turns.length < ctx.bounds.maxDetailTurns) {
       result.turns.push(
         turnRow(
@@ -705,11 +711,15 @@ async function scanClaude(ctx) {
     const signature = fileSignature(group.files)
     const cached = ctx.state.rows.get(key)
     if (cached?.signature === signature) {
+      truncated += cached.diagnostics?.truncated ?? 0
+      snapshotFallback += cached.diagnostics?.snapshotFallback ?? 0
+      malformed += cached.diagnostics?.malformed ?? 0
       rows.push(cached.row)
       continue
     }
     const scanned = await scanClaudeGroup(ctx, group, { keepTurns: false })
     malformed += scanned.badLines
+    let usedSnapshot = false
     let tokens = scanned.tokens
     let modelTokens = scanned.modelTokens
     let models = scanned.models
@@ -722,6 +732,7 @@ async function scanClaude(ctx) {
       const snapshot = await readClaudeCostSnapshot(group.files)
       if (snapshot) {
         snapshotFallback += 1
+        usedSnapshot = true
         const fromSnapshot = claudeRowFromSnapshot(snapshot)
         tokens = fromSnapshot.tokens
         modelTokens = fromSnapshot.modelTokens
@@ -743,7 +754,7 @@ async function scanClaude(ctx) {
       lastAt: scanned.lastAt,
       days: scanned.days,
     }
-    ctx.state.rows.set(key, { signature, row })
+    ctx.state.rows.set(key, { signature, row, diagnostics: { truncated: Number(scanned.partial), snapshotFallback: Number(usedSnapshot), malformed: scanned.badLines } })
     rows.push(row)
   }
 
@@ -767,7 +778,12 @@ async function readClaudeDetail(ctx, entry) {
     lastAt: scanned.lastAt,
     tokens: scanned.tokens,
     turns: scanned.turns,
-    warnings: scanned.badLines > 0 ? [`${scanned.badLines} malformed line(s) skipped`] : [],
+    turnCount: scanned.turnCount,
+    warnings: [
+      ...(scanned.badLines > 0 ? [`${scanned.badLines} malformed line(s) skipped`] : []),
+      ...(scanned.partial ? ['Transcript byte read cap reached; totals cover only the readable prefix'] : []),
+      ...(scanned.turnCount > scanned.turns.length ? ['Turn detail limit reached; some response rows are omitted'] : []),
+    ],
   }
 }
 
@@ -874,9 +890,9 @@ async function scanCodexEntry(ctx, entry, { keepTurns }) {
     if (turnId && model !== 'unknown') result.models.add(model)
     const delta = codexDelta(record.payload?.usage)
     addTokens(result.tokens, delta)
-    addTokens(tokensFor(result.modelTokens, model), delta)
+    addResponse(tokensFor(result.modelTokens, model), delta)
     const day = localDay(at)
-    if (day) addTokens(tokensFor(result.days, day), delta)
+    if (day) addResponse(tokensFor(result.days, day), delta)
     if (keepTurns && result.turns.length < ctx.bounds.maxDetailTurns) {
       result.turns.push(
         turnRow({ index: result.turns.length + 1, native_turn_id: turnId, step: null, at, model: model === 'unknown' ? null : model }, delta),
@@ -913,7 +929,6 @@ async function scanCodexEntry(ctx, entry, { keepTurns }) {
     // Drop the record the slice started in the middle of.
     const text = tailStart > 0 ? tail.slice(tail.indexOf('\n') + 1) : tail
     let cumulative = null
-    let model = null
     let lastAt = null
     for (const line of text.split('\n')) {
       if (!line.startsWith('{')) continue
@@ -924,8 +939,7 @@ async function scanCodexEntry(ctx, entry, { keepTurns }) {
         continue
       }
       if (record?.type === 'turn_context' && typeof record.payload?.model === 'string') {
-        model = record.payload.model
-        result.models.add(model)
+        result.models.add(record.payload.model)
       }
       if (record?.type !== 'token_usage_record') continue
       result.responses += 1
@@ -938,9 +952,15 @@ async function scanCodexEntry(ctx, entry, { keepTurns }) {
       // Cumulative: assign, never add.
       result.tokens = codexDelta(cumulative)
     }
-    if (model) {
-      result.models.add(model)
-      result.modelTokens.set(model, { ...result.tokens })
+    if (cumulative) {
+      const known = emptyTokens()
+      for (const counters of result.modelTokens.values()) addTokens(known, counters)
+      const remainder = emptyTokens()
+      for (const field of Object.keys(remainder)) remainder[field] = Math.max(0, result.tokens[field] - known[field])
+      const unknown = tokensFor(result.modelTokens, 'unknown')
+      addTokens(unknown, remainder)
+      unknown.responseCount = (unknown.responseCount ?? 0) + result.responses - [...result.modelTokens.values()].reduce((sum, bucket) => sum + (bucket.responseCount ?? 0), 0)
+      result.models.add('unknown')
     }
   }
   result.partial = true
@@ -973,6 +993,8 @@ async function scanCodex(ctx) {
     const signature = fileSignature(entry.files)
     const cached = ctx.state.rows.get(key)
     if (cached?.signature === signature) {
+      tailOnly += cached.diagnostics?.tailOnly ?? 0
+      malformed += cached.diagnostics?.malformed ?? 0
       rows.push(cached.row)
       continue
     }
@@ -993,7 +1015,7 @@ async function scanCodex(ctx) {
       lastAt: scanned.lastAt,
       days: scanned.days,
     }
-    ctx.state.rows.set(key, { signature, row })
+    ctx.state.rows.set(key, { signature, row, diagnostics: { tailOnly: Number(scanned.partial), malformed: scanned.badLines } })
     rows.push(row)
   }
   if (tailOnly > 0) {
@@ -1016,7 +1038,12 @@ async function readCodexDetail(ctx, entry) {
     lastAt: scanned.lastAt,
     tokens: scanned.tokens,
     turns: scanned.turns,
-    warnings: scanned.badLines > 0 ? [`${scanned.badLines} malformed line(s) skipped`] : [],
+    turnCount: scanned.turnCount,
+    warnings: [
+      ...(scanned.badLines > 0 ? [`${scanned.badLines} malformed line(s) skipped`] : []),
+      ...(scanned.partial ? ['Transcript byte read cap reached; totals cover only the readable prefix'] : []),
+      ...(scanned.turnCount > scanned.turns.length ? ['Turn detail limit reached; some response rows are omitted'] : []),
+    ],
   }
 }
 
@@ -1104,11 +1131,11 @@ async function scanDshEntry(ctx, entry, { keepTurns }) {
       reasoning_tokens: numberOrZero(usage.reasoningTokens),
     })
     addTokens(result.tokens, delta)
-    addTokens(tokensFor(result.modelTokens, model), delta)
+    addResponse(tokensFor(result.modelTokens, model), delta)
     result.models.add(model)
     result.turnCount += 1
     const day = localDay(at)
-    if (day) addTokens(tokensFor(result.days, day), delta)
+    if (day) addResponse(tokensFor(result.days, day), delta)
     if (keepTurns && result.turns.length < ctx.bounds.maxDetailTurns) {
       result.turns.push(
         turnRow(
@@ -1190,6 +1217,7 @@ async function scanDsh(ctx) {
     const signature = fileSignature(entry.files)
     const cached = ctx.state.rows.get(key)
     if (cached?.signature === signature) {
+      partial += cached.diagnostics?.partial ?? 0
       rows.push(cached.row)
       continue
     }
@@ -1213,7 +1241,7 @@ async function scanDsh(ctx) {
       lastAt: scanned.lastAt,
       days: scanned.days,
     }
-    ctx.state.rows.set(key, { signature, row })
+    ctx.state.rows.set(key, { signature, row, diagnostics: { partial: Number(scanned.warnings.length > 0) } })
     rows.push(row)
   }
   if (failed > 0) warnings.push(`dsh: ${failed} session(s) could not be decompressed and were skipped`)
@@ -1357,10 +1385,12 @@ async function scanGrokEntry(ctx, entry, { keepTurns }) {
   for (const [position, turn] of turns.entries()) {
     const delta = grokDelta(turn)
     const at = isoOrNull(turn?.endedAt)
+    const modelBucket = result.modelTokens.get(turn?.primaryModelId)
+    if (modelBucket) modelBucket.responseCount = (modelBucket.responseCount ?? 0) + 1
     if (at) {
       ends.push(at)
       const day = localDay(at)
-      if (day) addTokens(tokensFor(result.days, day), delta)
+      if (day) addResponse(tokensFor(result.days, day), delta)
     }
     // Grok records no turn uuid: `turnNumber` and `endedAt` are all a turn has, so Core
     // correlation for this agent has to fall back to timestamps.
@@ -1522,11 +1552,11 @@ async function scanAntigravityEntry(ctx, entry, { keepTurns, projects }) {
     addTokens(result.tokens, delta)
     // The transcript names no model at all; `unknown` is the contract's honest value and
     // keeps `by_model` accounted for rather than silently short.
-    addTokens(tokensFor(result.modelTokens, 'unknown'), delta)
+    addResponse(tokensFor(result.modelTokens, 'unknown'), delta)
     result.models.add('unknown')
     result.turnCount += 1
     const day = localDay(at)
-    if (day) addTokens(tokensFor(result.days, day), delta)
+    if (day) addResponse(tokensFor(result.days, day), delta)
     if (keepTurns && result.turns.length < ctx.bounds.maxDetailTurns) {
       const step = typeof record.step_index === 'number' ? record.step_index : null
       result.turns.push(
@@ -1621,6 +1651,7 @@ async function scanAntigravity(ctx) {
     const signature = `${fileSignature(entry.files)}|${projects.get(entry.id) ?? ''}`
     const cached = ctx.state.rows.get(key)
     if (cached?.signature === signature) {
+      truncated += cached.diagnostics?.truncated ?? 0
       rows.push(cached.row)
       continue
     }
@@ -1640,7 +1671,7 @@ async function scanAntigravity(ctx) {
       lastAt: scanned.lastAt,
       days: scanned.days,
     }
-    ctx.state.rows.set(key, { signature, row })
+    ctx.state.rows.set(key, { signature, row, diagnostics: { truncated: Number(scanned.warnings.length > 0) } })
     rows.push(row)
   }
   if (dropped > 0) warnings.push(`antigravity: ${dropped} conversation(s) skipped after the per-request byte budget was spent`)
@@ -1751,8 +1782,7 @@ async function scanOpencode(ctx) {
   }
   const limit = ctx.bounds.maxSessionsPerAgent
   const signature = `${database}:${info.mtimeMs}:${info.size}:${limit}`
-  const cached = ctx.state.snapshots.get('opencode')
-  if (cached?.signature === signature) return cached.scan
+  // Re-query after the inventory TTL: committed WAL writes need not touch the main file.
 
   const rollup = await querySqliteJson(
     ctx,
@@ -1845,11 +1875,9 @@ async function readOpencodeDetail(ctx, entry) {
       if (!usage) continue
       const cached = numberOrZero(usage.cache?.read)
       const cacheWrite = numberOrZero(usage.cache?.write)
-      // `message` json folds its own counters in (`total = input + cache.read + cache.write +
-      // output + reasoning`), so the uncached part is what remains after both cache counts.
+      // OpenCode input and cache counters are disjoint, matching the session rollup.
       const delta = completeDelta({
-        // The inclusive block repeats the cache counts; the uncached remainder is what is left.
-        input_tokens: Math.max(0, numberOrZero(usage.input) - cached - cacheWrite),
+        input_tokens: numberOrZero(usage.input),
         cached_read_tokens: cached,
         cache_write_tokens: cacheWrite,
         output_tokens: numberOrZero(usage.output) + numberOrZero(usage.reasoning),
@@ -2002,7 +2030,7 @@ function buildInventory(ctx, scans) {
       const row = models.get(key) ?? { agent: session.agent, model, tokens: emptyTokens(), sessions: 0, turns: 0, costSum: 0, costCount: 0 }
       addTokens(row.tokens, tokens)
       row.sessions += 1
-      row.turns += session.turnCount
+      row.turns += tokens.responseCount ?? (session.modelTokens.size === 1 ? session.turnCount : 0)
       // A session cost is only attributable to a model when the session used exactly one;
       // otherwise splitting it would invent an apportionment.
       if (typeof session.costUsd === 'number' && Number.isFinite(session.costUsd) && session.modelTokens?.size === 1) {
@@ -2030,14 +2058,14 @@ function buildInventory(ctx, scans) {
         undated.add(session.agent)
         continue
       }
-      buckets = new Map([[day, session.tokens]])
+      buckets = new Map([[day, { ...session.tokens, responseCount: session.turnCount }]])
     }
     for (const [day, tokens] of buckets) {
       if (!day) continue
       const row = days.get(day) ?? { day, tokens: emptyTokens(), sessions: 0, turns: 0 }
       addTokens(row.tokens, tokens)
       row.sessions += 1
-      row.turns += session.turnCount
+      row.turns += tokens.responseCount ?? (buckets.size === 1 ? session.turnCount : 0)
       days.set(day, row)
     }
   }
@@ -2142,7 +2170,7 @@ async function readUsageSession(ctx, agent, nativeSessionId) {
   const key = `${agent}\u0000${nativeSessionId}`
   const cached = ctx.state.detail.get(key)
   if (cached && ctx.now() - cached.at < ctx.bounds.cacheTtlMs) return cached.value
-  if (!ctx.state.inventory) await readUsageInventory(ctx)
+  await readUsageInventory(ctx)
   const entry = ctx.state.index.get(agent)?.get(nativeSessionId)
   if (!entry) return null
   const detail = await DETAIL_READERS[agent](ctx, entry)
@@ -2158,7 +2186,7 @@ async function readUsageSession(ctx, agent, nativeSessionId) {
       ...detail.tokens,
       cost_usd: typeof entry.costUsd === 'number' && Number.isFinite(entry.costUsd) ? entry.costUsd : null,
       sessions: 1,
-      turns: detail.turns.length,
+      turns: detail.turnCount ?? detail.turns.length,
       cache_hit_ratio: cacheHitRatio(detail.tokens),
     },
     turns: detail.turns,

@@ -15,6 +15,7 @@ import type { RawEvent } from '../src/api/types'
 import { USAGE_SCHEMA, type UsageSessionDetail, type UsageTurn } from '../src/api/usage'
 import { ConversationThread } from '../src/components/ConversationThread'
 import { ConversationUsage, useConversationUsage } from '../src/components/ConversationUsage'
+import { matchUsageTurns } from '../src/lib/conversationUsage'
 import { installFakeCore, type FakeCore } from './helpers/fakeCore'
 
 let fake: FakeCore | undefined
@@ -177,8 +178,28 @@ it('caches the last detail per native session so returning to it is instant', as
   rerender(<PanelHarness events={events('ns_2')} />)
   await screen.findByText('3.4k')
   rerender(<PanelHarness events={events('ns_1')} />)
-  // Rendered from the cache during render: no skeleton and no third request.
+  // Rendered immediately from cache, then refreshed on returning to the session.
   expect(screen.getByText('1.2k')).toBeTruthy()
+  await flush()
+  expect(fake.callsTo('GET', '/_local/usage/session')).toHaveLength(3)
+})
+
+
+it('sums all responses sharing the completed native turn identity', () => {
+  const message = event(1, 'assistant.message', { native_turn_id: 't1' })
+  const turns = [100, 200, 300].map((total, index) => ({ ...turn(index + 1, total, 't1'), input_tokens: total - 10, output_tokens: 10 }))
+  const matched = matchUsageTurns([message], turns)
+  expect(matched.get(message.event_id)?.turn.total_tokens).toBe(600)
+  expect(matched.get(message.event_id)?.turn.output_tokens).toBe(30)
+  expect(turns[0]?.total_tokens).toBe(100)
+})
+
+it('refreshes usage when new conversation events arrive', async () => {
+  fake = installFakeCore({ 'GET /_local/usage/session': { body: sessionDetail() } })
+  const events = [event(1, 'user.prompt', { native_session_id: 'ns_1' })]
+  const { rerender } = render(<PanelHarness events={events} />)
+  await screen.findByText('12.3k')
+  rerender(<PanelHarness events={[...events, event(2, 'assistant.message', { native_session_id: 'ns_1' })]} />)
   await flush()
   expect(fake.callsTo('GET', '/_local/usage/session')).toHaveLength(2)
 })

@@ -271,9 +271,11 @@ describe('codex', () => {
     const head = [
       JSON.stringify({ type: 'session_meta', payload: { id: SESSION, session_id: SESSION, cwd: '/work/big', timestamp: '2026-02-01T10:00:00.000Z' } }),
       JSON.stringify({ type: 'turn_context', payload: { turn_id: 't1', model: 'gpt-test-1' } }),
+      JSON.stringify({ type: 'token_usage_record', payload: { turn_id: 't1', usage: { input_tokens: 90, output_tokens: 10 } } }),
     ]
     const filler = `${Array.from({ length: 40_000 }, (_, index) => JSON.stringify({ type: 'response_item', payload: { index, text: 'x'.repeat(180) } })).join('\n')}\n`
     const tail = [
+      { type: 'turn_context', payload: { turn_id: 't2', model: 'gpt-test-2' } },
       { type: 'token_usage_record', payload: { turn_id: 't1', usage: { input_tokens: 900, output_tokens: 100, total_tokens: 1000 }, thread_token_usage: { input_tokens: 900, output_tokens: 100, total_tokens: 1000 } } },
       { type: 'token_usage_record', payload: { turn_id: 't1', usage: { input_tokens: 1800, output_tokens: 200, total_tokens: 2000 }, thread_token_usage: { input_tokens: 1900, output_tokens: 100, total_tokens: 2000 } } },
     ]
@@ -284,7 +286,10 @@ describe('codex', () => {
     expect(session?.native_session_id).toBe(SESSION)
     expect(session?.project).toBe('/work/big')
     expect(session?.total_tokens).toBe(2000)
-    expect(session?.turns).toBe(2)
+    expect(session?.turns).toBe(3)
+    expect(inventory.by_model.find(row => row.model === 'gpt-test-1')?.total_tokens).toBe(100)
+    expect(inventory.by_model.find(row => row.model === 'unknown')?.total_tokens).toBe(1900)
+    expect(inventory.by_model.reduce((sum, row) => sum + row.total_tokens, 0)).toBe(2000)
   })
 })
 
@@ -445,6 +450,28 @@ describe('antigravity', () => {
 })
 
 describe('opencode', () => {
+  it('keeps cache-bearing detail consistent and re-queries unchanged database files after TTL', async () => {
+    const home = await makeHome()
+    await put(home, '.local/share/opencode/opencode.db', 'sqlite-placeholder')
+    let now = 0
+    let input = 1000
+    const { run } = fakeCommands({ sqlite: (_database, query) => {
+      if (query.includes('select id, data')) return [{ id: 'msg_1', data: JSON.stringify({
+        modelID: 'm1', tokens: { input, output: 100, reasoning: 50, cache: { read: 800, write: 20 } },
+      }) }]
+      if (query.includes('from message')) return [{ session_id: 'ses_1', turns: 1 }]
+      return [{ id: 'ses_1', model: 'm1', tokens_input: input, tokens_output: 100,
+        tokens_reasoning: 50, tokens_cache_read: 800, tokens_cache_write: 20 }]
+    } })
+    const service = createUsageService({ home, run, now: () => now, limits: { cacheTtlMs: 10 } })
+    const detail = await service.readUsageSession('opencode', 'ses_1')
+    expect(detail?.totals.total_tokens).toBe(1970)
+    expect(detail?.turns[0]?.input_tokens).toBe(1000)
+    input = 2000
+    now = 11
+    expect((await service.readUsageInventory()).totals.total_tokens).toBe(2970)
+  })
+
   it('reads its rollup through sqlite3 and reports USD', async () => {
     const home = await makeHome()
     await put(home, '.local/share/opencode/opencode.db', 'sqlite-placeholder')
@@ -682,5 +709,46 @@ describe('http surface', () => {
     expect(USAGE_NATIVE_SESSION_ID.test(SESSION)).toBe(true)
     expect(USAGE_NATIVE_SESSION_ID.test('session-abc_1.2:3%4')).toBe(true)
     for (const bad of ['../../etc/passwd', 'a/b', 'a b', '', 'x'.repeat(201)]) expect(USAGE_NATIVE_SESSION_ID.test(bad)).toBe(false)
+  })
+})
+
+describe('usage refresh and bounds', () => {
+  const codexPath = () => `.codex/sessions/2026/02/01/rollout-2026-02-01T10-00-00-${SESSION}.jsonl`
+  it('discovers sessions through detail after TTL and preserves cached scan diagnostics', async () => {
+    const home = await makeHome()
+    let now = 0
+    const service = createUsageService({ home, now: () => now, limits: { cacheTtlMs: 10 } })
+    expect(await service.readUsageSession('codex', SESSION)).toBeNull()
+    await putJsonl(home, codexPath(), [
+      '{bad json}',
+      { type: 'token_usage_record', payload: { turn_id: 't1', usage: { input_tokens: 10 } } },
+    ])
+    now = 11
+    expect((await service.readUsageSession('codex', SESSION))?.totals.total_tokens).toBe(10)
+    const warnings = (await service.readUsageInventory()).warnings
+    expect(warnings.some(warning => warning.includes('malformed'))).toBe(true)
+    now = 22
+    expect((await service.readUsageInventory()).warnings).toEqual(warnings)
+  })
+
+  it('reports omitted detail rows while retaining the observed response count', async () => {
+    const home = await claudeHome()
+    const detail = await createUsageService({ home, limits: { maxDetailTurns: 1 } }).readUsageSession('claude', SESSION)
+    expect(detail?.turns).toHaveLength(1)
+    expect(detail?.totals.turns).toBe(2)
+    expect(detail?.warnings.some(warning => warning.includes('Turn detail limit'))).toBe(true)
+  })
+
+  it('counts responses within their own day and model buckets', async () => {
+    const home = await makeHome()
+    await putJsonl(home, codexPath(), [
+      { type: 'turn_context', payload: { turn_id: 't1', model: 'model-a' } },
+      { type: 'token_usage_record', timestamp: '2026-01-01T12:00:00Z', payload: { turn_id: 't1', usage: { input_tokens: 10 } } },
+      { type: 'turn_context', payload: { turn_id: 't2', model: 'model-b' } },
+      { type: 'token_usage_record', timestamp: '2026-01-03T12:00:00Z', payload: { turn_id: 't2', usage: { input_tokens: 20 } } },
+    ])
+    const inventory = await createUsageService({ home }).readUsageInventory()
+    expect(inventory.by_day.map(row => row.turns)).toEqual([1, 1])
+    expect(inventory.by_model.map(row => row.turns)).toEqual([1, 1])
   })
 })
