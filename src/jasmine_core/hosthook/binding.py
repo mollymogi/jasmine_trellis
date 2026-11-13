@@ -164,7 +164,8 @@ def _build(data: dict[str, Any], path: Path, spool_base: Path, device: Path | No
         raise BindingError("binding version must be 1")
     url = data.get("core_url")
     if not isinstance(url, str) or not (LOOPBACK_URL.match(url) or url == TAILNET_CORE_ORIGIN):
-        raise BindingError("core_url must be loopback http://HOST:PORT")
+        raise BindingError("core_url must be loopback http://HOST:PORT or exactly " + TAILNET_CORE_ORIGIN
+                           + " (an exact match: no trailing slash, port, path or query)")
     for name, prefix in (("host_id", "hst"), ("project_id", "prj"), ("task_id", "tsk"), ("step_id", "stp")):
         value = data.get(name)
         if value is None and name != "host_id":

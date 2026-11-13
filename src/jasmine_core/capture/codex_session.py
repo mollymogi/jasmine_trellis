@@ -69,10 +69,20 @@ def bind_workspace(native: dict[str, Any], device: Binding, source: str = SOURCE
     device's destination/credentials or silently attach a conversation to a Task.
     The tailnet origin adopts ``project_id`` only from ``status=ok`` resolve and
     never posts ``/v1/projects``. Loopback with no confirmed alias still does.
+    A failed origin probe becomes absent on loopback and aborts the tailnet bind.
     """
     root = workspace_root(native["cwd"])
-    origin, kind = worklog_client.git_remote_origin(root)
     tailnet = device.core_url == TAILNET_CORE_ORIGIN
+    try:
+        origin, kind = worklog_client.git_remote_origin(root)
+    except Exception:
+        # Only the tailnet origin needs a confirmed remote here: it must never
+        # guess a project. Loopback keeps its previous POST /v1/projects
+        # fallback, so missing git, a slow remote or an unusable origin must not
+        # cost a device capture its event.
+        if tailnet:
+            raise
+        origin, kind = None, "absent"
     started = time.monotonic()
     answer: dict[str, Any] | None
     try:

@@ -125,8 +125,10 @@ def workspace_state(root: str | Path, *, timeout: float = GIT_SECONDS) -> dict[s
 def git_remote_origin(root: str | Path, *, timeout: float = GIT_SECONDS) -> tuple[str | None, str]:
     """Raw `git remote get-url origin`. Absent only when git exits non-zero or prints nothing.
 
-    A timeout, ``OSError``, or an origin ``classify_origin`` rejects raises. Callers
-    must not post resolve in that case. The cap stays 0.5s and also stops at a hook deadline.
+    A timeout, ``OSError``, or an origin ``classify_origin`` rejects raises. A
+    fail-closed caller must not post resolve in that case; loopback capture
+    degrades to ``(None, "absent")`` and keeps its project fallback. The cap
+    stays 0.5s and also stops at a hook deadline.
     """
     limit = timeout
     deadline = hook_deadline()

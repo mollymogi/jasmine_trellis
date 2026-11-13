@@ -199,6 +199,23 @@ class TailnetBind(unittest.TestCase):
                         bind_workspace({"cwd": str(self.root)}, device)
                     client.assert_not_called()
 
+    def test_loopback_git_failure_keeps_the_project_fallback(self) -> None:
+        device = load_device(_device(self.root, "http://127.0.0.1:18787", self.host))
+        for exc in (subprocess.TimeoutExpired("git", 0.5), TimeoutError("git"), OSError("git"),
+                    ValueError("unclassifiable")):
+            with self.subTest(exc=type(exc).__name__):
+                script = _Script({"status": "confirmation_required", "project_id": None,
+                                  "alias_conflict": False})
+                with patch("jasmine_core.capture.worklog_client.git_remote_origin", side_effect=exc), \
+                        patch("jasmine_core.capture.codex_session.CoreClient", script.client()), \
+                        patch("jasmine_core.capture.codex_session.read_key", return_value="k"):
+                    bound = bind_workspace({"cwd": str(self.root)}, device)
+                self.assertEqual(bound.project_id, script.project_id)
+                self.assertEqual([row[0] for row in script.posts],
+                                 ["/v1/workspaces/resolve", "/v1/projects"])
+                self.assertIsNone(script.posts[0][1]["origin"])
+                self.assertEqual(script.posts[0][1]["remote_kind"], "absent")
+
     def test_claude_prompt_keeps_resume_when_resolve_is_not_ok(self) -> None:
         from jasmine_core.capture import claude_session
         device = load_device(_device(self.root, ORIGIN, self.host))
