@@ -1259,7 +1259,11 @@ async function readDshDetail(ctx, entry) {
     lastAt: scanned.lastAt,
     tokens: scanned.tokens,
     turns: scanned.turns,
-    warnings: scanned.warnings,
+    turnCount: scanned.turnCount,
+    warnings: [
+      ...scanned.warnings,
+      ...(scanned.turnCount > scanned.turns.length ? ['Turn detail limit reached; some response rows are omitted'] : []),
+    ],
   }
 }
 
@@ -1472,7 +1476,11 @@ async function readGrokDetail(ctx, entry) {
     lastAt: scanned.lastAt,
     tokens: scanned.tokens,
     turns: scanned.turns,
-    warnings: scanned.warnings,
+    turnCount: scanned.turnCount,
+    warnings: [
+      ...scanned.warnings,
+      ...(scanned.turnCount > scanned.turns.length ? ['Turn detail limit reached; some response rows are omitted'] : []),
+    ],
   }
 }
 
@@ -1689,7 +1697,11 @@ async function readAntigravityDetail(ctx, entry) {
     lastAt: scanned.lastAt,
     tokens: scanned.tokens,
     turns: scanned.turns,
-    warnings: scanned.warnings,
+    turnCount: scanned.turnCount,
+    warnings: [
+      ...scanned.warnings,
+      ...(scanned.turnCount > scanned.turns.length ? ['Turn detail limit reached; some response rows are omitted'] : []),
+    ],
   }
 }
 
@@ -1859,6 +1871,7 @@ async function readOpencodeDetail(ctx, entry) {
     `select id, data from message where session_id = '${entry.id}' and json_extract(data, '$.role') = 'assistant' ` +
     'order by time_created asc'
   const outcome = await querySqliteJson(ctx, ctx.roots.opencode, query)
+  let turnCount = 0
   const turns = []
   const totals = emptyTokens()
   const models = new Set()
@@ -1873,6 +1886,7 @@ async function readOpencodeDetail(ctx, entry) {
       }
       const usage = data?.tokens
       if (!usage) continue
+      turnCount += 1
       const cached = numberOrZero(usage.cache?.read)
       const cacheWrite = numberOrZero(usage.cache?.write)
       // OpenCode input and cache counters are disjoint, matching the session rollup.
@@ -1910,7 +1924,11 @@ async function readOpencodeDetail(ctx, entry) {
     lastAt: turns[turns.length - 1]?.at ?? null,
     tokens: totals,
     turns,
-    warnings: outcome.ok ? [] : [`message rows could not be read (${outcome.detail})`],
+    turnCount,
+    warnings: [
+      ...(outcome.ok ? [] : [`message rows could not be read (${outcome.detail})`]),
+      ...(turnCount > turns.length ? ['Turn detail limit reached; some response rows are omitted'] : []),
+    ],
   }
 }
 

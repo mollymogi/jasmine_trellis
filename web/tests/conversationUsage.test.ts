@@ -752,3 +752,50 @@ describe('usage refresh and bounds', () => {
     expect(inventory.by_model.map(row => row.turns)).toEqual([1, 1])
   })
 })
+
+describe('remaining detail reader turn limits', () => {
+  it.each(['dsh', 'grok', 'antigravity', 'opencode'] as const)(
+    '%s retains full totals and response count while warning about omitted rows', async (agent) => {
+      const home = await makeHome()
+      const dshText = [
+        { type: 'session', version: 4, id: `session-${SESSION}`, cwd: '/work/app' },
+        ...[1, 2].map(turn => ({ type: 'assistant/message', data: {
+          turn, step: 1, message: { id: `msg-${turn}`, source: { kind: 'model', model: 'test-model' } },
+          usage: { inputTokens: 10, outputTokens: 5 },
+        } })),
+      ].map(row => JSON.stringify(row)).join('\n') + '\n'
+      if (agent === 'dsh') {
+        await put(home, `.dsh/sessions/--work-app--/session-${SESSION}/session.v4.jsonl.zstd`, 'compressed-placeholder')
+      } else if (agent === 'grok') {
+        await put(home, `.grok/sessions/%2Fwork%2Fapp/${SESSION}/usage.json`, {
+          session: { inputTokens: 20, outputTokens: 10, turnCount: 2 },
+          turns: [1, 2].map(turnNumber => ({ turnNumber, inputTokens: 10, outputTokens: 5 })),
+        })
+      } else if (agent === 'antigravity') {
+        await putJsonl(home, `.gemini/antigravity/brain/${SESSION}/.system_generated/logs/transcript_full.jsonl`,
+          [1, 2].map(step_index => ({ step_index, input_tokens: 10, output_tokens: 5 })))
+      } else {
+        await put(home, '.local/share/opencode/opencode.db', 'sqlite-placeholder')
+      }
+      const { run } = fakeCommands({
+        zstd: () => dshText,
+        sqlite: (_database, query) => {
+          if (query.includes('select id, data')) return [1, 2].map(index => ({
+            id: `msg-${index}`, data: JSON.stringify({ tokens: { input: 10, output: 5 } }),
+          }))
+          if (query.includes('from message')) return [{ session_id: SESSION, turns: 2 }]
+          if (query.includes('from session')) return [{ id: SESSION, tokens_input: 20, tokens_output: 10 }]
+          return []
+        },
+      })
+      for (const maxDetailTurns of [1, 2]) {
+        const service = createUsageService({ home, run, limits: { maxDetailTurns } })
+        const detail = await service.readUsageSession(agent, SESSION)
+        expect(detail?.totals.total_tokens).toBe(30)
+        expect(detail?.totals.turns).toBe(2)
+        expect(detail?.turns).toHaveLength(maxDetailTurns)
+        expect(detail?.warnings.some(warning => warning.includes('Turn detail limit'))).toBe(maxDetailTurns === 1)
+      }
+    },
+  )
+})
