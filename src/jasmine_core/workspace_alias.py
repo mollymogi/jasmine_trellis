@@ -143,8 +143,23 @@ def resolve_request(conn, body: dict[str, Any]) -> ResolveOutcome:
     return _resolve(conn, host_id=host_id, root=root, remote_key=remote_key, remote_kind=kind)
 
 
+def active_client(conn, host_id: str) -> bool:
+    """True only for an enrolled tailnet client that has not been revoked.
+
+    A confirmed alias says which project a path belongs to; it says nothing
+    about whether that client may still act. Revocation is a property of the
+    client row, so every tailnet authorization check consults it.
+    """
+    if not isinstance(host_id, str) or not ids.is_id(host_id, "hst"):
+        return False
+    row = conn.execute(
+        "SELECT 1 FROM tailnet_clients WHERE host_id=? AND status='active'", (host_id,)
+    ).fetchone()
+    return row is not None
+
+
 def project_confirmed(conn, host_id: str, project_id: str) -> bool:
-    if not isinstance(project_id, str):
+    if not isinstance(project_id, str) or not active_client(conn, host_id):
         return False
     row = conn.execute(
         "SELECT 1 FROM workspace_aliases WHERE host_id=? AND project_id=? AND confirmed=1",
@@ -154,6 +169,8 @@ def project_confirmed(conn, host_id: str, project_id: str) -> bool:
 
 
 def root_confirmed(conn, host_id: str, root: Any) -> bool:
+    if not active_client(conn, host_id):
+        return False
     try:
         normalized = normalize_root(root)
     except errors.InvalidRequest:
@@ -166,11 +183,55 @@ def root_confirmed(conn, host_id: str, root: Any) -> bool:
 
 
 def confirmed_project_ids(conn, host_id: str) -> set[str]:
+    if not active_client(conn, host_id):
+        return set()
     rows = conn.execute(
         "SELECT project_id FROM workspace_aliases WHERE host_id=? AND confirmed=1",
         (host_id,),
     )
     return {row["project_id"] for row in rows}
+
+
+def confirmed_alias(conn, host_id: str, root: Any) -> tuple[str, str] | None:
+    """The ``(project_id, normalized root)`` for one confirmed client path.
+
+    ``None`` when the client is not active, the path is invalid, or the alias
+    is not confirmed. The second element is the client's own path, not the
+    hub path stored in the project description.
+    """
+    if not active_client(conn, host_id):
+        return None
+    try:
+        normalized = normalize_root(root)
+    except errors.InvalidRequest:
+        return None
+    row = conn.execute(
+        "SELECT project_id FROM workspace_aliases"
+        " WHERE host_id=? AND root=? AND confirmed=1",
+        (host_id, normalized),
+    ).fetchone()
+    if row is None:
+        return None
+    return row["project_id"], normalized
+
+
+def confirmed_aliases(conn, host_id: str) -> dict[str, str]:
+    """Confirmed projects of an active client, mapped to a client-side root.
+
+    One root per project keeps the mapping deterministic when a project is
+    confirmed from more than one path on the same host.
+    """
+    if not active_client(conn, host_id):
+        return {}
+    rows = conn.execute(
+        "SELECT project_id, root FROM workspace_aliases"
+        " WHERE host_id=? AND confirmed=1 ORDER BY root",
+        (host_id,),
+    )
+    found: dict[str, str] = {}
+    for row in rows:
+        found.setdefault(row["project_id"], row["root"])
+    return found
 
 
 def confirm_workspace(conn, *, host_id: str, root: str, remote_key: str | None,
@@ -197,34 +258,49 @@ def confirm_workspace(conn, *, host_id: str, root: str, remote_key: str | None,
             raise ConfirmError("remote_key is already registered to a different project")
         if not actor_id:
             raise ConfirmError("create-project requires an actor_id")
-        project_id = _create_empty_project(conn, host_id=host_id, root=normalized, actor_id=actor_id)
-    else:
-        if not isinstance(project_id, str) or not ids.is_id(project_id, "prj"):
-            raise ConfirmError("project_id must name an existing project")
-        if conn.execute(
-            "SELECT 1 FROM projects WHERE project_id=?", (project_id,)
-        ).fetchone() is None:
-            raise ConfirmError("project_id must name an existing project")
-        if existing is not None and existing != project_id:
-            raise ConfirmError("remote_key is already registered to a different project")
+        try:
+            # The project and its Event must roll back with a failed alias
+            # write, or a retry would mint another orphan project.
+            with db.unit_of_work(conn) as work:
+                project_id = _create_empty_project(conn, host_id=host_id, root=normalized,
+                                                   actor_id=actor_id, unit_of_work=work)
+                _write_alias(conn, host_id=host_id, root=normalized, project_id=project_id,
+                             remote_key=key, unit_of_work=work)
+        except sqlite3.IntegrityError:
+            raise ConfirmError("alias was not written") from None
+        return project_id
+    if not isinstance(project_id, str) or not ids.is_id(project_id, "prj"):
+        raise ConfirmError("project_id must name an existing project")
+    if conn.execute(
+        "SELECT 1 FROM projects WHERE project_id=?", (project_id,)
+    ).fetchone() is None:
+        raise ConfirmError("project_id must name an existing project")
+    if existing is not None and existing != project_id:
+        raise ConfirmError("remote_key is already registered to a different project")
     assert project_id is not None
     try:
-        with db.transaction(conn):
-            if key:
-                current = _remote_project(conn, key)
-                if current is None:
-                    conn.execute(
-                        "INSERT INTO workspace_remotes (remote_key, project_id, created_at)"
-                        " VALUES (?, ?, ?)",
-                        (key, project_id, clock.now_rfc3339()),
-                    )
-                elif current != project_id:
-                    raise ConfirmError("remote_key is already registered to a different project")
-            _upsert_alias(conn, host_id=host_id, root=normalized, project_id=project_id,
-                          remote_key=key)
+        _write_alias(conn, host_id=host_id, root=normalized, project_id=project_id,
+                     remote_key=key)
     except sqlite3.IntegrityError:
         raise ConfirmError("alias was not written") from None
     return project_id
+
+
+def _write_alias(conn, *, host_id: str, root: str, project_id: str,
+                 remote_key: str | None, unit_of_work=None) -> None:
+    with db.transaction(conn, unit_of_work=unit_of_work):
+        if remote_key:
+            current = _remote_project(conn, remote_key)
+            if current is None:
+                conn.execute(
+                    "INSERT INTO workspace_remotes (remote_key, project_id, created_at)"
+                    " VALUES (?, ?, ?)",
+                    (remote_key, project_id, clock.now_rfc3339()),
+                )
+            elif current != project_id:
+                raise ConfirmError("remote_key is already registered to a different project")
+        _upsert_alias(conn, host_id=host_id, root=root, project_id=project_id,
+                      remote_key=remote_key)
 
 
 def backfill_aliases(conn, *, host_id: str,
@@ -361,7 +437,8 @@ def _upsert_alias(conn, *, host_id: str, root: str, project_id: str,
     )
 
 
-def _create_empty_project(conn, *, host_id: str, root: str, actor_id: str) -> str:
+def _create_empty_project(conn, *, host_id: str, root: str, actor_id: str,
+                          unit_of_work=None) -> str:
     from .migrations import current_version
     from .models import NewObject
     from .objects import ObjectStore
@@ -376,6 +453,7 @@ def _create_empty_project(conn, *, host_id: str, root: str, actor_id: str) -> st
                 "source_system": "hub-workspace-confirm",
             }),
             actor_id=actor_id,
+            unit_of_work=unit_of_work,
         )
     except errors.CoreError as exc:
         raise ConfirmError(exc.message) from None
