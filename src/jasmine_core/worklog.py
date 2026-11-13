@@ -357,7 +357,7 @@ class WorklogStore:
 
     def recover(self, body: dict[str, Any], *, actor_id: str, actor_kind: str,
                 now: datetime | None = None,
-                allowed_projects: set[str] | None = None,
+                projects: dict[str, str] | None = None,
                 bound_host_id: str | None = None) -> dict[str, Any]:
         """Record sessions of this workspace that went quiet without a closing record."""
         allowed = {"host_id", "workspace_root", "exclude_native_session_id"}
@@ -373,12 +373,15 @@ class WorklogStore:
         exclude = body.get("exclude_native_session_id")
         now = now or clock.now()
         # With clients on, do not read `.git` for a path that may live on the
-        # other machine. No alias: the stored root string and this host only.
+        # other machine. The API layer's client-side map wins, then the confirmed
+        # alias, then the stored root string and this host only.
         clients = _clients_enabled()
         alias = self._confirmed_project(host_id, root) if clients else None
         written = []
         with db.transaction(self.conn):
-            if not clients:
+            if projects is not None:
+                candidates = self._candidates(None, host_id, now, limit=None, projects=projects)
+            elif not clients:
                 candidates = self._candidates(family_root(root), host_id, now, limit=None)
             elif alias is not None:
                 candidates = self._candidates(None, host_id, now, limit=None, only_projects={alias})
@@ -387,8 +390,6 @@ class WorklogStore:
             # Covered, active or excluded sessions must not hide older eligible
             # sessions. Only successful recoveries count toward RECOVER_LIMIT.
             for candidate in candidates:
-                if allowed_projects is not None and candidate["project_id"] not in allowed_projects:
-                    continue
                 if len(written) >= RECOVER_LIMIT:
                     break
                 last = _parse(candidate["last_at"])
@@ -490,24 +491,34 @@ class WorklogStore:
 
     def _candidates(self, family: str | None, host_id: str, now: datetime, *, limit: int | None,
                     may_read: Callable[[str], bool] | None = None,
-                    agent: str | None = None, only_projects: set[str] | None = None,
+                    agent: str | None = None,
+                    projects: dict[str, str] | None = None,
+                    only_projects: set[str] | None = None,
                     exact_root: str | None = None, across_hosts: bool = False,
                     request_root: str | None = None) -> list[dict[str, Any]]:
         """Sessions with user text in the window, newest activity first.
 
         `family` None means every workspace on the host; `agent` keeps only the
-        sessions whose events came from that agent's source. `only_projects`
-        skips nearby directories. `across_hosts` drops the host filter.
+        sessions whose events came from that agent's source. `projects` is an
+        explicit project -> workspace map, used for a tailnet client whose
+        local paths differ from the hub's project descriptions. `only_projects`
+        skips nearby directories, `exact_root` matches a stored root without
+        reading the path, and `across_hosts` drops the host filter.
         """
-        if only_projects is not None:
-            projects = self._projects_by_id(only_projects, may_read)
+        if projects is not None:
+            project_roots = dict(projects)
+            if may_read is not None:
+                project_roots = {pid: root for pid, root in project_roots.items()
+                                 if may_read(pid)}
+        elif only_projects is not None:
+            project_roots = self._projects_by_id(only_projects, may_read)
         elif exact_root is not None:
-            projects = self._projects_by_root(exact_root, may_read)
+            project_roots = self._projects_by_root(exact_root, may_read)
         else:
-            projects = self._family_projects(family, may_read)
-        if not projects:
+            project_roots = self._family_projects(family, may_read)
+        if not project_roots:
             return []
-        marks = ",".join("?" * len(projects))
+        marks = ",".join("?" * len(project_roots))
         cutoff = clock.to_rfc3339(now - WINDOW)
         agent_clause, agent_params = "", ()
         if agent is not None:
@@ -533,7 +544,8 @@ class WorklogStore:
             f" WHERE s.project_id IN ({marks}){host_clause}{agent_clause}"
             f" GROUP BY s.session_id HAVING MAX(e.occurred_at) >= ?"
             f" ORDER BY last_at DESC LIMIT ?",
-            (*projects, *host_params, *agent_params, cutoff, limit if limit is not None else -1)).fetchall()
+            (*project_roots, *host_params, *agent_params, cutoff,
+             limit if limit is not None else -1)).fetchall()
         found = []
         for row in rows:
             if across_hosts:
@@ -542,12 +554,13 @@ class WorklogStore:
                 else:
                     shown = row["alias_root"]
             else:
-                shown = projects[row["project_id"]]
+                shown = project_roots[row["project_id"]]
             found.append({**dict(row), "root": shown})
         return found
 
     def recent(self, body: dict[str, Any], *, may_read: Callable[[str], bool],
-               now: datetime | None = None) -> dict[str, Any]:
+               now: datetime | None = None,
+               projects: dict[str, str] | None = None) -> dict[str, Any]:
         """The resume block for a new session in this workspace, or no text."""
         allowed = {"host_id", "workspace_root", "exclude_native_session_id", "workspace_state",
                    "scope", "agent"}
@@ -577,8 +590,19 @@ class WorklogStore:
             from .workspace_alias import confirmed_project_ids
 
             family = None
+            if projects is not None:
+                candidates = self._candidates(None, host_id, now, limit=8, may_read=may_read,
+                                              agent=agent, projects=projects)
+            else:
+                candidates = self._candidates(None, host_id, now, limit=8, may_read=may_read,
+                                              agent=agent,
+                                              only_projects=confirmed_project_ids(self.conn, host_id))
+        elif projects is not None:
+            # The API layer already resolved this client's confirmed project; the
+            # client's own root spelling is the one that machine can resume from.
+            family = None if scope == "global" else root
             candidates = self._candidates(None, host_id, now, limit=8, may_read=may_read, agent=agent,
-                                          only_projects=confirmed_project_ids(self.conn, host_id))
+                                          projects=projects)
         elif scope != "global" and _DRIVE_ROOT.match(root):
             family = root
             candidates = self._candidates(None, host_id, now, limit=8, may_read=may_read, agent=agent,
