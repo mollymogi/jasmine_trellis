@@ -12,9 +12,10 @@ from jasmine_core import auth,db,errors,ids,registry
 from jasmine_core.hosthook.install import _backup,_write
 
 #: ADR 0036 phase A delivers the prompt-time Memory hint to these Agents.
-MEMORY_HINT_AGENTS=('codex','claude','grok','opencode','antigravity')
+MEMORY_HINT_AGENTS=('codex','claude','grok','opencode','antigravity','dsh')
 #: Where an Agent keeps the configuration its installer edits, when not ~/.<agent>.
-HOMES={'opencode':lambda home:home/'.config'/'opencode','antigravity':lambda home:home/'.gemini'/'config'}
+HOMES={'opencode':lambda home:home/'.config'/'opencode','antigravity':lambda home:home/'.gemini'/'config',
+       'dsh':lambda home:home/'.dsh'}
 
 def _capture_metadata(runtime,agent,document,credentials):
     """`<agent>-conversation-keys.json`, reconstructed when an older setup never wrote it.
@@ -75,7 +76,7 @@ def prepare(base,confirmed=False):
     credentials=base/'config/credentials';browser=json.loads((credentials/'browser-daily.json').read_text())
     reference=json.loads((base/'config/codex-conversation-device.json').read_text())
     adapters={}
-    for agent in ('codex','claude','grok','opencode','antigravity'):
+    for agent in ('codex','claude','grok','opencode','antigravity','dsh'):
         binding=base/'config'/f'{agent}-conversation-device.json'
         if not binding.exists():
             metadata=credentials/f'{agent}-conversation-keys.json'
