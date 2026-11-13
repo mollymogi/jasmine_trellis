@@ -804,6 +804,7 @@ main {
 .agent-logo[data-agent-logo="grok"] { background: #4357c6; color: #fff; }
 .agent-logo[data-agent-logo="opencode"] { background: #7253a1; color: #fff; }
 .agent-logo[data-agent-logo="antigravity"] { background: #3c7a5a; color: #fff; }
+.agent-logo[data-agent-logo="dsh"] { background: #2f5f9e; color: #fff; }
 .agent-logo[data-agent-logo="gemini"] { background: linear-gradient(135deg,#426cdb,#ab3979); color: #fff; }
 .agent-logo[data-agent-logo="cursor"] { background: #52657e; color: #fff; }
 .agent-logo[data-agent-logo="windsurf"] { background: #087e80; color: #fff; }
