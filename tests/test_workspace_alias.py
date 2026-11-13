@@ -401,6 +401,25 @@ class WorkspaceAliasTests(unittest.TestCase):
         self.assertEqual(alias["project_id"], minted)
         self.assertEqual(alias["remote_key"], "github.com/Org/Fresh")
 
+    def test_create_project_rolls_back_when_the_alias_write_fails(self) -> None:
+        before_projects = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM projects").fetchone()["n"]
+        before_events = self.event_count()
+        self.conn.execute(
+            "CREATE TRIGGER test_refuse_alias BEFORE INSERT ON workspace_aliases"
+            " BEGIN SELECT RAISE(ABORT, 'refused alias'); END")
+        refused = self.confirm(
+            self.host, "/srv/orphan", "git@github.com:Org/Orphan.git", None,
+            create_project="", actor_id=ACTOR)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("alias was not written", refused.stderr)
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) AS n FROM projects").fetchone()["n"],
+            before_projects)
+        self.assertEqual(self.event_count(), before_events)
+        self.assertEqual(self.alias_count(), 0)
+        self.assertEqual(self.remote_count(), 0)
+
     def test_backfill_skips_ambiguous_paths_and_foreign_remotes(self) -> None:
         shared = self.data_dir / "shared"
         shared.mkdir()
