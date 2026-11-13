@@ -12,6 +12,7 @@ import secrets
 import stat
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from jasmine_core import auth, db, ids, registry
@@ -56,6 +57,12 @@ class BoundHostTests(unittest.TestCase):
             reg.upsert_host(self.host, display_name="client")
             reg.upsert_host(self.other, display_name="other")
             reg.upsert_actor(ACTOR, kind="human", display_name="tester", home_host_id=self.host)
+            self.conn.execute(
+                "INSERT INTO tailnet_clients"
+                " (host_id, display_name, status, created_at)"
+                " VALUES (?, 'client', 'active', '2026-11-12T00:00:00.000000Z')",
+                (self.host,),
+            )
         issuer = auth.Auth(self.conn)
         self.open_key = issuer.issue_key(actor_id=ACTOR, label="open", scopes=SCOPES)
         self.pinned_key = issuer.issue_key(
@@ -155,12 +162,7 @@ class BoundHostTests(unittest.TestCase):
             token=self.pinned_key["token"], gateway=SECRET)
         self.assertEqual(status, 201, project)
         project_id = project["object"]["project_id"]
-        self.conn.execute(
-            "INSERT INTO workspace_aliases"
-            " (host_id, root, project_id, remote_key, confirmed, created_at)"
-            " VALUES (?, '/tmp/jasmine-bound-host', ?, NULL, 1, '2026-11-12T00:00:00.000000Z')",
-            (self.host, project_id),
-        )
+        self._alias(self.host, "/tmp/jasmine-bound-host", project_id)
         status, session = self.call(
             "POST", "/v1/sessions", {"project_id": project_id, "host_id": self.host},
             token=self.pinned_key["token"], gateway=SECRET)
@@ -180,6 +182,97 @@ class BoundHostTests(unittest.TestCase):
             token=self.pinned_key["token"], gateway=SECRET)
         self.assertEqual(status, 200, recovered)
         self.assertEqual(recovered["count"], 0)
+
+    def test_revoked_client_is_refused_on_alias_gated_writes(self) -> None:
+        status, project = self.call(
+            "POST", "/v1/projects", {"name": "revoked-demo", "host_id": self.host},
+            token=self.pinned_key["token"], gateway=SECRET)
+        self.assertEqual(status, 201, project)
+        project_id = project["object"]["project_id"]
+        self._alias(self.host, "/tmp/jasmine-revoked", project_id)
+        with db.transaction(self.conn):
+            self.conn.execute(
+                "UPDATE tailnet_clients SET status='revoked', revoked_at=? WHERE host_id=?",
+                ("2026-11-12T00:00:00.000000Z", self.host))
+        bodies = {
+            "/v1/sessions": {"project_id": project_id, "host_id": self.host},
+            "/v1/events": self._event(self.host, project_id=project_id),
+            "/v1/memory/hint": {
+                "project_id": project_id, "native_session_id": "native",
+                "prompt": PROMPT, "host_id": self.host,
+            },
+            "/v1/session-checkpoints": {
+                "host_id": self.host, "project_id": project_id,
+                "native_session_id": "native", "reason": "SESSION_END",
+                "workspace_root": "/tmp/jasmine-revoked",
+            },
+            "/v1/session-checkpoints/recover": {
+                "host_id": self.host, "workspace_root": "/tmp/jasmine-revoked",
+            },
+            "/v1/continuity/recent": {
+                "host_id": self.host, "workspace_root": "/tmp/jasmine-revoked",
+            },
+        }
+        before = self.event_count()
+        for path, body in bodies.items():
+            status, payload = self.call(
+                "POST", path, body, token=self.pinned_key["token"], gateway=SECRET)
+            self.assertEqual(status, 403, path)
+            self.assertEqual(payload["error"]["code"], "project_not_aliased", path)
+        self.assertEqual(self.event_count(), before)
+
+    def test_confirmed_cross_path_client_recovers_and_resumes_its_sessions(self) -> None:
+        hub_path = "/srv/hub/cross-path"
+        client_path = "/tmp/jasmine-cross-path"
+        status, project = self.call(
+            "POST", "/v1/projects",
+            {"name": "cross-path", "description": hub_path, "host_id": self.host},
+            token=self.pinned_key["token"], gateway=SECRET)
+        self.assertEqual(status, 201, project)
+        project_id = project["object"]["project_id"]
+        self._alias(self.host, client_path, project_id)
+        status, session = self.call(
+            "POST", "/v1/sessions", {"project_id": project_id, "host_id": self.host},
+            token=self.pinned_key["token"], gateway=SECRET)
+        self.assertEqual(status, 201, session)
+        session_id = session["object"]["session_id"]
+        occurred = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat(
+            timespec="microseconds").replace("+00:00", "Z")
+        status, event = self.call(
+            "POST", "/v1/events",
+            self._event(self.host, project_id=project_id, session_id=session_id,
+                        occurred_at=occurred),
+            token=self.pinned_key["token"], gateway=SECRET)
+        self.assertEqual(status, 201, event)
+        status, recovered = self.call(
+            "POST", "/v1/session-checkpoints/recover",
+            {"host_id": self.host, "workspace_root": client_path},
+            token=self.pinned_key["token"], gateway=SECRET)
+        self.assertEqual(status, 200, recovered)
+        self.assertEqual(recovered["count"], 1, recovered)
+        checkpoint = self.conn.execute(
+            "SELECT session_id, project_id, host_id, workspace_root, family_root"
+            " FROM session_checkpoints WHERE session_checkpoint_id=?",
+            (recovered["recovered"][0],)).fetchone()
+        self.assertEqual(checkpoint["session_id"], session_id)
+        self.assertEqual(checkpoint["project_id"], project_id)
+        self.assertEqual(checkpoint["host_id"], self.host)
+        self.assertEqual(checkpoint["workspace_root"], client_path)
+        self.assertEqual(checkpoint["family_root"], client_path)
+        status, recent = self.call(
+            "POST", "/v1/continuity/recent",
+            {"host_id": self.host, "workspace_root": client_path},
+            token=self.pinned_key["token"], gateway=SECRET)
+        self.assertEqual(status, 200, recent)
+        self.assertEqual(recent["status"], "ok", recent)
+        self.assertEqual([s["session_id"] for s in recent["sessions"]], [session_id])
+        self.assertNotIn(hub_path, recent["text"])
+        status, global_recent = self.call(
+            "POST", "/v1/continuity/recent",
+            {"host_id": self.host, "workspace_root": client_path, "scope": "global"},
+            token=self.pinned_key["token"], gateway=SECRET)
+        self.assertEqual(status, 200, global_recent)
+        self.assertEqual([s["session_id"] for s in global_recent["sessions"]], [session_id])
 
     def test_mismatched_host_is_refused_on_every_named_route(self) -> None:
         before = self.event_count()
@@ -241,6 +334,15 @@ class BoundHostTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(body["error"]["code"], "invalid_request")
         self.assertIn("bound_host_id", body["error"]["details"]["fields"])
+
+    def _alias(self, host_id: str, root: str, project_id: str) -> None:
+        with db.transaction(self.conn):
+            self.conn.execute(
+                "INSERT INTO workspace_aliases"
+                " (host_id, root, project_id, remote_key, confirmed, created_at)"
+                " VALUES (?, ?, ?, NULL, 1, '2026-11-12T00:00:00.000000Z')",
+                (host_id, root, project_id),
+            )
 
     def _event(self, host_id: str, **extra) -> dict:
         body = {
