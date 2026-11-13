@@ -29,7 +29,7 @@
 		<string>--host</string>
 		<string>127.0.0.1</string>
 		<string>--port</string>
-		<string>18788</string>
+		<string>18798</string>
 	</array>
 	<key>StandardOutPath</key>
 	<string>DATA_DIR/logs/tailnet-gateway.log</string>
