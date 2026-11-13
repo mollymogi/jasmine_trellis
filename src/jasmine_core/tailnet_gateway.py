@@ -302,15 +302,14 @@ class _Handler(BaseHTTPRequestHandler):
                 return
         finally:
             connection.close()
-        self._send(status, payload, response_headers)
         self._access(method, path_template(urlsplit(target).path), status, started, None, _host_id_of(body))
+        self._send(status, payload, response_headers)
 
     def _finish(self, status: int, reason: str, body: bytes, started: float) -> None:
         payload = json.dumps(
             {"error": {"code": reason, "message": reason}},
             separators=(",", ":"),
         ).encode("ascii")
-        self._send(status, payload, {"Content-Type": _JSON_TYPE}, close=True)
         self._access(
             self.command,
             path_template(urlsplit(self.path or "").path),
@@ -319,6 +318,7 @@ class _Handler(BaseHTTPRequestHandler):
             reason,
             _host_id_of(body),
         )
+        self._send(status, payload, {"Content-Type": _JSON_TYPE}, close=True)
 
     def _send(self, status: int, payload: bytes, headers: dict[str, str], *, close: bool = True) -> None:
         self.close_connection = close
