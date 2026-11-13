@@ -6,6 +6,8 @@ and use a temporary data directory plus a temporary database.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import secrets
@@ -14,7 +16,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from jasmine_core import auth, db, ids, registry
+from jasmine_core import auth, cli, db, errors, ids, registry
 from jasmine_core.api.request import Request
 from jasmine_core.api.server import Application, data_dir_for_db, serve
 from jasmine_core.migrations import migrate
@@ -236,6 +238,94 @@ class BoundHostTests(unittest.TestCase):
         self.assertEqual(body["error"]["code"], "invalid_request")
         self.assertIn("bound_host_id", body["error"]["details"]["fields"])
 
+    def test_omitted_host_is_refused_on_every_named_route(self) -> None:
+        before = self.event_count()
+        bodies = {
+            "/v1/projects": {"name": "nope"},
+            "/v1/sessions": {},
+            "/v1/events": {
+                "event_type": "user.prompt", "source_system": "test",
+                "payload": {"text": PROMPT}, "occurred_at": "2026-09-29T12:00:00.000000Z",
+            },
+            "/v1/memory/hint": {
+                "project_id": ids.new_id("prj"), "native_session_id": "native",
+                "prompt": PROMPT,
+            },
+            "/v1/continuity/recent": {"workspace_root": "/tmp/jasmine-bound-host"},
+            "/v1/session-checkpoints": {
+                "project_id": ids.new_id("prj"), "native_session_id": "native",
+                "reason": "SESSION_END", "workspace_root": "/tmp/jasmine-bound-host",
+            },
+            "/v1/session-checkpoints/recover": {"workspace_root": "/tmp/jasmine-bound-host"},
+            "/v1/tasks": {"title": "nope"},
+            "/v1/checkpoints": {},
+            f"/v1/tasks/{ids.new_id('tsk')}/resume": {},
+        }
+        for path, body in bodies.items():
+            status, payload = self.call(
+                "POST", path, body, token=self.pinned_key["token"], gateway=SECRET)
+            self.assertEqual(status, 403, path)
+            self.assertEqual(payload["error"]["code"], "host_mismatch", path)
+        self.assertEqual(self.event_count(), before)
+        self.assertIsNone(self._last_used(self.pinned_key["key_id"]))
+        self.assertNotIn(PROMPT, self.audit_text())
+
+    def test_bind_key_pins_an_existing_key_without_rotating_its_token(self) -> None:
+        status, body = self.call(
+            "POST", "/v1/events", self._event(self.host),
+            token=self.open_key["token"], gateway=SECRET)
+        self.assertEqual(status, 403)
+        self.assertEqual(body["error"]["code"], "gateway_key_not_pinned")
+        code, output = self._cli([
+            "bind-key", "--db", str(self.db_path),
+            "--key-id", self.open_key["key_id"], "--host-id", self.host,
+        ])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(output), {
+            "key_id": self.open_key["key_id"],
+            "bound_host_id": self.host,
+            "previous_bound_host_id": None,
+        })
+        status, project = self.call(
+            "POST", "/v1/projects", {"name": "after", "host_id": self.host},
+            token=self.open_key["token"], gateway=SECRET)
+        self.assertEqual(status, 201, project)
+
+    def test_bind_key_reads_a_client_key_file(self) -> None:
+        key_file = self.data_dir / "capture.key"
+        key_file.write_text(self.open_key["token"] + "\n")
+        code, output = self._cli([
+            "bind-key", "--db", str(self.db_path),
+            "--token-file", str(key_file), "--host-id", self.host,
+        ])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(output)["bound_host_id"], self.host)
+        principal = auth.Auth(self.conn).authenticate("Bearer " + self.open_key["token"])
+        self.assertEqual(principal.bound_host_id, self.host)
+        self.assertNotIn(self.open_key["token"], output)
+
+    def test_bind_key_refuses_an_unknown_malformed_or_revoked_key(self) -> None:
+        issuer = auth.Auth(self.conn)
+        with self.assertRaises(errors.NotFound) as unknown:
+            issuer.bind_key(ids.new_id("key"), self.host)
+        self.assertEqual(unknown.exception.code, "key_not_found")
+        with self.assertRaises(errors.NotFound) as unknown_host:
+            issuer.bind_key(self.open_key["key_id"], ids.new_id("hst"))
+        self.assertEqual(unknown_host.exception.code, "host_not_found")
+        with self.assertRaises(errors.InvalidRequest):
+            issuer.bind_key("not-a-key", self.host)
+        with self.assertRaises(errors.InvalidRequest):
+            issuer.bind_token("", self.host)
+        with self.assertRaises(errors.NotFound) as unknown_token:
+            issuer.bind_token("not-a-token", self.host)
+        self.assertEqual(unknown_token.exception.code, "key_not_found")
+        revoked = issuer.issue_key(actor_id=ACTOR, label="revoked", scopes=["events:write"])
+        issuer.revoke(revoked["key_id"])
+        with self.assertRaises(errors.InvalidRequest) as refused:
+            issuer.bind_key(revoked["key_id"], self.host)
+        self.assertEqual(refused.exception.details["field"], "key_id")
+        self.assertIsNone(self._last_used(self.open_key["key_id"]))
+
     def _event(self, host_id: str, **extra) -> dict:
         body = {
             "event_type": "user.prompt", "source_system": "test", "host_id": host_id,
@@ -248,6 +338,12 @@ class BoundHostTests(unittest.TestCase):
         return self.conn.execute(
             "SELECT last_used_at FROM api_keys WHERE key_id = ?", (key_id,)
         ).fetchone()["last_used_at"]
+
+    def _cli(self, argv: list[str]) -> tuple[int, str]:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = cli.main(argv)
+        return code, out.getvalue()
 
 
 class GatewaySecretStartupTests(unittest.TestCase):

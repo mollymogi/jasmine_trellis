@@ -241,14 +241,17 @@ def admit_pinned_key(core: Core, principal: auth.Principal) -> None:
 
 
 def admit_bound_host(core: Core, request: Request, principal: auth.Principal, route: Route) -> None:
-    """Refuse a tailnet body whose host_id is not the key's pin. Do not write."""
+    """Refuse a tailnet body whose host_id is missing or not the key's pin. Do not write.
+
+    Every marked route's body carries `host_id`, so a tailnet body without one
+    is refused rather than admitted: an optional field would let a key pinned
+    to host A read another project's Memory hint without being compared at all.
+    """
     if not core.tailnet_request or not route.checks_bound_host:
-        return
-    if not request.body:
         return
     body = request.json_body()
     if "host_id" not in body:
-        return
+        raise errors.HostMismatch("host_id is required on a tailnet request")
     presented = body["host_id"]
     bound = principal.bound_host_id or ""
     if not isinstance(presented, str) or presented != bound:

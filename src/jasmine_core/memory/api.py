@@ -370,10 +370,9 @@ def hint(request: Request, core: "Core", principal: auth.Principal,
     from . import hint as hint_module
 
     svc = services(core)
-    allowed = {"project_id", "native_session_id", "session_id", "task_id", "prompt"}
-    # Optional on a tailnet call so the host pin can be checked. Loopback bodies stay as they are.
-    if core.tailnet_request:
-        allowed = allowed | {"host_id"}
+    allowed = {"project_id", "native_session_id", "session_id", "task_id", "prompt", "host_id"}
+    # host_id is accepted on loopback and checked against the key's pin only on
+    # a tailnet request (api.dispatch); the hook always sends its binding host.
     body = _body(request, allowed)
     project_id = body.get("project_id")
     if not ids.is_id(project_id, "prj"):
