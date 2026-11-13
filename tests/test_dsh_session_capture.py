@@ -114,3 +114,31 @@ class DshCapture(ConversationCapture):
         self.assertNotIn(install_dsh.PACKAGE, json.loads((profile / "package.json").read_text())["dsh"]["profile"]["bundles"])
         with self.assertRaises(InstallError):
             install_dsh.set_memory_hint(home, self.binding_path, enabled=True, confirmed=True)
+
+    def test_installer_refuses_a_symlinked_plugin_directory(self):
+        home = self.native_root / "dsh-symlinked-plugin"
+        target = self.native_root / "dsh-symlinked-plugin-target"
+        target.mkdir(mode=0o700)
+        home.mkdir(mode=0o700)
+        (home / install_dsh.PLUGIN_DIR).symlink_to(target, target_is_directory=True)
+        opts = {"python": sys.executable, "launcher": Path(dsh_session.__file__)}
+        with self.assertRaises(InstallError):
+            install_dsh.install(home, self.binding_path, self.receipts, confirmed=True, **opts)
+        self.assertEqual(list(target.iterdir()), [])
+
+    def test_disable_leaves_a_profile_created_after_install_alone(self):
+        home = self.native_root / "dsh-disable-new-profile"
+        installed = home / "profiles" / "web"
+        installed.mkdir(parents=True)
+        (installed / "package.json").write_text(json.dumps(
+            {"name": "dsh-profile-web", "dependencies": {}, "dsh": {"profile": {"bundles": []}}}) + "\n")
+        opts = {"python": sys.executable, "launcher": Path(dsh_session.__file__)}
+        install_dsh.install(home, self.binding_path, self.receipts, confirmed=True, **opts)
+        later = home / "profiles" / "later"
+        later.mkdir(parents=True)
+        manifest = later / "package.json"
+        original = json.dumps({"name": "dsh-profile-later"}) + "\n"
+        manifest.write_text(original)
+        install_dsh.install(home, self.binding_path, self.receipts, confirmed=True, disable=True, **opts)
+        self.assertEqual(manifest.read_text(), original)
+        self.assertEqual(list(later.glob("package.json.jasmine-backup-*")), [])

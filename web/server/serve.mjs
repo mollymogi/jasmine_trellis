@@ -16,7 +16,7 @@
  */
 
 import http from 'node:http'
-import { serveLocalAgents } from './local-agents.mjs'
+import { LOCAL_AGENTS_WRITE_ROUTE, serveLocalAgents } from './local-agents.mjs'
 import { serveLocalInterpreter } from './interpreter-control.mjs'
 import { serveLocalSession } from './local-session.mjs'
 import { randomUUID } from 'node:crypto'
@@ -377,7 +377,7 @@ export function createDashboardServer({ root, origin, allowlist = loadAllowlist(
     }
     if (target.pathname === '/_local/session') { serveLocalSession(req, res, { port: req.socket.localPort }); return }
     if (target.pathname === '/_local/interpreter' && flagEnabled(process.env, 'P6_ENABLE_CONVERSATION_PROCESSING')) { void serveLocalInterpreter(req, res, origin); return }
-    if ((target.pathname === '/_local/agents' || /^\/_local\/agents\/(codex|claude|grok|opencode|antigravity|dsh)\/(capture|memory-hint)$/.test(target.pathname))) { void serveLocalAgents(req, res, origin); return }
+    if ((target.pathname === '/_local/agents' || LOCAL_AGENTS_WRITE_ROUTE.test(target.pathname))) { void serveLocalAgents(req, res, origin); return }
     if (target.kind === 'api') proxy(req, res, origin, allowlist)
     else serveStatic(req, res, root)
   })

@@ -214,11 +214,12 @@ def _link_profile(profile: Path, plugin: Path, *, disable: bool) -> None:
     document = json.loads(manifest_path.read_text())
     if not isinstance(document, dict):
         raise InstallError("dsh profile manifest is not an object")
-    dependencies = document.setdefault("dependencies", {})
-    dsh = document.setdefault("dsh", {})
-    profile_meta = dsh.setdefault("profile", {})
-    bundles = profile_meta.setdefault("bundles", [])
-    if not isinstance(dependencies, dict) or not isinstance(bundles, list):
+    dependencies = document.get("dependencies", {})
+    dsh = document.get("dsh", {})
+    profile_meta = dsh.get("profile", {}) if isinstance(dsh, dict) else None
+    bundles = profile_meta.get("bundles", []) if isinstance(profile_meta, dict) else None
+    if (not isinstance(dependencies, dict) or not isinstance(dsh, dict)
+            or not isinstance(profile_meta, dict) or not isinstance(bundles, list)):
         raise InstallError("dsh profile manifest is not the expected shape")
     current = dependencies.get(PACKAGE)
     link = "link:" + str(plugin)
@@ -227,14 +228,23 @@ def _link_profile(profile: Path, plugin: Path, *, disable: bool) -> None:
     node_modules = profile / "node_modules" / "@local"
     link_path = node_modules / "jasmine-trellis"
     if disable:
+        owned = link_path.is_symlink() and link_path.resolve() == plugin.resolve()
+        if PACKAGE not in dependencies and PACKAGE not in bundles and not owned:
+            # A profile created after install: nothing here belongs to Jasmine, so leave it alone.
+            return
         if PACKAGE in dependencies:
             del dependencies[PACKAGE]
-        profile_meta["bundles"] = [name for name in bundles if name != PACKAGE]
+        if PACKAGE in bundles:
+            profile_meta["bundles"] = [name for name in bundles if name != PACKAGE]
         if link_path.is_symlink() or link_path.exists():
-            if link_path.is_symlink() and link_path.resolve() != plugin.resolve():
+            if not owned:
                 raise InstallError("profile link does not point at the Jasmine plugin")
             link_path.unlink()
     else:
+        dependencies = document.setdefault("dependencies", dependencies)
+        dsh = document.setdefault("dsh", dsh)
+        profile_meta = dsh.setdefault("profile", profile_meta)
+        bundles = profile_meta.setdefault("bundles", bundles)
         dependencies[PACKAGE] = link
         if PACKAGE not in bundles:
             bundles.append(PACKAGE)
@@ -266,6 +276,8 @@ def install(home: Path, binding: Path, receipts: Path, *, python: str, launcher:
         raise InstallError("separate prompt credential required")
     read_key(device.human_api_key_file)
     plugin = home / PLUGIN_DIR
+    if plugin.is_symlink():
+        raise InstallError("symlinked plugin directory refused")
     plugin.mkdir(parents=True, exist_ok=True, mode=0o700)
     index = plugin / "index.js"
     with (plugin / ".jasmine-trellis.lock").open("a") as lock:
