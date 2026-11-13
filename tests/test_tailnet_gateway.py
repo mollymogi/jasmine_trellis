@@ -149,7 +149,7 @@ class GatewayTest(unittest.TestCase):
 
     def test_cap_constant_is_384_kib(self) -> None:
         self.assertEqual(MAX_BODY_BYTES, 393216)
-        self.assertEqual(GATEWAY_PORT, 18788)
+        self.assertEqual(GATEWAY_PORT, 18798)
 
     def test_listening_socket_is_loopback_and_other_addresses_are_refused(self) -> None:
         self.assertEqual(self.server.socket.getsockname()[0], "127.0.0.1")
@@ -549,7 +549,7 @@ class GatewayTest(unittest.TestCase):
         self.assertEqual(job["ThrottleInterval"], 5)
         self.assertEqual(job["Umask"], 63)
         arguments = job["ProgramArguments"]
-        self.assertIn("18788", arguments)
+        self.assertIn("18798", arguments)
         self.assertIn("127.0.0.1", arguments)
         self.assertIn("http://127.0.0.1:18787", arguments)
         text = PLIST.read_text()

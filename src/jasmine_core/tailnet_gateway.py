@@ -21,7 +21,8 @@ from . import ids
 from .canonical import looks_like_credential
 
 GATEWAY_HOST = "127.0.0.1"
-GATEWAY_PORT = 18788
+# 18788 is DSH's billion-context proxy on the hub, and 18789 is also in use there.
+GATEWAY_PORT = 18798
 #: 384 KiB. Above models.MAX_TEXT_BYTES so a wrapped event still fits; over this
 #: the handler answers and closes without reading the rest.
 MAX_BODY_BYTES = 384 * 1024
