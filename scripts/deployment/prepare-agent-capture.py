@@ -54,9 +54,9 @@ def _memory_key(runtime,agent,binding,credentials):
     ask for a hint. Recording it does not enable the hint; the Agent page does.
     """
     document=json.loads(binding.read_text())
-    if document.get('memory_key_file'):return
     host_id=document.get('host_id')
     if not ids.is_id(host_id,'hst'):raise ValueError(f'{agent} binding has no host_id')
+    if document.get('memory_key_file'):return
     path=credentials/f'{agent}-conversation-memory.key'
     metadata=credentials/f'{agent}-conversation-keys.json';meta=_capture_metadata(runtime,agent,document,credentials)
     if not path.exists():

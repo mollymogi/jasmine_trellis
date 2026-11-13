@@ -113,6 +113,19 @@ class MissingMetadata(unittest.TestCase):
         self.binding.write_text(json.dumps(document))
         self.assert_refused("binding has no host_id")
 
+    def test_an_existing_memory_key_still_requires_a_host_id(self):
+        self.memory_key.write_text(self.keys["system"]["token"] + "\n")
+        self.memory_key.chmod(0o600)
+        document = json.loads(self.binding.read_text())
+        document["memory_key_file"] = str(self.memory_key)
+        document.pop("host_id")
+        self.binding.write_text(json.dumps(document))
+        before = (self.binding.read_bytes(), self.memory_key.read_bytes())
+        with self.assertRaisesRegex(ValueError, "binding has no host_id"):
+            self.run_prepare()
+        self.assertFalse(self.metadata.exists())
+        self.assertEqual(before, (self.binding.read_bytes(), self.memory_key.read_bytes()))
+
     def assert_refused(self, message):
         before = self.binding.read_bytes()
         with self.assertRaisesRegex(ValueError, message):
