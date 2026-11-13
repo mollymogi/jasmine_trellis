@@ -16,6 +16,7 @@
  */
 
 import http from 'node:http'
+import { createUsageService, isUsagePath, serveLocalUsage } from './conversation-usage.mjs'
 import { LOCAL_AGENTS_WRITE_ROUTE, serveLocalAgents } from './local-agents.mjs'
 import { serveLocalInterpreter } from './interpreter-control.mjs'
 import { serveLocalSession } from './local-session.mjs'
@@ -366,7 +367,21 @@ export function serveStatic(req, res, root) {
   createReadStream(filePath).pipe(res)
 }
 
-export function createDashboardServer({ root, origin, allowlist = loadAllowlist() }) {
+/**
+ * The usage service behind `/_local/usage`.
+ *
+ * One instance per process: it owns the TTL cache and the resolved `zstd`/`sqlite3` paths,
+ * so a panel that polls the inventory pays a stat per session file instead of a rescan.
+ * Created on first use — a dashboard that never opens the token panel never scans a home
+ * directory.
+ */
+let usageService = null
+function localUsage() {
+  if (!usageService) usageService = createUsageService()
+  return usageService
+}
+
+export function createDashboardServer({ root, origin, allowlist = loadAllowlist(), usage = null }) {
   return http.createServer((req, res) => {
     const target = classifyRequestTarget(req.url)
     if (target.kind === 'bad') {
@@ -376,6 +391,7 @@ export function createDashboardServer({ root, origin, allowlist = loadAllowlist(
       return
     }
     if (target.pathname === '/_local/session') { serveLocalSession(req, res, { port: req.socket.localPort }); return }
+    if (isUsagePath(target.pathname)) { void serveLocalUsage(req, res, origin, usage ?? localUsage()); return }
     if (target.pathname === '/_local/interpreter' && flagEnabled(process.env, 'P6_ENABLE_CONVERSATION_PROCESSING')) { void serveLocalInterpreter(req, res, origin); return }
     if ((target.pathname === '/_local/agents' || LOCAL_AGENTS_WRITE_ROUTE.test(target.pathname))) { void serveLocalAgents(req, res, origin); return }
     if (target.kind === 'api') proxy(req, res, origin, allowlist)

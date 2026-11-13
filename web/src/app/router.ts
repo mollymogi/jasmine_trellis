@@ -16,6 +16,10 @@ export type TaskTab = 'board' | 'history' | 'evidence' | 'write' | 'confirmation
 
 export type Route =
   | { name: 'overview' }
+  // Token 消耗 is one dashboard-local analysis page (`/_local/usage`). It has no
+  // parameters of its own: the inventory is read once and filtered in the browser, so
+  // there is nothing to put in the hash (and nothing that could leak a token into it).
+  | { name: 'usage' }
   | { name: 'project'; projectId: string }
   | { name: 'task'; taskId: string; tab: TaskTab }
   | {
@@ -93,6 +97,7 @@ export function parseHash(hash: string): Route {
   const query = queryOf(searchPart ?? '')
 
   if (head === undefined || head === 'overview') return { name: 'overview' }
+  if (head === 'usage') return { name: 'usage' }
   if (head === 'project') {
     const projectId = segment(parts[1])
     return projectId ? { name: 'project', projectId } : { name: 'unknown', raw }
@@ -230,6 +235,8 @@ export function hrefFor(route: Route): string {
   switch (route.name) {
     case 'overview':
       return '#/overview'
+    case 'usage':
+      return '#/usage'
     case 'project':
       return `#/project/${encodeURIComponent(route.projectId)}`
     case 'task':
@@ -314,6 +321,8 @@ export function hrefFor(route: Route): string {
 
 /** Deep-linkable source links used by trace chips throughout the UI. */
 export const sourceHref = {
+  /** Top-level page link; also used by the sidebar so the href exists in one place. */
+  usage: (): string => hrefFor({ name: 'usage' }),
   project: (projectId: string): string => hrefFor({ name: 'project', projectId }),
   task: (taskId: string, tab: TaskTab = 'board'): string => hrefFor({ name: 'task', taskId, tab }),
   step: (taskId: string, tab: TaskTab = 'board'): string => hrefFor({ name: 'task', taskId, tab }),
