@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/deployment/enable-tailnet-memory-serve.sh"
-SERVE = "tailscale serve --bg --https=443 http://127.0.0.1:18788"
+SERVE = "tailscale serve --bg --https=443 http://127.0.0.1:18798"
 
 
 def _write_exec(path: Path, text: str) -> None:
@@ -77,7 +77,7 @@ cat "$PS_BODY"
         self.status.write_text("No serve config\n")
         self.after.write_text(
             "https://mercuryliumac-mini.tail07df76.ts.net (tailnet only)\n"
-            "|-- / proxy http://127.0.0.1:18788\n"
+            "|-- / proxy http://127.0.0.1:18798\n"
         )
         self._clients([])
 
@@ -151,7 +151,7 @@ cat "$PS_BODY"
         self._clients([("hst_linux", "liuxu", "active"), ("hst_old", "VM-0-9-ubuntu", "revoked")])
         result = self._run("--db", str(self.database))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("listener: 127.0.0.1:18788 not listening (not required for dry-run)", result.stdout)
+        self.assertIn("listener: 127.0.0.1:18798 not listening (not required for dry-run)", result.stdout)
         self.assertIn("core_env: JASMINE_TAILNET_CLIENTS set", result.stdout)
         self.assertIn("serve_status: no Funnel and no forbidden backend", result.stdout)
         self.assertIn("linux_client: liuxu (hst_linux)", result.stdout)
@@ -167,18 +167,18 @@ cat "$PS_BODY"
         self._clients([("hst_linux", "VM-0-9-ubuntu", "active")])
         self.status.write_text(
             "https://mercuryliumac-mini.tail07df76.ts.net (tailnet only)\n"
-            "|-- / proxy http://127.0.0.1:18788\n"
+            "|-- / proxy http://127.0.0.1:18798\n"
         )
         result = self._run("--dry-run", "--db", str(self.database), listener="up")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("listener: 127.0.0.1:18788 listening", result.stdout)
+        self.assertIn("listener: 127.0.0.1:18798 listening", result.stdout)
         self.assertIn("no Funnel and no forbidden backend", result.stdout)
         self.assertEqual(self._log(), "serve status\n")
 
     def test_dry_run_refuses_funnel_and_forbidden_backends(self):
         self._clients([("hst_linux", "VM-0-9-ubuntu", "active")])
         for body in (
-            "https://example.ts.net (Funnel on)\n|-- / proxy http://127.0.0.1:18788\n",
+            "https://example.ts.net (Funnel on)\n|-- / proxy http://127.0.0.1:18798\n",
             "https://example.ts.net (tailnet only)\n|-- / proxy http://127.0.0.1:18787\n",
             "proxy http://127.0.0.1:15180\n",
             "proxy http://127.0.0.1:18084\n",
@@ -228,17 +228,17 @@ cat "$PS_BODY"
         self._clients([("hst_linux", "VM-0-9-ubuntu", "active")])
         result = self._run("--apply", "--db", str(self.database), listener="up")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("backend: 127.0.0.1:18788", result.stdout)
+        self.assertIn("backend: 127.0.0.1:18798", result.stdout)
         self.assertIn(f"applied: {SERVE}", result.stdout)
         self.assertEqual(
             self._log(),
-            "serve status\nserve --bg --https=443 http://127.0.0.1:18788\nserve status\n",
+            "serve status\nserve --bg --https=443 http://127.0.0.1:18798\nserve status\n",
         )
         self.assertNotIn("serve off", self._log())
 
     def test_apply_turns_serve_off_when_the_backend_or_funnel_is_wrong(self):
         self._clients([("hst_linux", "VM-0-9-ubuntu", "active")])
-        self.after.write_text("https://example.ts.net (Funnel on)\n|-- / proxy http://127.0.0.1:18788\n")
+        self.after.write_text("https://example.ts.net (Funnel on)\n|-- / proxy http://127.0.0.1:18798\n")
         result = self._run("--apply", "--db", str(self.database), listener="up")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Funnel", result.stderr)

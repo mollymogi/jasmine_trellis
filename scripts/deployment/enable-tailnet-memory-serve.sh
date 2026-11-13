@@ -2,24 +2,24 @@
 # Point Tailscale Serve at the loopback memory gateway. Default is --dry-run.
 #
 # --apply is explicit. It is the only path that runs:
-#   tailscale serve --bg --https=443 http://127.0.0.1:18788
+#   tailscale serve --bg --https=443 http://127.0.0.1:18798
 # CI and tests call --dry-run only. This script does not change Core's bind
 # and does not enroll clients. Windows is not enrolled by this apply.
 #
 # Before --apply the script checks:
-#   - 127.0.0.1:18788 is listening (printed for --dry-run, not required then)
+#   - 127.0.0.1:18798 is listening (printed for --dry-run, not required then)
 #   - the hub Core environment has JASMINE_TAILNET_CLIENTS set to a non-empty
 #     value (JASMINE_CORE_ENV_FILE, or the environ of the process listening
 #     on 127.0.0.1:18787). The script's own environment does not count.
 #   - `tailscale serve status` has no Funnel and does not already point at
 #     18787, :15180, or :18084. "No serve config" passes. The backend does
-#     not already have to be 18788.
+#     not already have to be 18798.
 #   - tailnet_clients has at least one active Linux client. There is no
 #     platform column: an active row counts as Linux when its display_name
 #     does not indicate Windows ("windows" anywhere, or a "WIN-" prefix).
 #     An active Windows name fails the run.
 #
-# After --apply, status is read again. If the backend is not 127.0.0.1:18788
+# After --apply, status is read again. If the backend is not 127.0.0.1:18798
 # or Funnel appears, the script runs `tailscale serve off` and exits non-zero.
 #
 # Rollback: `tailscale serve off` and stop the gateway. Do not roll back a migrated Core binary.
@@ -80,7 +80,7 @@ listener_up() {
 s = socket.socket()
 s.settimeout(0.4)
 try:
-    s.connect(("127.0.0.1", 18788))
+    s.connect(("127.0.0.1", 18798))
 except OSError:
     sys.exit(1)
 finally:
@@ -132,7 +132,7 @@ except ValueError:
     status_failed = True
 
 forbidden = re.compile(r"(^|[^0-9])(18787|15180|18084)([^0-9]|$)")
-backend = re.compile(r"(^|[^0-9])127\.0\.0\.1:18788([^0-9]|$)")
+backend = re.compile(r"(^|[^0-9])127\.0\.0\.1:18798([^0-9]|$)")
 
 
 def flag_set(text: str) -> bool:
@@ -177,28 +177,28 @@ def status_blocked(text: str) -> list[str]:
 
 if phase == "post":
     # Exit 2: status command failed, caller must not turn Serve off.
-    # Exit 1: status shows Funnel or a backend other than 127.0.0.1:18788.
+    # Exit 1: status shows Funnel or a backend other than 127.0.0.1:18798.
     if status_failed_read(status):
         print("tailscale serve status failed", file=sys.stderr)
         sys.exit(2)
     reasons = status_blocked(status)
     if not backend.search(status):
-        reasons.append("tailscale serve backend is not 127.0.0.1:18788")
+        reasons.append("tailscale serve backend is not 127.0.0.1:18798")
     if reasons:
         for reason in reasons:
             print(reason, file=sys.stderr)
         sys.exit(1)
-    print("backend: 127.0.0.1:18788")
+    print("backend: 127.0.0.1:18798")
     print("funnel: off")
     sys.exit(0)
 
 errors = []
 if listener == "up":
-    print("listener: 127.0.0.1:18788 listening")
+    print("listener: 127.0.0.1:18798 listening")
 elif mode == "apply":
-    errors.append("127.0.0.1:18788 is not listening")
+    errors.append("127.0.0.1:18798 is not listening")
 else:
-    print("listener: 127.0.0.1:18788 not listening (not required for dry-run)")
+    print("listener: 127.0.0.1:18798 not listening (not required for dry-run)")
 
 if flag_set(env_text):
     print("core_env: JASMINE_TAILNET_CLIENTS set")
@@ -271,11 +271,11 @@ fi
 printf 'mode: %s\n' "$MODE"
 if [[ "$MODE" == "dry-run" ]]; then
   printf 'dry-run: not applying\n'
-  printf 'would_run: tailscale serve --bg --https=443 http://127.0.0.1:18788\n'
+  printf 'would_run: tailscale serve --bg --https=443 http://127.0.0.1:18798\n'
   exit 0
 fi
 
-if ! tailscale serve --bg --https=443 http://127.0.0.1:18788; then
+if ! tailscale serve --bg --https=443 http://127.0.0.1:18798; then
   echo "tailscale serve failed" >&2
   exit 1
 fi
@@ -284,11 +284,11 @@ STATUS_RC="$(cat "$TMP/status_rc")"
 classify post up "$TMP/status" "$TMP/env" "$STATUS_RC" && POST_RC=0 || POST_RC=$?
 if [[ "$POST_RC" -eq 1 ]]; then
   tailscale serve off || true
-  echo "backend was not 127.0.0.1:18788 or Funnel appeared; ran tailscale serve off" >&2
+  echo "backend was not 127.0.0.1:18798 or Funnel appeared; ran tailscale serve off" >&2
   exit 1
 fi
 if [[ "$POST_RC" -ne 0 ]]; then
   exit "$POST_RC"
 fi
-printf 'applied: tailscale serve --bg --https=443 http://127.0.0.1:18788\n'
+printf 'applied: tailscale serve --bg --https=443 http://127.0.0.1:18798\n'
 exit 0
