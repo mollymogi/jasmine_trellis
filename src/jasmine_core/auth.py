@@ -202,6 +202,47 @@ class Auth:
                 "UPDATE api_keys SET revoked_at = ? WHERE key_id = ?", (clock.now_rfc3339(), key_id)
             )
 
+    def bind_key(self, key_id: str, host_id: str) -> dict[str, Any]:
+        """Pin an existing key to a host, keeping its token.
+
+        This is the upgrade path for keys issued before `bound_host_id`
+        existed: those tokens live in client key files, so re-issuing them with
+        `issue_key` would rotate every capture client.
+        """
+        if not ids.is_id(key_id, "key"):
+            raise errors.InvalidRequest("key_id must be a key_ id", field="key_id")
+        if not ids.is_id(host_id, "hst"):
+            raise errors.InvalidRequest("host_id must be a hst_ id", field="host_id")
+        with db.translate_lock_errors(), db.transaction(self._conn):
+            row = self._conn.execute(
+                "SELECT revoked_at, bound_host_id FROM api_keys WHERE key_id = ?", (key_id,)
+            ).fetchone()
+            if row is None:
+                raise errors.NotFound("key", key_id)
+            if row["revoked_at"] is not None:
+                raise errors.InvalidRequest("a revoked key cannot be pinned", field="key_id")
+            if self._conn.execute(
+                "SELECT 1 FROM hosts WHERE host_id = ?", (host_id,)
+            ).fetchone() is None:
+                raise errors.NotFound("host", host_id)
+            previous = row["bound_host_id"]
+            self._conn.execute(
+                "UPDATE api_keys SET bound_host_id = ? WHERE key_id = ?", (host_id, key_id)
+            )
+        return {"key_id": key_id, "bound_host_id": host_id,
+                "previous_bound_host_id": previous}
+
+    def bind_token(self, token: str, host_id: str) -> dict[str, Any]:
+        """Pin the key that a client token identifies, for keys stored in key files."""
+        if not isinstance(token, str) or not token.strip():
+            raise errors.InvalidRequest("token must not be empty", field="token")
+        row = self._conn.execute(
+            "SELECT key_id FROM api_keys WHERE token_sha256 = ?", (sha256_hex(token.strip()),)
+        ).fetchone()
+        if row is None:
+            raise errors.NotFound("key", "the presented token")
+        return self.bind_key(row["key_id"], host_id)
+
 
 def json_scopes(raw: str) -> list[str]:
     import json
