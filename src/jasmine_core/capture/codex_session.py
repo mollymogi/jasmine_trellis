@@ -17,11 +17,13 @@ import sys
 import time
 from typing import Any
 
-from ..api.client import CoreClient
+from .. import ids
+from ..api.client import ApiError, CoreClient
 from ..canonical import canonical_json
 from ..evidence import _deterministic_event_id
-from ..hosthook.binding import Binding, load_binding, load_device, read_key
+from ..hosthook.binding import TAILNET_CORE_ORIGIN, Binding, load_binding, load_device, read_key
 from . import memory_hint, worklog_client
+from .hook_budget import arm_tailnet, disarm
 
 SOURCE = "codex-native-conversation-v1"
 EVENTS = {"SessionStart": "session.started", "UserPromptSubmit": "user.prompt",
@@ -51,18 +53,67 @@ def workspace_root(cwd: str) -> Path:
     return path
 
 
-def bind_workspace(native: dict[str, Any], device: Binding) -> Binding:
+def _bind_timeout(tailnet: bool, started: float, timeout: float) -> float:
+    if tailnet:
+        return timeout
+    left = timeout - (time.monotonic() - started)
+    if left <= 0:
+        raise TimeoutError("hook budget exhausted")
+    return left
+
+
+def bind_workspace(native: dict[str, Any], device: Binding, source: str = SOURCE, *, timeout: float = 2) -> Binding:
     """Register ownership through Core's atomic, idempotent object API.
 
     No project-supplied binding or environment variable can redirect the
     device's destination/credentials or silently attach a conversation to a Task.
+    The tailnet origin adopts ``project_id`` only from ``status=ok`` resolve and
+    never posts ``/v1/projects``. Loopback with no confirmed alias still does.
+    A failed origin probe becomes absent on loopback and aborts the tailnet bind.
     """
     root = workspace_root(native["cwd"])
-    identity = canonical_json([PROJECT_SOURCE, device.host_id, str(root)])
-    project = CoreClient(device.core_url, read_key(device.api_key_file), timeout=2).post("/v1/projects", {
+    tailnet = device.core_url == TAILNET_CORE_ORIGIN
+    try:
+        origin, kind = worklog_client.git_remote_origin(root)
+    except Exception:
+        # Only the tailnet origin needs a confirmed remote here: it must never
+        # guess a project. Loopback keeps its previous POST /v1/projects
+        # fallback, so missing git, a slow remote or an unusable origin must not
+        # cost a device capture its event.
+        if tailnet:
+            raise
+        origin, kind = None, "absent"
+    started = time.monotonic()
+    answer: dict[str, Any] | None
+    try:
+        answer = CoreClient(device.core_url, read_key(device.api_key_file),
+                            timeout=_bind_timeout(tailnet, started, timeout)).post(
+            "/v1/workspaces/resolve", {
+                "host_id": device.host_id, "root": str(root), "origin": origin, "remote_kind": kind})
+    except ApiError as exc:
+        if tailnet or exc.status == 409 or exc.code == "alias_conflict":
+            raise
+        answer = None
+    except (TimeoutError, OSError):
+        if tailnet:
+            raise
+        answer = None
+    status = answer.get("status") if isinstance(answer, dict) else None
+    project_id = answer.get("project_id") if isinstance(answer, dict) else None
+    if status == "ok":
+        if (not isinstance(answer, dict) or answer.get("alias_conflict") is True
+                or not isinstance(project_id, str) or not ids.is_id(project_id, "prj")):
+            raise ValueError("workspace not confirmed")
+        return replace(device, project_id=project_id, task_id=None, step_id=None, inject_context=False)
+    if tailnet or status not in (None, "confirmation_required"):
+        raise ValueError("workspace not confirmed")
+    workspace_source = PROJECT_SOURCE if source == SOURCE else source + "-workspace"
+    identity = canonical_json([workspace_source, device.host_id, str(root)])
+    project = CoreClient(device.core_url, read_key(device.api_key_file),
+                         timeout=_bind_timeout(tailnet, started, timeout)).post("/v1/projects", {
         "name": root.name or str(root), "description": str(root), "host_id": device.host_id,
-        "source_system": PROJECT_SOURCE, "source_event_id": identity,
-        "event_id": _deterministic_event_id(PROJECT_SOURCE, identity),
+        "source_system": workspace_source, "source_event_id": identity,
+        "event_id": _deterministic_event_id(workspace_source, identity),
     })["object"]["project_id"]
     return replace(device, project_id=project, task_id=None, step_id=None, inject_context=False)
 
@@ -152,6 +203,14 @@ def capture(native: dict[str, Any], binding: Binding) -> dict[str, Any]:
 
 
 def capture_device(native: dict[str, Any], device: Binding) -> dict[str, Any]:
+    token = arm_tailnet(device.core_url, native.get("hook_event_name") if isinstance(native, dict) else None)
+    try:
+        return _capture_device(native, device)
+    finally:
+        disarm(token)
+
+
+def _capture_device(native: dict[str, Any], device: Binding) -> dict[str, Any]:
     # Check provenance before even registering a project. Prediction forks and
     # unsupported/subagent events must leave no projection behind.
     if native.get("hook_event_name") not in EVENTS or native.get("subagent_id") or native.get("subagent_type"):
@@ -190,6 +249,7 @@ def main() -> int:
     native: dict[str, Any] = {}
     binding: Binding | None = None
     hint: str | None = None
+    budget = None
     try:
         parsed = json.load(sys.stdin)
         if not isinstance(parsed, dict):
@@ -199,6 +259,7 @@ def main() -> int:
         # capturing sessions from a different project. Symlinks resolve first.
         if args.device_binding:
             binding = load_device(args.device_binding)
+            budget = arm_tailnet(binding.core_url, native.get("hook_event_name"))
             receipt = capture_device(native, binding)
         else:
             root = args.project_root.resolve(strict=True)
@@ -207,6 +268,7 @@ def main() -> int:
                 receipt = {"status": "ignored", "reason": "outside_project"}
             else:
                 binding = load_binding(args.binding)
+                budget = arm_tailnet(binding.core_url, native.get("hook_event_name"))
                 receipt = capture(native, binding)
         # ADR 0039: the work record. SessionEnd closes this session's; SessionStart
         # records the workspace's earlier sessions that never sent one.
@@ -249,6 +311,8 @@ def main() -> int:
                    "native_hook_event": native.get("hook_event_name"),
                    "native_session_id": native.get("session_id")}
         print("Jasmine conversation capture failed; inspect private receipts.", file=sys.stderr)
+    finally:
+        disarm(budget)
     append_receipt(args.receipts, receipt)
     # Stop must never request a continuation; capture failure remains visible.
     if native.get("hook_event_name") == "Stop":
