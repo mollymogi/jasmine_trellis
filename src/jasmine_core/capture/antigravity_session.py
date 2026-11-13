@@ -39,6 +39,7 @@ from ..hosthook.binding import load_device
 from . import memory_hint, worklog_client
 from .codex_session import RECENT_SECONDS, append_receipt, workspace_root
 from .grok_session import _publish, bind_workspace
+from .hook_budget import arm_tailnet, disarm
 
 SOURCE = "antigravity-native-conversation-v1"
 AGENT = "antigravity"
@@ -187,6 +188,14 @@ def session_origin(n: dict[str, Any], gemini_home: Path) -> dict[str, Any] | Non
 
 
 def capture_device(event: str, native: Any, device, gemini_home: Path) -> dict[str, Any]:
+    token = arm_tailnet(device.core_url, event)
+    try:
+        return _capture_device(event, native, device, gemini_home)
+    finally:
+        disarm(token)
+
+
+def _capture_device(event: str, native: Any, device, gemini_home: Path) -> dict[str, Any]:
     n = normalize(event, native)
     if n is None:
         return {"status": "ignored", "reason": "not_a_turn_boundary"}
@@ -239,12 +248,14 @@ def main() -> int:
     os.umask(0o077)
     native: Any = {}
     context = None
+    budget = None
     try:
         native = json.load(sys.stdin)
         if args.event == "PreInvocation" and isinstance(native, dict) and native.get("invocationNum") != 0:
             print("{}")  # every model call runs this hook; only a turn's first one matters
             return 0
         device = load_device(args.device_binding)
+        budget = arm_tailnet(device.core_url, args.event)
         receipt = capture_device(args.event, native, device, args.gemini_home)
         if receipt.get("status") == "accepted" and receipt.get("event_type"):
             try:
@@ -255,6 +266,8 @@ def main() -> int:
     except Exception as exc:  # no bearer, message text or raw HTTP body in stderr
         receipt = {"status": "failed", "agent": AGENT, "error_type": type(exc).__name__, "native_hook_event": args.event}
         print("Jasmine Antigravity capture failed; inspect private receipts.", file=sys.stderr)
+    finally:
+        disarm(budget)
     receipt["checked_at"] = datetime.now(timezone.utc).isoformat()
     if context:
         receipt["context_chars"] = len(context)
