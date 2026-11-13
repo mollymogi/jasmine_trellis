@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 from jasmine_core import SCHEMA_VERSION, auth, db, ids, registry
 from jasmine_core.clock import parse_rfc3339
@@ -73,6 +74,30 @@ class Enrollment(unittest.TestCase):
         for text in texts:
             if token and token in text:
                 self.fail("token appeared in output")
+
+    def assert_one_revoked_client_without_keys(self) -> None:
+        """The committed client row is revoked, nothing is bound to it, the host stays."""
+        conn = db.connect(self.database)
+        try:
+            clients = conn.execute(
+                "SELECT host_id, status, revoked_at FROM tailnet_clients").fetchall()
+            self.assertEqual(len(clients), 1)
+            client = clients[0]
+            self.assertEqual(client["status"], "revoked")
+            self.assertIsNotNone(client["revoked_at"])
+            keys = conn.execute(
+                "SELECT key_id FROM api_keys WHERE bound_host_id = ?", (client["host_id"],)
+            ).fetchall()
+            self.assertEqual(keys, [])
+            host = conn.execute(
+                "SELECT host_id FROM hosts WHERE host_id = ?", (client["host_id"],)).fetchone()
+            self.assertIsNotNone(host)
+            hub = conn.execute(
+                "SELECT revoked_at FROM api_keys WHERE key_id = ?", (self.hub_key["key_id"],)
+            ).fetchone()
+            self.assertIsNone(hub["revoked_at"])
+        finally:
+            conn.close()
 
     def test_three_keys_are_pinned_to_the_new_host_and_not_the_hub_human(self):
         code, out, err = self.enroll_client("codex", "grok")
@@ -192,6 +217,59 @@ class Enrollment(unittest.TestCase):
             self.assertIsNone(hub["revoked_at"])
         finally:
             conn.close()
+
+    def test_a_failure_before_the_first_key_revokes_the_client_row(self):
+        original = registry.Registry.upsert_actor
+
+        def refuse_system(reg, actor_id, **fields):
+            if fields.get("kind") == "system":
+                raise RuntimeError("the store failed")
+            return original(reg, actor_id, **fields)
+
+        with mock.patch.object(registry.Registry, "upsert_actor", refuse_system):
+            code, out, err = self.enroll_client("codex")
+        self.assertEqual(code, 1)
+        self.assertFalse(out)
+        self.assertIn("before any key was issued", err)
+        self.assertIn("marked revoked", err)
+        self.assertNotIn("Traceback", err)
+        self.assertNotIn("the store failed", err)
+        self.assert_silent_about(self.hub_key["token"], out, err)
+        self.assertEqual(list(self.bundle.iterdir()), [])
+        self.assert_one_revoked_client_without_keys()
+
+    def test_a_busy_first_key_write_revokes_the_client_row(self):
+        def busy(reg, **fields):
+            raise db.errors.DatabaseBusy("database is locked")
+
+        with mock.patch.object(auth.Auth, "issue_key", busy):
+            code, out, err = self.enroll_client("codex")
+        self.assertEqual(code, 1)
+        self.assertFalse(out)
+        self.assertIn("before any key was issued", err)
+        self.assertNotIn("Traceback", err)
+        self.assertNotIn("database is locked", err)
+        self.assert_silent_about(self.hub_key["token"], out, err)
+        self.assertEqual(list(self.bundle.iterdir()), [])
+        self.assert_one_revoked_client_without_keys()
+
+    def test_a_cleanup_failure_names_the_revoke_retry(self):
+        def fail_abandon(conn, host_id, key_ids):
+            raise self.enroll.EnrollmentError("the client status was not updated; retry revoke")
+
+        def fail_write(path, data):
+            raise OSError("short write")
+
+        with mock.patch.object(self.enroll, "_abandon", fail_abandon), \
+                mock.patch.object(self.enroll, "_write_private", fail_write):
+            code, out, err = self.enroll_client("codex")
+        self.assertEqual(code, 1)
+        self.assertFalse(out)
+        self.assertIn("cleanup did not finish", err)
+        self.assertIn("revoke-tailnet-client.py", err)
+        self.assertIn("--host-id hst_", err)
+        self.assertNotIn("Traceback", err)
+        self.assert_silent_about(self.hub_key["token"], out, err)
 
     def test_windows_enrollment_writes_nothing(self):
         cases = (

@@ -23,9 +23,10 @@ Steps:
    only, the new human actor), memory (``memory:recall`` only, the same
    system actor).
 7. Write the device binding and the three key files under ``--bundle`` only.
-   Key files are mode ``0600`` and are fsynced. If a write fails after any
-   key was issued, those keys are revoked and the client row is marked
-   revoked. Tokens are not printed.
+   Key files are mode ``0600`` and are fsynced. If anything fails after the
+   client row is committed, any issued keys are revoked and the client row is
+   marked revoked, including a failure before the first key. Only a failure
+   before that row exists leaves the database untouched. Tokens are not printed.
 
 The device binding ``core_url`` is exactly ``CORE_URL``
 (``https://mercuryliumac-mini.tail07df76.ts.net``) with no trailing slash.
@@ -111,10 +112,10 @@ def _abandon(conn, host_id: str, key_ids: list[str]) -> None:
             (clock.now_rfc3339(), host_id),
         ).rowcount
     if changed != 1:
-        raise EnrollmentError("issued keys were revoked but the client status was not updated; retry revoke")
+        raise EnrollmentError("the client status was not updated; retry revoke")
     landed = conn.execute("SELECT status FROM tailnet_clients WHERE host_id = ?", (host_id,)).fetchone()
     if landed is None or landed["status"] != "revoked":
-        raise EnrollmentError("issued keys were revoked but the client status was not updated; retry revoke")
+        raise EnrollmentError("the client status was not updated; retry revoke")
 
 
 def enroll(database: Path, display_name: str, agents: list[str], bundle: Path, *,
@@ -147,6 +148,9 @@ def enroll(database: Path, display_name: str, agents: list[str], bundle: Path, *
 
     conn = db.connect(database)
     issued: list[tuple[str, str, dict[str, object]]] = []
+    #: The hosts/tailnet_clients/human-actor transaction has committed. From then on a
+    #: failure must not leave an active client row behind, even with no key issued yet.
+    client_written = False
     try:
         try:
             reg = registry.Registry(conn)
@@ -161,6 +165,7 @@ def enroll(database: Path, display_name: str, agents: list[str], bundle: Path, *
                 )
                 reg.upsert_actor(human_id, kind="human", display_name=f"{display_name} human",
                                  home_host_id=host_id)
+            client_written = True
             actors: dict[str, str] = {}
             for agent in agents:
                 actor_id = ids.new_id("act")
@@ -207,11 +212,22 @@ def enroll(database: Path, display_name: str, agents: list[str], bundle: Path, *
                 bindings[agent] = str(binding)
             _fsync_dir(bundle)
         except Exception:
-            if not issued:
+            if not client_written:
                 raise
-            _abandon(conn, host_id, [str(key["key_id"]) for _, _, key in issued])
+            try:
+                _abandon(conn, host_id, [str(key["key_id"]) for _, _, key in issued])
+            except Exception as cleanup:
+                raise EnrollmentError(
+                    f"enrollment failed and cleanup did not finish; run revoke-tailnet-client.py"
+                    f" --db <core.db> --host-id {host_id} --confirm: {cleanup}"
+                ) from None
+            if issued:
+                raise EnrollmentError(
+                    "enrollment failed after keys were issued; those keys were revoked and the client"
+                    " row was marked revoked"
+                ) from None
             raise EnrollmentError(
-                "enrollment failed after keys were issued; those keys were revoked"
+                "enrollment failed before any key was issued; the client row was marked revoked"
             ) from None
     finally:
         conn.close()
