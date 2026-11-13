@@ -15,7 +15,7 @@ from http.client import HTTPConnection, HTTPException
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 from . import ids
 from .canonical import looks_like_credential
@@ -92,11 +92,17 @@ def load_gateway_secret(data_dir: Path) -> str:
 
 
 def parse_upstream(url: str) -> tuple[str, int]:
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError as exc:
+        # urlsplit rejects an unbalanced bracket, and .port rejects a non-numeric
+        # or out-of-range port. Both are startup refusals, not tracebacks.
+        raise GatewayStartupError("upstream must be http://127.0.0.1:port") from exc
     if (
         parts.scheme != "http"
         or parts.hostname != GATEWAY_HOST
-        or not parts.port
+        or not port
         or parts.username
         or parts.password
         or parts.query
@@ -104,7 +110,7 @@ def parse_upstream(url: str) -> tuple[str, int]:
         or parts.path not in ("", "/")
     ):
         raise GatewayStartupError("upstream must be http://127.0.0.1:port")
-    return GATEWAY_HOST, parts.port
+    return GATEWAY_HOST, port
 
 
 def path_template(path: str) -> str:
@@ -133,10 +139,45 @@ def _host_id_of(body: bytes) -> str | None:
     return None
 
 
+def _split_target(raw_target: str) -> SplitResult | None:
+    """Parse an origin-form target, or None when it cannot be parsed.
+
+    urlsplit raises ValueError for an unbalanced '[' or ']' in a network
+    location (for example "//[::1"). The caller answers 400 instead of letting
+    the exception close the connection without a response.
+    """
+    try:
+        return urlsplit(raw_target)
+    except ValueError:
+        return None
+
+
+def _log_template(raw_target: str) -> str:
+    parts = _split_target(raw_target)
+    if parts is None:
+        return "unlisted"
+    return path_template(parts.path)
+
+
 def _open_access_log(path: Path) -> int:
     directory = path.parent
-    directory.mkdir(parents=True, exist_ok=True)
-    os.chmod(directory, 0o700)
+    created = False
+    try:
+        directory.mkdir(parents=True)
+    except FileExistsError:
+        pass
+    except OSError as exc:
+        raise GatewayStartupError("access log directory is not usable") from exc
+    else:
+        created = True
+    # --access-log accepts an arbitrary path. Tighten only a directory this call
+    # created: the parent of an operator-supplied path (or the process working
+    # directory, for a relative path) is not the gateway's to chmod.
+    if created:
+        try:
+            os.chmod(directory, 0o700)
+        except OSError as exc:
+            raise GatewayStartupError("access log directory is not usable") from exc
     try:
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
     except OSError as exc:
@@ -220,8 +261,8 @@ class _Handler(BaseHTTPRequestHandler):
         ):
             self._finish(400, "bad_target", b"", started)
             return
-        parts = urlsplit(raw_target)
-        if parts.scheme or parts.netloc:
+        parts = _split_target(raw_target)
+        if parts is None or parts.scheme or parts.netloc:
             self._finish(400, "bad_target", b"", started)
             return
         length, problem = self._declared_length()
@@ -302,7 +343,7 @@ class _Handler(BaseHTTPRequestHandler):
                 return
         finally:
             connection.close()
-        self._access(method, path_template(urlsplit(target).path), status, started, None, _host_id_of(body))
+        self._access(method, _log_template(target), status, started, None, _host_id_of(body))
         self._send(status, payload, response_headers)
 
     def _finish(self, status: int, reason: str, body: bytes, started: float) -> None:
@@ -312,7 +353,7 @@ class _Handler(BaseHTTPRequestHandler):
         ).encode("ascii")
         self._access(
             self.command,
-            path_template(urlsplit(self.path or "").path),
+            _log_template(self.path or ""),
             status,
             started,
             reason,
