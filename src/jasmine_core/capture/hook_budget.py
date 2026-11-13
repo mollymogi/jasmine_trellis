@@ -14,7 +14,7 @@ HINT_FLOOR_SECONDS = 1.2
 RECENT_FLOOR_SECONDS = 1.9
 
 _PROMPT = frozenset({
-    "UserPromptSubmit", "user_prompt_submit", "chat.message", "PreInvocation",
+    "UserPromptSubmit", "user_prompt_submit", "chat.message", "PreInvocation", "user.prompt",
 })
 _LIFECYCLE = frozenset({
     "SessionStart", "SessionEnd", "PreCompact",

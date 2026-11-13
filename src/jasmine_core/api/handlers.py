@@ -281,6 +281,31 @@ def admit_workspace_alias(core: Core, request: Request, principal: auth.Principa
         project_id = body.get("project_id")
         if not isinstance(project_id, str) or not project_confirmed(core.conn, host_id, project_id):
             raise errors.ProjectNotAliased("project is not confirmed for this host")
+        if request.method == "POST" and request.path == "/v1/events":
+            session_id = body.get("session_id")
+            if session_id is not None:
+                if not isinstance(session_id, str):
+                    raise errors.InvalidRequest("session_id must be a string")
+                session = core.conn.execute(
+                    "SELECT host_id, project_id FROM sessions WHERE session_id = ?", (session_id,)
+                ).fetchone()
+                if session is None:
+                    raise errors.NotFound("session", session_id)
+                if session["host_id"] != host_id:
+                    raise errors.HostMismatch("session does not belong to the key's host")
+                if session["project_id"] != project_id:
+                    raise errors.ProjectNotAliased("session does not belong to the admitted project")
+            task_id = body.get("task_id")
+            if task_id is not None:
+                if not isinstance(task_id, str):
+                    raise errors.InvalidRequest("task_id must be a string")
+                task = core.conn.execute(
+                    "SELECT project_id FROM tasks WHERE task_id = ?", (task_id,)
+                ).fetchone()
+                if task is None:
+                    raise errors.NotFound("task", task_id)
+                if task["project_id"] != project_id:
+                    raise errors.ProjectNotAliased("task does not belong to the admitted project")
         return
     root = body.get("workspace_root")
     if not isinstance(root, str) or not root_confirmed(core.conn, host_id, root):
