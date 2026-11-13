@@ -8,12 +8,28 @@ only ever needs to post one event.
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.request
+from contextvars import ContextVar, Token
 from typing import Any
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8787"
 TIMEOUT_SECONDS = 5.0
+#: Armed only for a tailnet hook. Loopback leaves this unset and keeps its own timeouts.
+_HOOK_DEADLINE: ContextVar[float | None] = ContextVar("jasmine_hook_deadline", default=None)
+
+
+def arm_hook_deadline(deadline: float) -> Token:
+    return _HOOK_DEADLINE.set(deadline)
+
+
+def reset_hook_deadline(token: Token) -> None:
+    _HOOK_DEADLINE.reset(token)
+
+
+def hook_deadline() -> float | None:
+    return _HOOK_DEADLINE.get()
 
 
 class ApiError(Exception):
@@ -58,8 +74,15 @@ class CoreClient:
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
         req = urllib.request.Request(f"{self.base_url}{path}", data=data, headers=headers, method=method)
+        timeout = self.timeout
+        deadline = _HOOK_DEADLINE.get()
+        if deadline is not None:
+            # One attempt. A dead route waits at most the time still on the hook clock.
+            timeout = deadline - time.monotonic()
+            if timeout <= 0:
+                raise TimeoutError("hook budget exhausted")
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as response:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             raw = exc.read().decode("utf-8", errors="replace")
