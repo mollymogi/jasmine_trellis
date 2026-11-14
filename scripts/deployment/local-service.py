@@ -13,6 +13,8 @@ if args.component in ('core','memory','processing'):
  if enabled:
   env.update(JASMINE_HINDSIGHT_URL=memory['engine_url'],JASMINE_MEMORY_BANK_NAMESPACE=memory['namespace'],JASMINE_MEMORY_DEPLOYMENT_MODE='single_user',JASMINE_HINDSIGHT_TIMEOUT_SECONDS='30')
   env['JASMINE_CORE_MEMORY_CONFIG']=memory['provider_config']
+ # Hub only: accept enrolled tailnet clients that arrive through the loopback gateway.
+ if c.get('tailnet_clients') is True:env['JASMINE_TAILNET_CLIENTS']='1'
  flow=c.get('conversation_processing',{})
  if flow.get('enabled') is True:
   env.update(JASMINE_CORE_RESOLVER_ACTOR_ID=flow['actor_id'],JASMINE_CORE_RESOLVER_HOST_ID=flow['host_id'],JASMINE_CORE_INTERPRETER_CODEX=flow['executable'],JASMINE_CORE_INTERPRETER_CATALOG=flow['catalog'],JASMINE_CORE_DAILY_INTERPRETER='1')
