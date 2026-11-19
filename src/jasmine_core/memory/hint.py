@@ -23,7 +23,11 @@ from .adapter import MemoryAdapter
 from .observed import user_regions
 from .types import MEMORY_TYPES, RecallRequest
 
-MAX_ITEMS = 5
+#: Only the engine's top distinct candidates are eligible. A candidate that is
+#: held back (shown recently, too often, unrenderable) is never replaced by one
+#: ranked further down: on local-item6 that backfill turned every damped turn
+#: into a rotation through weakly related items. Empty beats filler.
+MAX_ITEMS = 3
 MAX_TOKENS = 400
 #: The engine recall asks for a deeper pool than the hint renders (MAX_TOKENS), so
 #: repeat damping has candidates to fall back on. Replayed on 631 real prompts:
@@ -227,10 +231,15 @@ def build(adapter: MemoryAdapter, store, ledger: SessionLedger, *, actor_id: str
     chosen: list[dict[str, Any]] = []
     withheld: list[dict[str, str]] = []
     used = tokens.estimate(render([]))
+    considered: list[str] = []
     for recalled in outcome.items:
         memory_id = recalled.memory_id
-        if memory_id in {c["memory_id"] for c in chosen}:
+        if memory_id in considered:
             continue  # several engine facts of one item
+        considered.append(memory_id)
+        if len(considered) > MAX_ITEMS:
+            withheld.append({"memory_id": memory_id, "reason": "below_top"})
+            continue
         if memory_id in recent:
             withheld.append({"memory_id": memory_id, "reason": "hinted_recently"})
             continue
@@ -246,7 +255,7 @@ def build(adapter: MemoryAdapter, store, ledger: SessionLedger, *, actor_id: str
             withheld.append({"memory_id": memory_id, "reason": "not_renderable"})
             continue
         cost = tokens.estimate(line)
-        if len(chosen) >= MAX_ITEMS or used + cost > MAX_TOKENS:
+        if used + cost > MAX_TOKENS:
             withheld.append({"memory_id": memory_id, "reason": "over_budget"})
             continue
         used += cost
