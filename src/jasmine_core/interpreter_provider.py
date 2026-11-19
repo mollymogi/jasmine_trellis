@@ -164,6 +164,7 @@ class CodexProvider:
     # Preserve the original validated fingerprint and component-test seam.
     # Add newer version -> exact SHA entries only after independent boundary QA.
     ADDITIONAL_VALIDATED_EXECUTABLES={
+        'codex-cli/0.167.1':'ebabe5f0d79145a9e61274ce9ecf7c02c9021b7b04bfa59b7e61ad4461c32b0b',
         'codex-cli/0.163.0':'8813367285524ac798dd96d1b071aea30d58708c7226fd236cd275cf1cfdee31',
         'codex-cli/0.159.3':'4d210f7c5a18fd0386434df23b5bdbb8c0e7257d3e8a2b30b0769c8bbe99a878',
     }

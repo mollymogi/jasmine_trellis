@@ -156,14 +156,17 @@ class ResolverStore:
                 t=self.state.task(task_id);actions.append(self._action_result(item,'task',task_id,t['revision'],t['revision'],None,[],binding));continue
             if action=='CREATE_RULE':
                 candidate_scope=candidate['scope']
-                scope={'kind':candidate_scope['kind'].lower(),'project_id':candidate_scope['project_id'],'task_id':task_id if candidate_scope['kind']=='TASK' else None}
-                if candidate_scope['kind']=='TASK' and not task_id:raise errors.InvalidRequest('task binding required for requirement')
+                eff_kind=candidate_scope['kind'].lower()
+                if eff_kind=='task' and not task_id:
+                    eff_kind='project'
+                scope={'kind':eff_kind,'project_id':None if eff_kind=='global' else (candidate_scope['project_id'] or source['project_id']),'task_id':task_id if eff_kind=='task' else None}
                 item_origin=origin
-                if review_origin and (scope['kind']!='task' or source['task_id']!=task_id):
+                if scope['kind']!='task' or source['project_id']!=scope['project_id'] or source['task_id']!=scope['task_id']:
                     scoped={**source,'project_id':scope['project_id'],'task_id':scope['task_id']}
-                    item_origin=command(self.events,scoped,executor,self.conn.execute('SELECT kind FROM actors WHERE actor_id=?',(executor,)).fetchone()['kind'],host,'review.approved',{'review_command_event_id':review_origin,'source_event_id':source['event_id'],'interpretation_id':ident,'resolution_id':resolution_id,'candidate_index':item['candidate_index']})['event_id']
+                    item_origin=command(self.events,scoped,executor,self.conn.execute('SELECT kind FROM actors WHERE actor_id=?',(executor,)).fetchone()['kind'],host,'review.approved',{'review_command_event_id':review_origin or origin,'source_event_id':source['event_id'],'interpretation_id':ident,'resolution_id':resolution_id,'candidate_index':item['candidate_index']})['event_id']
+                rule_kind='DECISION' if candidate['kind']=='DECISION' else 'ACCEPTANCE' if candidate['kind']=='ACCEPTANCE' else 'RULE'
                 proposal=self.authority.propose({'rule_key':'p2-'+resolution_id[4:].lower()+'-'+str(item['candidate_index']),
-                    'kind':'DECISION' if candidate['kind']=='DECISION' else 'RULE','severity':'NORMAL','enforcement':'CONTEXT','content':candidate['content'],'matcher':{},
+                    'kind':rule_kind,'severity':'NORMAL','enforcement':'CONTEXT','content':candidate['content'],'matcher':{},
                     'scope':scope,'origin_event_id':item_origin,'host_id':host,**payload},actor_id=executor,unit_of_work=uow)
                 approved=self.authority.transition(proposal['rule']['rule_id'],'approve',{'expected_revision':1,'host_id':host},actor_id=executor,unit_of_work=uow)
                 rule=approved['rule'];actions.append(self._action_result(item,'rule',rule['rule_id'],None,rule['revision'],rule['version'],[proposal['event']['event_id'],approved['event']['event_id']],binding));continue
