@@ -107,6 +107,32 @@ class UserRegions(unittest.TestCase):
         self.assertFalse(span_is_user_text(text, quote, quote + len("所有项目都用 pnpm")))
 
 
+class GroupChatWrapper(unittest.TestCase):
+    """Jasmine Bot group chats: only the current message is the user's words."""
+
+    WRAPPED = ("你正在「bot优化」多 Agent 群聊中（工作目录：/Users/me）。\n"
+               "【你的专属人设与工作准则】\n专门负责bot的优化\n\n"
+               "【上次你发言后的群内新消息】\n[用户]:\n旧消息\n\n"
+               "【当前 @ 你的消息】\n以后截图统一放桌面\n\n请直接用中文给出清晰、简洁的回复。")
+
+    def test_only_the_current_message_is_user_text(self):
+        text = self.WRAPPED
+        regions = user_regions(text)
+        self.assertEqual(["以后截图统一放桌面"], [text[lo:hi].strip() for lo, hi in regions])
+        persona = text.index("专门负责bot的优化")
+        self.assertFalse(span_is_user_text(text, persona, persona + 9))
+
+    def test_legacy_marker_is_recognised(self):
+        text = "【你的专属人设与工作准则】\nreview检查\n\n用户发来消息：\n你是否认可\n\n请直接用中文给出清晰、简洁的回复。"
+        self.assertEqual(["你是否认可"], [text[lo:hi].strip() for lo, hi in user_regions(text)])
+
+    def test_wrapper_without_a_request_has_no_user_text(self):
+        self.assertEqual([], [r for r in user_regions("【你的专属人设与工作准则】\n专门负责bot的优化") if r[0] < r[1]])
+
+    def test_unwrapped_prompt_unchanged(self):
+        self.assertEqual([(0, 6)], user_regions("用户发来消息"))
+
+
 class _DailyHarness(daily.Processing):
     """The daily-queue harness, without re-running its own tests here."""
 

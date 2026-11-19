@@ -83,6 +83,30 @@ _COMMENT_HEADER_RE = re.compile(r"^## User Comment [0-9]+[ \t]*$", re.M)
 _HEADING_RE = re.compile(r"^#{1,2}[ \t]+", re.M)
 _REPLY_BLOCK_RE = re.compile(r"<([a-z][a-z0-9_-]*question_reply)>.*?</\1>", re.S)
 _ANSWER_RE = re.compile(r'"answer"\s*:\s*"((?:[^"\\]|\\.)*)"')
+# Jasmine Bot group chats wrap the user's message in a bot persona, the room
+# minutes and other members' replies. Only the text after the last "current
+# message" marker was typed by the user; the persona header once became a
+# verified project fact ("该成员专门负责bot的优化工作") when it was not cut out.
+_GROUP_WRAPPER_RE = re.compile(r"【你的专属人设与工作准则】|^你正在「[^」\n]{0,200}」多 Agent 群聊中", re.M)
+_GROUP_REQUEST_RE = re.compile(r"【当前 @ 你的消息】[ \t]*\n?|^用户发来消息：[ \t]*\n?", re.M)
+_GROUP_SUFFIX_RE = re.compile(r"\s*请直接用中文给出清晰、简洁的回复。\s*\Z")
+
+
+def group_chat_request(text: str) -> tuple[int, int] | None:
+    """The user's own message inside a group-chat wrapper, or None if unwrapped.
+
+    A wrapped prompt with no request marker yields an empty range: none of it
+    is the user's words.
+    """
+    if not _GROUP_WRAPPER_RE.search(text):
+        return None
+    start = None
+    for match in _GROUP_REQUEST_RE.finditer(text):
+        start = match.end()
+    if start is None:
+        return (len(text), len(text))
+    suffix = _GROUP_SUFFIX_RE.search(text, start)
+    return (start, suffix.start() if suffix else len(text))
 
 
 def user_regions(text: str) -> list[tuple[int, int]]:
@@ -135,6 +159,10 @@ def user_regions(text: str) -> list[tuple[int, int]]:
                for lo, hi in all_blocks):
             continue
         regions.extend(m.span(1) for m in _ANSWER_RE.finditer(text, *block.span()))
+    group = group_chat_request(text)
+    if group is not None:
+        lo, hi = group
+        regions = [(max(a, lo), min(b, hi)) for a, b in regions if a < hi and lo < b]
     return sorted(regions)
 
 

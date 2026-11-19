@@ -73,9 +73,6 @@ _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _SPACE = re.compile(r"\s+")
 
 
-_GROUP_CURRENT_MARKER = "【当前 @ 你的消息】"
-
-
 def user_query(prompt: str) -> tuple[str | None, str | None]:
     """The engine query: the user's own words in the prompt, or a skip reason.
 
@@ -84,10 +81,6 @@ def user_query(prompt: str) -> tuple[str | None, str | None]:
     §3 defines the regions).
     """
     text = "\n".join(prompt[lo:hi] for lo, hi in user_regions(prompt)).strip()
-    if _GROUP_CURRENT_MARKER in text:
-        tail = text.rsplit(_GROUP_CURRENT_MARKER, 1)[-1].strip()
-        if len(tail) >= MIN_PROMPT_CHARS:
-            text = tail
     if not text:
         return None, "no_user_text"
     if text.startswith("/"):
