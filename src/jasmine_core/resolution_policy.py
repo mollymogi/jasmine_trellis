@@ -23,6 +23,7 @@ import re
 POLICY_VERSION = 'jasmine.resolution.v1'
 
 DURABLE_KINDS = ('RULE', 'DECISION', 'CORRECTION')
+TASK_BINDING_KINDS = ('TASK_CREATE_OR_ATTACH', 'REQUIRED_CAPABILITY')
 _DURABLE_RE = re.compile(
     r'以后|今后|往后|从现在起|从今以后|永远|一律|始终|每次都|一直都|记住|'
     r'\balways\b|\bnever\b|from now on|\bremember\b|going forward', re.I)
@@ -71,7 +72,7 @@ def _task_binding(source, candidate):
 
 
 def _durable(source, candidate):
-    """Tiers 1-3 for Rule/Decision/Correction candidates."""
+    """Tiers 1-3; anything that is not a durable kind (e.g. ACCEPTANCE) stays observed."""
     scope = candidate['scope']['kind']
     if durable_instruction(source, candidate):
         project = candidate['scope'].get('project_id') or source['project_id']
@@ -93,10 +94,10 @@ def compile_plan(source, candidates):
         kind = candidate['kind']
         if kind == 'NO_STRUCTURE':
             action, pending, reason = 'NO_ACTION', False, 'no_structure'
-        elif kind in DURABLE_KINDS:
-            candidate, action, pending, reason = _durable(source, candidate)
-        else:
+        elif kind in TASK_BINDING_KINDS:
             action, pending, reason = _task_binding(source, candidate)
+        else:
+            candidate, action, pending, reason = _durable(source, candidate)
         result.append({'candidate_index': index, 'candidate': candidate, 'action': action,
                        'pending': pending, 'reason': reason})
     # A task-null capability alone cannot select or invent a Task.
