@@ -176,6 +176,7 @@ class Wire(unittest.TestCase):
         self.assertEqual(results[0].bank_id, self.bank.bank_id)
         self.assertEqual(results[0].engine_fact_type, "experience")
         self.assertIsNotNone(results[0].score)
+        self.assertEqual(results[0].relevance, 0.8, "the cross-encoder score reaches Core")
 
     def test_only_a_hint_transport_asks_for_a_cheaper_recall(self) -> None:
         recall = {"bank": self.bank, "query": "seeded", "max_tokens": 100,

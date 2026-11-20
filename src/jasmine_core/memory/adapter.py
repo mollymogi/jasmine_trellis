@@ -248,7 +248,9 @@ class MemoryAdapter:
             verified.append((result, check))
 
         # ADR 0034 §5: pinned, then Authority before observed, then the caller's
-        # own task, then engine relevance (the stable sort keeps engine order).
+        # own task, then engine relevance. Banks are recalled one after another,
+        # so the cross-encoder score is what orders rows across banks; rows
+        # without one keep engine order (the sort is stable).
         # Ranked before de-duplication so a duplicate keeps the stronger copy,
         # and before the budget so an observed note cannot crowd out a verified
         # one.
@@ -256,6 +258,7 @@ class MemoryAdapter:
             not pair[1].item["pinned"],
             pair[1].item["admission"] != "AUTHORITY",
             task_id is not None and pair[1].item["task_id"] != task_id,
+            -pair[0].relevance if pair[0].relevance is not None else 0.0,
         ))
 
         merged: list[tuple[EngineResult, provenance.Verification]] = []
@@ -294,7 +297,7 @@ class MemoryAdapter:
                                         bank_id=result.bank_id, document_id=result.document_id,
                                         engine_fact_type=result.engine_fact_type,
                                         metadata=result.metadata, tags=result.tags,
-                                        score=result.score), check))
+                                        score=result.score, relevance=result.relevance), check))
 
         items: list[RecallItem] = []
         remaining = budget
@@ -328,6 +331,7 @@ class MemoryAdapter:
                 admission=check.item["admission"],
                 trust=check.item["trust"],
                 task_id=check.item["task_id"],
+                relevance=result.relevance,
             ))
             remaining -= cost
         return items, filtered

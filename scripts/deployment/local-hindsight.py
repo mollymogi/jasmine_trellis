@@ -17,6 +17,12 @@ key = subprocess.run(['/usr/bin/security', 'find-generic-password', '-s',
                      capture_output=True, text=True)
 if key.returncode or not key.stdout.strip():
     raise SystemExit('Hindsight cloud credential unavailable in the existing login Keychain')
+RERANKER_SLOT = 'ms-marco-MultiBERT-L-12'
+reranker_cache = home / '.cache' / 'flashrank'
+# flashrank downloads a missing model at start; that download failed here and
+# left every candidate at a flat 0.5, so recall silently became a recency sort.
+# Without the installed model, use the passthrough that keeps retrieval order.
+reranker_ready = (reranker_cache / RERANKER_SLOT / 'flashrank-MultiBERT-L12_Q.onnx').is_file()
 env = {'HOME': str(home), 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin',
        'PYTHONDONTWRITEBYTECODE': '1', 'TOKENIZERS_PARALLELISM': 'false',
        'HINDSIGHT_API_DATABASE_URL': 'pg0://jasmine-local-item6:15434',
@@ -25,8 +31,15 @@ env = {'HOME': str(home), 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin',
        'HINDSIGHT_API_LLM_API_KEY': key.stdout.strip(),
        'HINDSIGHT_API_EMBEDDINGS_PROVIDER': 'onnx',
        'HINDSIGHT_API_RERANKER_PROVIDER': 'flashrank',
+       # Chinese-capable cross-encoder (bge-reranker-base, int8 ONNX) installed
+       # under the one multilingual flashrank slot name; see install-reranker.py.
+       'HINDSIGHT_API_RERANKER_FLASHRANK_MODEL': RERANKER_SLOT,
+       'HINDSIGHT_API_RERANKER_FLASHRANK_CACHE_DIR': str(reranker_cache),
+       'HINDSIGHT_API_RERANKER_MAX_CANDIDATES': '60',
        'HINDSIGHT_API_LLM_TIMEOUT': '120',
        'HINDSIGHT_API_REFLECT_LLM_TIMEOUT': '120'}
+if not reranker_ready:
+    env['HINDSIGHT_API_RERANKER_PROVIDER'] = 'rrf'
 os.umask(0o077)
 os.chdir(engine)
 command = str(engine / 'venv/bin/hindsight-api')

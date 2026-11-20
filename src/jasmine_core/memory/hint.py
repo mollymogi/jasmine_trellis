@@ -33,6 +33,13 @@ MAX_ITEMS = 3
 #: inside MAX_ITEMS, three global Authority items filled every slot on every
 #: turn and no project memory was ever shown (trace mtr_01M7VMCXTBZ3REHQV30TNK2Z5A).
 MAX_AUTHORITY_ITEMS = 2
+#: Cross-encoder floor (bge-reranker-base, Step 2 replay on local-item6): the
+#: weakest on-topic top-1 scored 0.636 and the strongest off-topic top-1 0.463,
+#: while embedding similarity sat at 0.85-0.94 for both and could not tell them
+#: apart. A non-pinned item below the floor is withheld, Authority included, so
+#: an unrelated question gets no hint at all. Rows without a score (passthrough
+#: reranker) are not gated.
+MIN_RELEVANCE = 0.5
 #: Step 4 query-time evolution. Two observed notes this similar (character-bigram
 #: Jaccard) say the same thing; only the newest is shown, and an observed note
 #: never stands next to an Authority item it repeats (observed never overrides
@@ -304,6 +311,10 @@ def build(adapter: MemoryAdapter, store, ledger: SessionLedger, *, actor_id: str
         if memory_id in evolved:
             # Decided before the slots: a faded or superseded note never uses one.
             withheld.append({"memory_id": memory_id, "reason": evolved[memory_id]})
+            continue
+        if (recalled.relevance is not None and recalled.relevance < MIN_RELEVANCE
+                and not (item is not None and item.get("pinned"))):
+            withheld.append({"memory_id": memory_id, "reason": "below_relevance"})
             continue
         if item is not None and (item.get("pinned") or item.get("admission") == "AUTHORITY"):
             authority_seen += 1

@@ -80,7 +80,7 @@ for _name in dir(observed_tests.ObservedAdmission):
 class Build(_Harness):
     """Daily processing -> observed items -> hint, on the real tables."""
 
-    def seed(self, *texts):
+    def seed(self, *texts, relevance=None):
         self.plan = lambda s: [observed_tests._candidate(s, "DECISION", s["text"])]
         for text in texts:
             self.process(text)
@@ -90,7 +90,8 @@ class Build(_Harness):
         bank = f"jasmine-project-{self.project}"
         for index, item in enumerate(items):
             self.transport.answer_for(bank, item["memory_id"], item["sanitized_text"],
-                                      engine_id=f"e{index}")
+                                      engine_id=f"e{index}",
+                                      relevance=(relevance or {}).get(item["sanitized_text"]))
         return items
 
     def build(self, prompt="接下来的视频版本怎么定？", session="s1", ledger=None):
@@ -195,6 +196,27 @@ class Build(_Harness):
         again = self.build()
         self.assertEqual(again["status"], "empty")
         self.assertEqual(sum(w["reason"] == "hinted_recently" for w in again["withheld"]), hint.MAX_ITEMS)
+
+    def test_low_relevance_items_are_withheld_not_backfilled(self):
+        texts = [f"第 {n} 个决定：采用方案 {n}。" for n in range(4)]
+        items = self.seed(*texts, relevance={texts[0]: 0.9, texts[1]: 0.2, texts[2]: 0.1, texts[3]: 0.05})
+        result = self.build()
+        self.assertEqual([i["memory_id"] for i in result["items"]], [items[0]["memory_id"]])
+        self.assertEqual(sum(w["reason"] == "below_relevance" for w in result["withheld"]), 3)
+
+    def test_an_unrelated_prompt_gets_no_hint(self):
+        texts = [f"第 {n} 个决定：采用方案 {n}。" for n in range(3)]
+        self.seed(*texts, relevance={t: 0.01 for t in texts})
+        result = self.build()
+        self.assertEqual(result["status"], "empty")
+
+    def test_pinned_items_are_not_gated_by_relevance(self):
+        texts = [f"第 {n} 个决定：采用方案 {n}。" for n in range(2)]
+        items = self.seed(*texts, relevance={t: 0.01 for t in texts})
+        with db.transaction(self.conn):
+            self.conn.execute("UPDATE memory_items SET pinned=1 WHERE memory_id=?", (items[0]["memory_id"],))
+        result = self.build()
+        self.assertEqual([i["memory_id"] for i in result["items"]], [items[0]["memory_id"]])
 
     def test_authority_items_do_not_take_the_relevant_slots(self):
         items = self.seed(*[f"第 {n} 个决定：采用方案 {n}。" for n in range(8)])
