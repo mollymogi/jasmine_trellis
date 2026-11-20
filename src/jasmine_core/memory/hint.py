@@ -55,7 +55,11 @@ MAX_TOKENS = 400
 #: 400 left 6.5% of prompts with nothing to show under damping, 800 left 4%.
 HINT_RECALL_TOKENS = 800
 MAX_ITEM_CHARS = 300
-ENGINE_SECONDS = 1.0
+#: 2026-11-21: the multilingual bge cross-encoder (batch 8, 60 candidates) answers
+#: in ~1.4 s on average and 2.2 s at worst on the 16 GB host; at 1.0 s every one of
+#: 25 prompt-time recalls in a day ended as `engine_timeout`. 2.5 s keeps the worst
+#: case and still fits inside the 4 s tailnet wall clock and the 10 s hook timeout.
+ENGINE_SECONDS = 2.5
 #: The hint asks for Hindsight's `low` recall. On local-item6 the cross-encoder
 #: rerank took ~6.7 ms per candidate on CPU, and a 300-unit bank produced 158
 #: candidates (~1.06 s), past ENGINE_SECONDS on every prompt since 2026-11-02.
