@@ -275,11 +275,35 @@ def resolve_banks(conn: sqlite3.Connection, *, project_id: str, task_id: str | N
             # The caller is asking about a task in a different project. Answer
             # as if the task did not exist there rather than confirming it does.
             raise errors.NotFound("task", task_id)
-    merged = merged_project_ids(conn, project_id)
-    return (project_bank(project_id), *(project_bank(other) for other in merged), global_bank())
+    group = workspace_group(conn, project_id)
+    return (project_bank(project_id), *(project_bank(other) for other in group), global_bank())
 
 
 _CAPTURE_WORKSPACE_SUFFIX = "-workspace"
+
+
+def workspace_group(conn: sqlite3.Connection, project_id: str) -> tuple[str, ...]:
+    """The other projects that hold this workspace's memory, read from either side.
+
+    Capture hooks pinned to an older release never ask for the alias and keep
+    writing into their own split project, so the merge has to hold whichever
+    member a session is bound to: a split project reads its canonical project
+    and the other split projects, and the canonical project reads all of them.
+    `project_id` itself is never repeated.
+    """
+    canonical = project_id
+    row = conn.execute(
+        "SELECT a.project_id FROM workspace_aliases a"
+        " JOIN projects p ON p.description = a.root AND p.project_id != a.project_id"
+        " JOIN events e ON e.event_id = p.source_event_id AND e.host_id = a.host_id"
+        " WHERE p.project_id = ? AND a.confirmed = 1 AND e.source_system LIKE ?"
+        " ORDER BY a.project_id LIMIT 1",
+        (project_id, "%" + _CAPTURE_WORKSPACE_SUFFIX),
+    ).fetchone()
+    if row is not None:
+        canonical = row[0]
+    members = [canonical, *merged_project_ids(conn, canonical)]
+    return tuple(other for other in dict.fromkeys(members) if other != project_id)
 
 
 def merged_project_ids(conn: sqlite3.Connection, project_id: str) -> tuple[str, ...]:

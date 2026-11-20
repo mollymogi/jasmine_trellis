@@ -60,9 +60,16 @@ class BankDerivation(MemoryTestCase):
         self.assertNotIn(f"jasmine-project-{other_root}", ids)
         self.assertNotIn(f"jasmine-project-{hand_made}", ids)
         self.assertNotIn(f"jasmine-project-{empty}", ids)
-        # A folded-in project does not, in turn, read the canonical one.
-        self.assertEqual(len(scope.resolve_banks(self.conn, project_id=codex, task_id=None,
-                                                 actor_id=HUMAN)), 2)
+        # A split project still bound by an old capture hook reads the same group,
+        # itself first, without repeating itself.
+        from_codex = [b.bank_id for b in scope.resolve_banks(
+            self.conn, project_id=codex, task_id=None, actor_id=HUMAN)]
+        self.assertEqual(from_codex[0], f"jasmine-project-{codex}")
+        self.assertEqual(sorted(from_codex[1:-1]),
+                         sorted(f"jasmine-project-{p}" for p in (canonical, agy)))
+        # An unrelated project is untouched.
+        self.assertEqual(len(scope.resolve_banks(self.conn, project_id=other_root,
+                                                 task_id=None, actor_id=HUMAN)), 2)
 
     def test_a_task_in_another_project_is_not_resolvable(self) -> None:
         a, b = self.project("a"), self.project("b")
