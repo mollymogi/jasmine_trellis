@@ -292,7 +292,9 @@ def merged_project_ids(conn: sqlite3.Connection, project_id: str) -> tuple[str, 
     resolves to it. The earlier projects stay as they were and are read alongside:
     a project is folded in only when the same host created it from a capture
     source with exactly that root as its description. Nothing is moved or copied,
-    so removing the alias undoes the merge. Sorted, so bank order is stable.
+    so removing the alias undoes the merge. A project with no active memory is
+    skipped so it does not take a share of the recall budget. Sorted, so bank
+    order is stable.
     """
     rows = conn.execute(
         "SELECT DISTINCT p.project_id FROM workspace_aliases a"
@@ -300,6 +302,8 @@ def merged_project_ids(conn: sqlite3.Connection, project_id: str) -> tuple[str, 
         " JOIN events e ON e.event_id = p.source_event_id AND e.host_id = a.host_id"
         " WHERE a.project_id = ? AND a.confirmed = 1 AND p.status = 'active'"
         "   AND e.source_system LIKE ?"
+        "   AND EXISTS (SELECT 1 FROM memory_items m"
+        "               WHERE m.project_id = p.project_id AND m.status = 'ACTIVE')"
         " ORDER BY p.project_id",
         (project_id, "%" + _CAPTURE_WORKSPACE_SUFFIX),
     ).fetchall()

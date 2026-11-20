@@ -42,6 +42,10 @@ class BankDerivation(MemoryTestCase):
         agy = self._capture_project(root, "antigravity")
         other_root = self._capture_project("/Users/x/elsewhere", "codex")
         hand_made = self.project("manual")  # core-api, never folded in
+        empty = self._capture_project(root, "grok")  # no memory, takes no budget
+        for project in (codex, agy, other_root, hand_made):
+            self.active_decision(project_id=project)
+        self.scan()  # the worker turns each approval into an active memory item
         self.assertEqual(scope.merged_project_ids(self.conn, canonical), ())
         workspace_alias.confirm_workspace(
             self.conn, host_id=HOST, root=root, remote_key=None, project_id=canonical,
@@ -55,6 +59,7 @@ class BankDerivation(MemoryTestCase):
         self.assertEqual(ids[-1], "jasmine-global")
         self.assertNotIn(f"jasmine-project-{other_root}", ids)
         self.assertNotIn(f"jasmine-project-{hand_made}", ids)
+        self.assertNotIn(f"jasmine-project-{empty}", ids)
         # A folded-in project does not, in turn, read the canonical one.
         self.assertEqual(len(scope.resolve_banks(self.conn, project_id=codex, task_id=None,
                                                  actor_id=HUMAN)), 2)
