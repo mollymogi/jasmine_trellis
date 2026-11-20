@@ -255,6 +255,11 @@ def cmd_memory(args: argparse.Namespace) -> int:
             )
             print(json.dumps(report, ensure_ascii=False, indent=2))
             return 0
+        if command == "export-fs":
+            from .memory.fs_view import export
+
+            print(json.dumps(export(conn, args.out), ensure_ascii=False, indent=2))
+            return 0
         if command == "reset-cursor":
             # Replay the whole Event stream. Safe by construction: the unique
             # index makes every already-known source a no-op.
@@ -545,6 +550,10 @@ def build_parser() -> argparse.ArgumentParser:
     backfill_parser.add_argument("--apply", action="store_true",
                                  help="write the items; without it nothing is changed")
     backfill_parser.add_argument("--max-attempts", type=int, default=5)
+
+    fs_parser = memory_sub.add_parser(
+        "export-fs", help="write the read-only L0/L1/L2 Markdown view of Memory")
+    fs_parser.add_argument("--out", required=True, help="output directory")
 
     cursor_parser = memory_sub.add_parser(
         "reset-cursor", help="move the recovery scan cursor (a full replay is safe)"

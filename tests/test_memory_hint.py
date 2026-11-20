@@ -7,6 +7,9 @@ validation and the fail-open answers.
 
 from __future__ import annotations
 
+import time
+from unittest import mock
+
 import unittest
 
 import test_observed_memory as observed_tests
@@ -207,6 +210,33 @@ class Build(_Harness):
         again = self.build()
         self.assertEqual({w["reason"] for w in again["withheld"] if w["memory_id"] in pinned[:2]},
                          {"hinted_recently"})
+
+    def test_a_newer_observed_note_supersedes_a_near_duplicate(self):
+        items = self.seed("截图统一放到桌面的 shots 文件夹。", "截图统一放到桌面的 shots 文件夹里。")
+        old, new = sorted(items, key=lambda i: (i["created_at"], i["memory_id"]))
+        result = self.build()
+        self.assertEqual([i["memory_id"] for i in result["items"]], [new["memory_id"]])
+        self.assertIn({"memory_id": old["memory_id"], "reason": "superseded"}, result["withheld"])
+
+    def test_an_observed_note_never_stands_next_to_the_authority_it_repeats(self):
+        a, b = self.seed("截图统一放到桌面的 shots 文件夹。", "截图统一放到桌面的 shots 文件夹里。")
+        with db.transaction(self.conn):
+            # The older one is pinned: it still wins over the newer observed copy.
+            self.conn.execute("UPDATE memory_items SET pinned=1 WHERE memory_id=?", (a["memory_id"],))
+        result = self.build()
+        self.assertEqual([i["memory_id"] for i in result["items"]], [a["memory_id"]])
+        self.assertIn({"memory_id": b["memory_id"], "reason": "covered_by_authority"}, result["withheld"])
+
+    def test_old_observed_notes_fade_but_pinned_ones_do_not(self):
+        kept, faded = self.seed("截图统一放到桌面的 shots 文件夹。", "发布前先跑一遍完整测试。")
+        with db.transaction(self.conn):
+            self.conn.execute("UPDATE memory_items SET pinned=1 WHERE memory_id=?", (kept["memory_id"],))
+        later = time.time() + 91 * 86400
+        with mock.patch.object(hint.time, "time", return_value=later):
+            result = self.build()
+        self.assertEqual([i["memory_id"] for i in result["items"]], [kept["memory_id"]])
+        self.assertIn({"memory_id": faded["memory_id"], "reason": "faded"}, result["withheld"])
+        self.assertLess(hint.similarity("abc", "xyz"), hint.EVOLVES_SIMILARITY)
 
     def test_engine_failure_is_degraded_without_text(self):
         self.seed("就用 v3 版本。")

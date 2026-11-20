@@ -33,6 +33,15 @@ MAX_ITEMS = 3
 #: inside MAX_ITEMS, three global Authority items filled every slot on every
 #: turn and no project memory was ever shown (trace mtr_01M7VMCXTBZ3REHQV30TNK2Z5A).
 MAX_AUTHORITY_ITEMS = 2
+#: Step 4 query-time evolution. Two observed notes this similar (character-bigram
+#: Jaccard) say the same thing; only the newest is shown, and an observed note
+#: never stands next to an Authority item it repeats (observed never overrides
+#: Authority, so the Authority copy wins regardless of age).
+EVOLVES_SIMILARITY = 0.6
+#: Observed notes fade by type: most corrections are one-off fixes ("调暗一点"),
+#: lasting ones become project Rules through the durable-instruction tier.
+#: Authority and pinned items never fade.
+OBSERVED_MAX_AGE_DAYS = {"OBSERVED_CORRECTION": 14, "OBSERVED_DECISION": 90}
 MAX_TOKENS = 400
 #: The engine recall asks for a deeper pool than the hint renders (MAX_TOKENS), so
 #: repeat damping has candidates to fall back on. Replayed on 631 real prompts:
@@ -210,6 +219,48 @@ def _line(item: dict[str, Any]) -> str | None:
     return f"- {label} · {trust} · {item['created_at'][:10]} — {text}"
 
 
+def _bigrams(text: str) -> set[str]:
+    text = _SPACE.sub("", (text or "").lower())
+    return {text[i:i + 2] for i in range(len(text) - 1)} or {text}
+
+
+def similarity(a: str, b: str) -> float:
+    x, y = _bigrams(a), _bigrams(b)
+    return len(x & y) / len(x | y) if x and y else 0.0
+
+
+def _age_days(item: dict[str, Any], now: float) -> float:
+    try:
+        from datetime import datetime
+        made = datetime.fromisoformat(str(item["created_at"]).replace("Z", "+00:00")).timestamp()
+    except (KeyError, ValueError):
+        return 0.0
+    return (now - made) / 86400
+
+
+def _evolved(items: list[dict[str, Any]], now: float) -> dict[str, str]:
+    """memory_id -> withheld reason for faded or superseded observed notes."""
+    out: dict[str, str] = {}
+    strong = [i for i in items if i.get("pinned") or i.get("admission") == "AUTHORITY"]
+    observed = [i for i in items if i not in strong]
+    for item in observed:
+        limit = OBSERVED_MAX_AGE_DAYS.get(item.get("memory_type"))
+        if limit is not None and _age_days(item, now) > limit:
+            out[item["memory_id"]] = "faded"
+    for item in observed:
+        if item["memory_id"] in out:
+            continue
+        text = item.get("sanitized_text") or ""
+        if any(similarity(text, s.get("sanitized_text") or "") >= EVOLVES_SIMILARITY for s in strong):
+            out[item["memory_id"]] = "covered_by_authority"
+            continue
+        newer = [o for o in observed if o is not item and o["memory_id"] not in out
+                 and (str(o["created_at"]), o["memory_id"]) > (str(item["created_at"]), item["memory_id"])]
+        if any(similarity(text, o.get("sanitized_text") or "") >= EVOLVES_SIMILARITY for o in newer):
+            out[item["memory_id"]] = "superseded"
+    return out
+
+
 def render(lines: list[str]) -> str:
     return "\n".join([HEADER, PREAMBLE, *lines, FOOTER])
 
@@ -238,12 +289,22 @@ def build(adapter: MemoryAdapter, store, ledger: SessionLedger, *, actor_id: str
     used = tokens.estimate(render([]))
     considered: list[str] = []
     authority_seen = relevant_seen = 0
+    fetched: dict[str, dict[str, Any] | None] = {}
+    for recalled in outcome.items:
+        if recalled.memory_id not in fetched:
+            fetched[recalled.memory_id] = store.item(recalled.memory_id)
+    evolved = _evolved([i for i in fetched.values() if i is not None and i["status"] == "ACTIVE"],
+                       time.time())
     for recalled in outcome.items:
         memory_id = recalled.memory_id
         if memory_id in considered:
             continue  # several engine facts of one item
         considered.append(memory_id)
-        item = store.item(memory_id)
+        item = fetched[memory_id]
+        if memory_id in evolved:
+            # Decided before the slots: a faded or superseded note never uses one.
+            withheld.append({"memory_id": memory_id, "reason": evolved[memory_id]})
+            continue
         if item is not None and (item.get("pinned") or item.get("admission") == "AUTHORITY"):
             authority_seen += 1
             over = authority_seen > MAX_AUTHORITY_ITEMS
