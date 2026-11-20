@@ -36,5 +36,25 @@ class Policy(unittest.TestCase):
         self.assertEqual((item['pending'], item['reason']), (True, 'not_explicit'))
 
 
+class Durable(unittest.TestCase):
+    def _plan(self, text, kind='RULE', source_system=None, certainty='EXPLICIT'):
+        return compile_plan(_source(text), [_candidate(text, kind, scope='PROJECT', certainty=certainty)],
+                            source_system=source_system)['items'][0]
+
+    def test_a_question_is_not_a_durable_instruction(self):
+        for text in ('以后是不是还要改钩子？', '为什么记住的全是乱的', 'Why does it always fail', '以后要不要统一用中文'):
+            self.assertEqual(self._plan(text)['action'], 'NO_ACTION', text)
+        self.assertEqual(self._plan('以后文档统一用中文')['action'], 'CREATE_RULE')
+
+    def test_native_capture_task_binding_is_never_queued(self):
+        text = '看一下这个'
+        item = compile_plan(_source(text), [_candidate(text, 'TASK_CREATE_OR_ATTACH', certainty='AMBIGUOUS')],
+                            source_system='claude-native-conversation-v1')['items'][0]
+        self.assertEqual((item['action'], item['pending']), ('NO_ACTION', False))
+        item = compile_plan(_source(text), [_candidate(text, 'TASK_CREATE_OR_ATTACH', certainty='AMBIGUOUS')],
+                            source_system='codex-hook')['items'][0]
+        self.assertTrue(item['pending'])
+
+
 if __name__ == '__main__':
     unittest.main()

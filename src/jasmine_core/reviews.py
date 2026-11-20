@@ -157,8 +157,8 @@ class ReviewStore:
             if previous!=body['expected_latest_resolution_id']:raise Conflict('application_conflict',latest_resolution_id=previous)
             if self.resolver.maintenance.head(ident)['revision']!=body['expected_head_revision']:raise Conflict('interpretation_not_current')
             context,context_hash=self.resolver._check_context(body,source,ident)
-            from .resolution_policy import compile_plan, POLICY_VERSION
-            plan=self._plan(compile_plan(source,row['candidates']),body['actions'],source,set(scopes))
+            from .resolution_policy import source_system, compile_plan, POLICY_VERSION
+            plan=self._plan(compile_plan(source,row['candidates'],source_system=source_system(self.conn,source)),body['actions'],source,set(scopes))
             if any(i['action'] in ('CREATE_TASK','CREATE_RULE') for i in plan['items']):raise errors.InvalidRequest('manual reapplication must target existing application through supersede or criteria')
             rid=ids.new_id('res');at=clock.now_rfc3339()
             event=command(self.resolver.events,source,actor_id,who['kind'],body['host_id'],'resolution.command',{'resolution_id':rid,'source_event_id':source['event_id'],'interpretation_id':ident,'previous_resolution_id':previous,'reason':body['reason'],'provenance':'USER_CONFIRMED','plan':plan})

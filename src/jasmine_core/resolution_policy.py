@@ -27,6 +27,12 @@ TASK_BINDING_KINDS = ('TASK_CREATE_OR_ATTACH', 'REQUIRED_CAPABILITY')
 _DURABLE_RE = re.compile(
     r'以后|今后|往后|从现在起|从今以后|永远|一律|始终|每次都|一直都|记住|'
     r'\balways\b|\bnever\b|from now on|\bremember\b|going forward', re.I)
+#: "以后是不是还要改？" / "为什么记住的全是乱的" / "Why does it always fail?" ask, not instruct.
+_QUESTION_RE = re.compile(
+    r'[?？]|吗|是不是|是否|要不要|能不能|可不可以|会不会|有没有|为什么|为啥|怎么|如何|什么|哪|'
+    r'^\s*(?:why|how|what|when|where|which|who|do|does|did|is|are|can|could|should|would|will)\b', re.I)
+#: Daily capture of native CLI sessions: no host hook waits on its reviews.
+NATIVE_CAPTURE_SUFFIX = '-native-conversation-v1'
 
 
 def _user_span(source, candidate):
@@ -55,7 +61,7 @@ def durable_instruction(source, candidate):
     """Tier 2: a lasting project instruction in the user's own words."""
     quote = _user_statement(source, candidate)
     return bool(quote and candidate['impact'] != 'HIGH' and candidate['scope']['kind'] == 'PROJECT'
-                and _DURABLE_RE.search(quote))
+                and _DURABLE_RE.search(quote) and not _QUESTION_RE.search(quote))
 
 
 def _task_binding(source, candidate):
@@ -88,7 +94,12 @@ def _durable(source, candidate):
     return candidate, 'NO_ACTION', False, 'observed_memory_only'
 
 
-def compile_plan(source, candidates):
+def source_system(conn, source):
+    row = conn.execute('SELECT source_system FROM events WHERE event_id=?', (source['event_id'],)).fetchone()
+    return row[0] if row else None
+
+
+def compile_plan(source, candidates, *, source_system=None):
     result = []
     for index, candidate in enumerate(candidates):
         kind = candidate['kind']
@@ -96,6 +107,9 @@ def compile_plan(source, candidates):
             action, pending, reason = 'NO_ACTION', False, 'no_structure'
         elif kind in TASK_BINDING_KINDS:
             action, pending, reason = _task_binding(source, candidate)
+            if pending and str(source_system or '').endswith(NATIVE_CAPTURE_SUFFIX):
+                # Nobody waits on these; queuing them only grew an unread backlog.
+                action, pending, reason = 'NO_ACTION', False, 'observed_memory_only'
         else:
             candidate, action, pending, reason = _durable(source, candidate)
         result.append({'candidate_index': index, 'candidate': candidate, 'action': action,

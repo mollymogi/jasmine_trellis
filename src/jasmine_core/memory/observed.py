@@ -87,8 +87,22 @@ _ANSWER_RE = re.compile(r'"answer"\s*:\s*"((?:[^"\\]|\\.)*)"')
 # minutes and other members' replies. Only the text after the last "current
 # message" marker was typed by the user; the persona header once became a
 # verified project fact ("该成员专门负责bot的优化工作") when it was not cut out.
-_GROUP_WRAPPER_RE = re.compile(r"【你的专属人设与工作准则】|^你正在「[^」\n]{0,200}」多 Agent 群聊中", re.M)
-_GROUP_REQUEST_RE = re.compile(r"【当前 @ 你的消息】[ \t]*\n?|^用户发来消息：[ \t]*\n?", re.M)
+# Every opening chatrooms.mjs can produce: a bot without a persona and a reused
+# session starts at the missed-messages or minutes block, 1:1 rooms and the
+# investigate/synthesis rounds use their own headers.
+_GROUP_WRAPPER_RE = re.compile(
+    r"【你的专属人设与工作准则】|【上次你发言后的群内新消息】|【群主整理的(?:群聊|阶段)共识纪要】|"
+    r"【当前 @ 你的消息】|【群内新问题】|"
+    r"^你正在「[^」\n]{0,200}」多 Agent 群聊中|^你正在与用户进行 1 对 1 专属对话|"
+    r"^(?:群内提出的|原始)问题 / 议题：", re.M)
+_GROUP_REQUEST_RE = re.compile(
+    r"(?:【当前 @ 你的消息】|【群内新问题】)[ \t]*\n?|^(?:用户发来消息|群内提出的问题 / 议题|原始问题 / 议题)：[ \t]*\n?",
+    re.M)
+# What follows the request in investigate/synthesis rounds: other members'
+# answers, attached files and the closing instruction are never the user's.
+_GROUP_AFTER_RE = re.compile(
+    r"\n\s*\n(?=群成员本轮回答如下：|群内各成员的回答如下：|【|请给出你的分析回答|请独立进行调查|"
+    r"请作为群主|请综合以上|请直接用中文给出清晰、简洁的回复。)")
 _GROUP_SUFFIX_RE = re.compile(r"\s*请直接用中文给出清晰、简洁的回复。\s*\Z")
 
 
@@ -105,6 +119,9 @@ def group_chat_request(text: str) -> tuple[int, int] | None:
         start = match.end()
     if start is None:
         return (len(text), len(text))
+    after = _GROUP_AFTER_RE.search(text, start)
+    if after:
+        return (start, after.start())
     suffix = _GROUP_SUFFIX_RE.search(text, start)
     return (start, suffix.start() if suffix else len(text))
 

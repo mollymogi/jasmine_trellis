@@ -28,6 +28,11 @@ from .types import MEMORY_TYPES, RecallRequest
 #: ranked further down: on local-item6 that backfill turned every damped turn
 #: into a rotation through weakly related items. Empty beats filler.
 MAX_ITEMS = 3
+#: Pinned and Authority items are ranked ahead of everything by the adapter
+#: (ADR 0034 §5) with no relevance gate, so they get their own slots. Counted
+#: inside MAX_ITEMS, three global Authority items filled every slot on every
+#: turn and no project memory was ever shown (trace mtr_01M7VMCXTBZ3REHQV30TNK2Z5A).
+MAX_AUTHORITY_ITEMS = 2
 MAX_TOKENS = 400
 #: The engine recall asks for a deeper pool than the hint renders (MAX_TOKENS), so
 #: repeat damping has candidates to fall back on. Replayed on 631 real prompts:
@@ -232,18 +237,25 @@ def build(adapter: MemoryAdapter, store, ledger: SessionLedger, *, actor_id: str
     withheld: list[dict[str, str]] = []
     used = tokens.estimate(render([]))
     considered: list[str] = []
+    authority_seen = relevant_seen = 0
     for recalled in outcome.items:
         memory_id = recalled.memory_id
         if memory_id in considered:
             continue  # several engine facts of one item
         considered.append(memory_id)
-        if len(considered) > MAX_ITEMS:
+        item = store.item(memory_id)
+        if item is not None and (item.get("pinned") or item.get("admission") == "AUTHORITY"):
+            authority_seen += 1
+            over = authority_seen > MAX_AUTHORITY_ITEMS
+        else:
+            relevant_seen += 1
+            over = relevant_seen > MAX_ITEMS
+        if over:
             withheld.append({"memory_id": memory_id, "reason": "below_top"})
             continue
         if memory_id in recent:
             withheld.append({"memory_id": memory_id, "reason": "hinted_recently"})
             continue
-        item = store.item(memory_id)
         if item is None or item["status"] != "ACTIVE":
             withheld.append({"memory_id": memory_id, "reason": "not_active"})
             continue

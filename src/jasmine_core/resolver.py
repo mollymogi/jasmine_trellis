@@ -6,7 +6,7 @@ from .authority import AuthorityStore
 from .objects import ObjectStore
 from .state import StateStore
 from .models import NewObject
-from .resolution_policy import compile_plan, POLICY_VERSION
+from .resolution_policy import source_system, compile_plan, POLICY_VERSION
 from .resolution_common import fields, key, actor, command, digest, revision, Conflict, bounded
 from .canonical import canonical_json
 from .interpretation_maintenance import MaintenanceStore
@@ -86,7 +86,7 @@ class ResolverStore:
 
     def _preview(self, ident):
         row=self.maintenance.check_current(ident); source=self.interpretations._source(row['event_id'])
-        plan=compile_plan(source,row['candidates']); values,hashed=self._context(source,ident)
+        plan=compile_plan(source,row['candidates'],source_system=source_system(self.conn,source)); values,hashed=self._context(source,ident)
         canonical=self.conn.execute('SELECT canonical_resolution_id FROM source_applications WHERE source_event_id=?',(row['event_id'],)).fetchone()
         return {'interpretation_id':ident,'source_event_id':row['event_id'],'policy_version':POLICY_VERSION,'plan':plan,
                 'expected_revisions':values,'expected_context_digest':hashed,'maintenance_head':self.maintenance.head(ident),
@@ -212,7 +212,7 @@ class ResolverStore:
             row=self.maintenance.check_current(ident);source=self.interpretations._source(row['event_id'])
             if body['policy_version']!=POLICY_VERSION:raise errors.InvalidRequest('unknown policy version')
             who=self._executor(source,actor_id,body['host_id']); canonical=self._canonical(source)
-            plan=compile_plan(source,row['candidates'])
+            plan=compile_plan(source,row['candidates'],source_system=source_system(self.conn,source))
             if canonical:context=body['expected_revisions'];context_hash=body['expected_context_digest']
             else:context,context_hash=self._check_context(body,source,ident)
             rid=ids.new_id('res');at=clock.now_rfc3339()

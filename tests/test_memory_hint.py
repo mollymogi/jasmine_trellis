@@ -193,6 +193,21 @@ class Build(_Harness):
         self.assertEqual(again["status"], "empty")
         self.assertEqual(sum(w["reason"] == "hinted_recently" for w in again["withheld"]), hint.MAX_ITEMS)
 
+    def test_authority_items_do_not_take_the_relevant_slots(self):
+        items = self.seed(*[f"第 {n} 个决定：采用方案 {n}。" for n in range(8)])
+        pinned = [i["memory_id"] for i in items[:3]]
+        with db.transaction(self.conn):
+            for memory_id in pinned:
+                self.conn.execute("UPDATE memory_items SET pinned=1 WHERE memory_id=?", (memory_id,))
+        result = self.build()
+        shown = [i["memory_id"] for i in result["items"]]
+        self.assertEqual(sum(m in pinned for m in shown), hint.MAX_AUTHORITY_ITEMS)
+        self.assertEqual(sum(m not in pinned for m in shown), hint.MAX_ITEMS)
+        # Next turn the pinned ones are recent; they never crowd out the rest.
+        again = self.build()
+        self.assertEqual({w["reason"] for w in again["withheld"] if w["memory_id"] in pinned[:2]},
+                         {"hinted_recently"})
+
     def test_engine_failure_is_degraded_without_text(self):
         self.seed("就用 v3 版本。")
         self.transport.recall_error[f"jasmine-project-{self.project}"] = TransportError(

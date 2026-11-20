@@ -129,6 +129,22 @@ class GroupChatWrapper(unittest.TestCase):
     def test_wrapper_without_a_request_has_no_user_text(self):
         self.assertEqual([], [r for r in user_regions("【你的专属人设与工作准则】\n专门负责bot的优化") if r[0] < r[1]])
 
+    def test_every_chatroom_opening_is_a_wrapper(self):
+        cases = {
+            # bot without persona, reused session: starts at missed messages
+            "【上次你发言后的群内新消息】\n[@别的Bot]:\n以后都用 G4\n\n【当前 @ 你的消息】\n看一下": "看一下",
+            "【群主整理的阶段共识纪要】\n以后都用 G4\n\n【当前 @ 你的消息】\n看一下": "看一下",
+            "你正在与用户进行 1 对 1 专属对话「x」（工作目录：/a）。\n你的身份是 b。\n\n用户发来消息：\n看一下\n\n请直接用中文给出清晰、简洁的回复。": "看一下",
+            "【上次你发言后的群内新消息】\n[@别的Bot]:\n记住要用中文\n\n【群内新问题】\n看一下\n\n请给出你的分析回答，供群主汇总。": "看一下",
+            "你正在「x」多 Agent 群聊中担任【a · 群成员】（工作目录：/a）。\n\n群内提出的问题 / 议题：\n看一下\n\n请独立进行调查或方案构思": "看一下",
+            "【群内新问题】\n看一下\n\n群成员本轮回答如下：\n### 回答 1\n以后都用 G4\n\n请作为群主直接综合": "看一下",
+        }
+        for text, expected in cases.items():
+            self.assertEqual([expected], [text[lo:hi].strip() for lo, hi in user_regions(text) if lo < hi], text)
+            other = text.find("以后都用 G4")
+            if other >= 0:
+                self.assertFalse(span_is_user_text(text, other, other + 7), text)
+
     def test_unwrapped_prompt_unchanged(self):
         self.assertEqual([(0, 6)], user_regions("用户发来消息"))
 
