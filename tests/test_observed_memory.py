@@ -195,6 +195,19 @@ class ObservedAdmission(_DailyHarness):
         return [dict(row) for row in self.conn.execute(
             "SELECT * FROM memory_items WHERE admission='OBSERVED' ORDER BY candidate_index")]
 
+    def test_a_fragment_that_only_points_back_is_not_kept(self):
+        self.plan = lambda s: [_candidate(s, "DECISION", "按方案2执行")]
+        self.process("好，按方案2执行")
+        report = self.backfill()
+        self.assertEqual(report["refused_by_reason"], {"fragment": 1})
+        self.assertEqual(self.observed_items(), [])
+
+    def test_a_self_contained_decision_is_kept(self):
+        self.plan = lambda s: [_candidate(s, "DECISION", "默认生图模型使用 gpt image2")]
+        self.process("以后默认生图模型使用 gpt image2")
+        report = self.backfill()
+        self.assertEqual(report["admitted_by_type"], {"OBSERVED_DECISION": 1})
+
     def test_one_message_yields_one_item_per_admitted_statement(self):
         text = "测试在云端运行，以 Linux 为主。镜头C 改用 test02 的参考。新建任务做发布"
         self.plan = lambda s: [
@@ -205,24 +218,24 @@ class ObservedAdmission(_DailyHarness):
         event = self.process(text)
         report = self.backfill()
         self.assertEqual(report["interpretations"], 1)
-        self.assertEqual(report["admitted_by_type"],
-                         {"OBSERVED_CONVENTION": 1, "OBSERVED_CORRECTION": 1})
-        self.assertEqual(report["refused_by_reason"], {"kind_not_admitted": 1})
+        self.assertEqual(report["admitted_by_type"], {"OBSERVED_CONVENTION": 1})
+        self.assertEqual(report["refused_by_reason"],
+                         {"kind_not_admitted": 1, "ephemeral_task_statement": 1})
         items = self.observed_items()
-        self.assertEqual([i["memory_type"] for i in items],
-                         ["OBSERVED_CONVENTION", "OBSERVED_CORRECTION"])
-        self.assertEqual([i["candidate_index"] for i in items], [0, 1])
+        self.assertEqual([i["memory_type"] for i in items], ["OBSERVED_CONVENTION"])
+        self.assertEqual([i["candidate_index"] for i in items], [0])
         self.assertEqual({i["source_event_id"] for i in items}, {event})
         self.assertEqual({i["trust"] for i in items}, {"USER_STATED"})
-        self.assertEqual(len({i["document_id"] for i in items}), 2)
+        self.assertEqual(len({i["document_id"] for i in items}), 1)
         self.assertEqual({i["bank_id"] for i in items}, {f"jasmine-project-{self.project}"})
         jobs = self.conn.execute(
             "SELECT memory_id, kind, status FROM memory_jobs ORDER BY memory_id").fetchall()
-        self.assertEqual([(j["kind"], j["status"]) for j in jobs], [("retain", "PENDING")] * 2)
+        self.assertEqual([(j["kind"], j["status"]) for j in jobs], [("retain", "PENDING")])
         ledger = self.conn.execute("SELECT * FROM memory_observed_admissions").fetchone()
-        self.assertEqual(ledger["admitted_count"], 2)
+        self.assertEqual(ledger["admitted_count"], 1)
         self.assertEqual(json.loads(ledger["refusals_json"]),
-                         [{"reason": "kind_not_admitted", "candidate_index": 2,
+                         [{"reason": "ephemeral_task_statement", "candidate_index": 1},
+                          {"reason": "kind_not_admitted", "candidate_index": 2,
                            "detail": "TASK_CREATE_OR_ATTACH"}])
 
     def test_admission_is_idempotent_per_interpretation(self):

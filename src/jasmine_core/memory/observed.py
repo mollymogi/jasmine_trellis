@@ -183,6 +183,18 @@ def user_regions(text: str) -> list[tuple[int, int]]:
     return sorted(regions)
 
 
+#: A statement that only points at something said before it ("按方案2执行",
+#: "就这个", "用户认可该方式") means nothing once recalled in another session.
+_REFERENT = re.compile(r"这个|这版|这样|这种|这套|这一|那个|那样|该方[式案法]|上面|上述|刚才|方案\s*[0-9一二三四五a-zA-Z]|选\s*[0-9a-zA-Z一二三]|^(?:好|可以|行|对|嗯|ok)(?:的|了|吧)?(?:[，,]|$)")
+FRAGMENT_MAX_CHARS = 14
+
+
+def is_fragment(body: str) -> bool:
+    core = re.sub(r"[\s。，、！？!?,.；;：:\"'“”‘’（）()]", "", body)
+    core = re.sub(r"^(?:用户|我)(?:认可|同意|确认|决定|选择)?", "", core)
+    return len(core) <= FRAGMENT_MAX_CHARS and bool(_REFERENT.search(core)) or len(core) < 4
+
+
 def span_is_user_text(text: str, start: int, end: int) -> bool:
     return any(lo <= start and end <= hi for lo, hi in user_regions(text))
 
@@ -302,6 +314,17 @@ class ObservedCandidateSource:
         if directive:
             exam.refuse("directive_injection", index, directive)
             return None
+        # A task-scoped statement with no task to hold it ("镜头C 改用 test02",
+        # "侧边滚动条去掉") only matters to the work in flight. The continuity
+        # hook already carries the last few days of conversation, so admitting it
+        # would only park a stale instruction in the long-term bank.
+        scope = candidate.get("scope") or {}
+        if scope.get("kind") == "TASK" and not (scope.get("task_id") or event["task_id"]):
+            exam.refuse("ephemeral_task_statement", index)
+            return None
+        if is_fragment(body):
+            exam.refuse("fragment", index)
+            return None
         key = canonical_json((memory_type, body.casefold()))
         if key in seen:
             exam.refuse("duplicate_in_message", index)
@@ -321,7 +344,6 @@ class ObservedCandidateSource:
                         existing["memory_id"] if existing is not None else "")
             return None
         batch.add(project_key)
-        scope = candidate.get("scope") or {}
         task_id = None
         if scope.get("kind") == "TASK":
             task_id = scope.get("task_id") or event["task_id"]

@@ -94,14 +94,19 @@ def _cancel_owned_process(proc):
 #: statements apart, and keeps the user's own language: observed memories are
 #: stored as the candidate content, so an English paraphrase of a Chinese
 #: instruction is what a later recall would show.
-DAILY_PROMPT_VERSION='jasmine.interpreter.daily.v2'
+DAILY_PROMPT_VERSION='jasmine.interpreter.daily.v3'
 DAILY_INSTRUCTIONS=(
     'Standing project conventions and explicit stable project facts are RULE candidates at PROJECT scope. '
     'Lasting adoption decisions are DECISION at PROJECT scope. A choice between alternatives (for example '
     '"use v3", "go with plan A", "\u5c31\u7528 v3") is a DECISION at the narrowest true scope, TASK when it concerns '
     'the current work. One message may carry several distinct statements, such as a task correction and a '
     'convention: return each as its own candidate, and never combine NO_STRUCTURE with any other candidate. '
-    'Write each candidate content in the language the user wrote in. Project-wide statements must remain '
+    'Write each candidate content in the language the user wrote in, as one self-contained sentence that '
+    'still makes sense read alone weeks later in another session: name the thing it is about instead of '
+    '"this", "that plan" or "option 2" (for example "\u89d2\u8272\u6362\u88c5\u955c\u5934\u7528\u5168\u8eab\u66ff\u6362" rather than '
+    '"\u6309\u65b9\u68482\u6267\u884c"). When the message does not say what the referent is, return NO_STRUCTURE for '
+    'that statement rather than guessing. One-off edits to the current output (remove a scrollbar, move '
+    'this button, change this shot) are TASK scope. Project-wide statements must remain '
     'pending policy review, never silently become task-only rules. Greetings and transient chat are '
     'NO_STRUCTURE. Assistant claims never become verified outcomes or decisions.')
 

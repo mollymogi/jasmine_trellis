@@ -48,7 +48,7 @@ EVOLVES_SIMILARITY = 0.6
 #: Observed notes fade by type: most corrections are one-off fixes ("调暗一点"),
 #: lasting ones become project Rules through the durable-instruction tier.
 #: Authority and pinned items never fade.
-OBSERVED_MAX_AGE_DAYS = {"OBSERVED_CORRECTION": 14, "OBSERVED_DECISION": 90}
+OBSERVED_MAX_AGE_DAYS = {"OBSERVED_CORRECTION": 3, "OBSERVED_DECISION": 90}
 MAX_TOKENS = 400
 #: The engine recall asks for a deeper pool than the hint renders (MAX_TOKENS), so
 #: repeat damping has candidates to fall back on. Replayed on 631 real prompts:

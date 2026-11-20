@@ -184,13 +184,13 @@ class Build(_Harness):
             self.assertIsNone(hint._line({**stored, "sanitized_text": text}), text)
 
     def test_only_the_top_candidates_are_eligible(self):
-        self.seed(*[f"第 {n} 个决定：采用方案 {n}。" for n in range(8)])
+        self.seed(*[f"第 {n} 个决定：采用版本 {n}。" for n in range(8)])
         result = self.build()
         self.assertEqual(len(result["items"]), hint.MAX_ITEMS)
         self.assertEqual(sum(w["reason"] == "below_top" for w in result["withheld"]), 8 - hint.MAX_ITEMS)
 
     def test_a_held_back_top_candidate_is_not_backfilled_from_below(self):
-        self.seed(*[f"第 {n} 个决定：采用方案 {n}。" for n in range(8)])
+        self.seed(*[f"第 {n} 个决定：采用版本 {n}。" for n in range(8)])
         first = self.build()
         self.assertEqual(len(first["items"]), hint.MAX_ITEMS)
         again = self.build()
@@ -198,20 +198,20 @@ class Build(_Harness):
         self.assertEqual(sum(w["reason"] == "hinted_recently" for w in again["withheld"]), hint.MAX_ITEMS)
 
     def test_low_relevance_items_are_withheld_not_backfilled(self):
-        texts = [f"第 {n} 个决定：采用方案 {n}。" for n in range(4)]
+        texts = [f"第 {n} 个决定：采用版本 {n}。" for n in range(4)]
         items = self.seed(*texts, relevance={texts[0]: 0.9, texts[1]: 0.2, texts[2]: 0.1, texts[3]: 0.05})
         result = self.build()
         self.assertEqual([i["memory_id"] for i in result["items"]], [items[0]["memory_id"]])
         self.assertEqual(sum(w["reason"] == "below_relevance" for w in result["withheld"]), 3)
 
     def test_an_unrelated_prompt_gets_no_hint(self):
-        texts = [f"第 {n} 个决定：采用方案 {n}。" for n in range(3)]
+        texts = [f"第 {n} 个决定：采用版本 {n}。" for n in range(3)]
         self.seed(*texts, relevance={t: 0.01 for t in texts})
         result = self.build()
         self.assertEqual(result["status"], "empty")
 
     def test_pinned_items_are_not_gated_by_relevance(self):
-        texts = [f"第 {n} 个决定：采用方案 {n}。" for n in range(2)]
+        texts = [f"第 {n} 个决定：采用版本 {n}。" for n in range(2)]
         items = self.seed(*texts, relevance={t: 0.01 for t in texts})
         with db.transaction(self.conn):
             self.conn.execute("UPDATE memory_items SET pinned=1 WHERE memory_id=?", (items[0]["memory_id"],))
@@ -219,7 +219,7 @@ class Build(_Harness):
         self.assertEqual([i["memory_id"] for i in result["items"]], [items[0]["memory_id"]])
 
     def test_authority_items_do_not_take_the_relevant_slots(self):
-        items = self.seed(*[f"第 {n} 个决定：采用方案 {n}。" for n in range(8)])
+        items = self.seed(*[f"第 {n} 个决定：采用版本 {n}。" for n in range(8)])
         pinned = [i["memory_id"] for i in items[:3]]
         with db.transaction(self.conn):
             for memory_id in pinned:
