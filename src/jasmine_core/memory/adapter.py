@@ -172,7 +172,8 @@ class MemoryAdapter:
         requested_tags = provenance.type_tags(types)
         # Project bank first: when both banks return the same statement, the
         # project-specific provenance is the one that survives de-duplication.
-        allocations = tokens.split_budget(budget, [2, 1])
+        allocations = tokens.split_budget(
+            budget, [2 if bank.scope_kind == "project" else 1 for bank in banks])
 
         collected: list[tuple[EngineResult, str, int]] = []
         outcomes: list[BankOutcome] = []

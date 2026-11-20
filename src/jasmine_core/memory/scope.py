@@ -275,7 +275,35 @@ def resolve_banks(conn: sqlite3.Connection, *, project_id: str, task_id: str | N
             # The caller is asking about a task in a different project. Answer
             # as if the task did not exist there rather than confirming it does.
             raise errors.NotFound("task", task_id)
-    return (project_bank(project_id), global_bank())
+    merged = merged_project_ids(conn, project_id)
+    return (project_bank(project_id), *(project_bank(other) for other in merged), global_bank())
+
+
+_CAPTURE_WORKSPACE_SUFFIX = "-workspace"
+
+
+def merged_project_ids(conn: sqlite3.Connection, project_id: str) -> tuple[str, ...]:
+    """Older capture projects that a confirmed workspace alias folds into `project_id`.
+
+    Before an alias existed, each capture source (Codex, Claude, Antigravity...)
+    minted its own project for the same directory, so one workspace's history is
+    split across several banks. Confirming an alias (host, root) -> project is the
+    operator saying "this directory is that project"; from then on every source
+    resolves to it. The earlier projects stay as they were and are read alongside:
+    a project is folded in only when the same host created it from a capture
+    source with exactly that root as its description. Nothing is moved or copied,
+    so removing the alias undoes the merge. Sorted, so bank order is stable.
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT p.project_id FROM workspace_aliases a"
+        " JOIN projects p ON p.description = a.root AND p.project_id != a.project_id"
+        " JOIN events e ON e.event_id = p.source_event_id AND e.host_id = a.host_id"
+        " WHERE a.project_id = ? AND a.confirmed = 1 AND p.status = 'active'"
+        "   AND e.source_system LIKE ?"
+        " ORDER BY p.project_id",
+        (project_id, "%" + _CAPTURE_WORKSPACE_SUFFIX),
+    ).fetchall()
+    return tuple(row[0] for row in rows)
 
 
 def resolve_scope_for_item(conn: sqlite3.Connection, *, project_id: str | None,
