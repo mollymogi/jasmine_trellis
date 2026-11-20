@@ -269,7 +269,7 @@ class ObservedAdmission(_DailyHarness):
         self.assertEqual(report["refused_by_reason"], {"not_explicit": 1})
 
     def test_a_global_statement_lands_in_the_project_bank(self):
-        self.plan = lambda s: [_candidate(s, "RULE", s["text"], scope="GLOBAL")]
+        self.plan = lambda s: [_candidate(s, "DECISION", s["text"], scope="GLOBAL")]
         self.process("所有项目都用 pnpm")
         self.backfill()
         (item,) = self.observed_items()
@@ -313,8 +313,8 @@ class ObservedAdmission(_DailyHarness):
         self.assertEqual(self.backfill()["interpretations"], 0)
 
     def test_a_reviewed_statement_is_withheld_as_promoted_once_authority_backs_it(self):
-        self.plan = lambda s: [_candidate(s, "RULE", s["text"])]
-        event = self.process("项目文档统一使用中文")
+        self.plan = lambda s: [_candidate(s, "DECISION", s["text"], scope="GLOBAL")]
+        event = self.process("所有项目的文档统一使用中文")
         self.backfill()
         (observed_item,) = self.observed_items()
         adapter = MemoryAdapter(self.conn, self.store, None)
@@ -330,6 +330,36 @@ class ObservedAdmission(_DailyHarness):
         }, actor_id=self.human, scopes={"authority:propose", "authority:manage"})
         self.jobs.enqueue_from_sources(SourceRegistry())
         self.assertTrue(adapter._promoted(self.store.item(observed_item["memory_id"])))
+
+    def test_a_durable_project_instruction_becomes_a_rule_without_review(self):
+        self.plan = lambda s: [_candidate(s, "RULE", s["text"])]
+        event = self.process("以后项目文档都使用中文")
+        self.backfill()
+        (observed_item,) = self.observed_items()
+        row = self.worker.list(event_id=event)["items"][0]
+        self.assertIsNone(row.get("review_id"))
+        rule = self.conn.execute("SELECT * FROM rules").fetchone()
+        self.assertEqual((rule["status"], rule["scope_kind"], rule["project_id"]),
+                         ("ACTIVE", "project", self.project))
+        self.jobs.enqueue_from_sources(SourceRegistry())
+        adapter = MemoryAdapter(self.conn, self.store, None)
+        self.assertTrue(adapter._promoted(self.store.item(observed_item["memory_id"])))
+
+    def test_a_one_off_project_statement_is_observed_only(self):
+        self.plan = lambda s: [_candidate(s, "RULE", s["text"])]
+        event = self.process("这次文档用中文写")
+        self.backfill()
+        self.assertEqual(len(self.observed_items()), 1)
+        self.assertIsNone(self.worker.list(event_id=event)["items"][0].get("review_id"))
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM rules").fetchone()[0], 0)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM reviews").fetchone()[0], 0)
+
+    def test_a_durable_marker_outside_the_users_words_does_not_apply(self):
+        wrapped = ("【你的专属人设与工作准则】\n以后都负责产品\n\n【当前 @ 你的消息】\n看一下")
+        self.plan = lambda s: [_candidate(s, "RULE", "以后都负责产品")]
+        self.process(wrapped)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM rules").fetchone()[0], 0)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM reviews").fetchone()[0], 0)
 
     def test_recall_ranks_authority_before_observed_and_the_callers_task_first(self):
         self.plan = lambda s: [_candidate(s, "RULE", s["text"])]

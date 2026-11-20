@@ -345,7 +345,7 @@ class MemoryAdapter:
             return False
         # A reviewed Rule's origin Event is the `review.approved` command, whose
         # payload names the exact source message, Interpretation and candidate.
-        return self._conn.execute(
+        if self._conn.execute(
             "SELECT 1 FROM memory_items AS m JOIN events AS e ON e.event_id = m.origin_event_id"
             " WHERE m.admission='AUTHORITY' AND m.status='ACTIVE'"
             " AND e.event_type='review.approved'"
@@ -353,6 +353,18 @@ class MemoryAdapter:
             " AND json_extract(e.payload_json, '$.interpretation_id') = ?"
             " AND json_extract(e.payload_json, '$.candidate_index') = ? LIMIT 1",
             (item["source_event_id"], item["interpretation_id"], item["candidate_index"]),
+        ).fetchone() is not None:
+            return True
+        # A durable instruction the user typed is applied without review; its
+        # Rule's origin is the message itself and its key names the resolution
+        # and candidate (resolver: 'p2-<resolution>-<candidate>').
+        return self._conn.execute(
+            "SELECT 1 FROM memory_items AS m JOIN rules AS r ON r.rule_id = m.origin_rule_id"
+            " JOIN resolutions AS s ON r.rule_key = 'p2-' || lower(substr(s.resolution_id, 5)) || '-' || ?"
+            " WHERE m.admission='AUTHORITY' AND m.status='ACTIVE'"
+            " AND m.origin_event_id = ? AND s.source_event_id = ? AND s.interpretation_id = ? LIMIT 1",
+            (item["candidate_index"], item["source_event_id"], item["source_event_id"],
+             item["interpretation_id"]),
         ).fetchone() is not None
 
     def _status(self, outcomes: Iterable[BankOutcome], failed: list[str],
