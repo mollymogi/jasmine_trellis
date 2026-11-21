@@ -284,8 +284,12 @@ def _magpie_extract_cascade(prompt,selected_model,source,max_input_bytes,max_out
         except urllib.error.HTTPError as exc:
             last_code='provider_rate_limited' if exc.code==429 else 'provider_login_required' if exc.code in (401,403) else 'provider_error'
             continue
-        except (TimeoutError,socket.timeout,urllib.error.URLError):
+        except (TimeoutError,socket.timeout):
             last_code='provider_timeout'
+            continue
+        except urllib.error.URLError as exc:
+            # Magpie not listening is an outage, not a slow answer: the queue waits it out.
+            last_code='provider_timeout' if isinstance(exc.reason,(TimeoutError,socket.timeout)) else 'provider_unreachable'
             continue
         except Exception:
             last_code='provider_protocol_error'

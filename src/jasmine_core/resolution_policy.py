@@ -174,10 +174,12 @@ def compile_plan(source, candidates, *, source_system=None, repeated=frozenset()
         if kind == 'NO_STRUCTURE':
             action, pending, reason = 'NO_ACTION', False, 'no_structure'
         elif kind in TASK_BINDING_KINDS:
-            action, pending, reason = _task_binding(source, candidate)
-            if pending and str(source_system or '').endswith(NATIVE_CAPTURE_SUFFIX):
-                # Nobody waits on these; queuing them only grew an unread backlog.
+            if str(source_system or '').endswith(NATIVE_CAPTURE_SUFFIX):
+                # Daily CLI capture never runs the Task state machine: nobody waits on a
+                # review and nobody closes a Task it creates (1440 were left ACTIVE).
                 action, pending, reason = 'NO_ACTION', False, 'observed_memory_only'
+            else:
+                action, pending, reason = _task_binding(source, candidate)
         else:
             candidate, action, pending, reason = _durable(source, candidate, index in repeated)
         result.append({'candidate_index': index, 'candidate': candidate, 'action': action,

@@ -94,7 +94,9 @@ _GROUP_WRAPPER_RE = re.compile(
     r"【你的专属人设与工作准则】|【上次你发言后的群内新消息】|【群主整理的(?:群聊|阶段)共识纪要】|"
     r"【当前 @ 你的消息】|【群内新问题】|"
     r"^你正在「[^」\n]{0,200}」多 Agent 群聊中|^你正在与用户进行 1 对 1 专属对话|"
-    r"^(?:群内提出的|原始)问题 / 议题：", re.M)
+    r"^(?:群内提出的|原始)问题 / 议题：|"
+    # The room's own background minutes job: a transcript, never the user typing.
+    r"【已有群聊共识纪要】|【新增待归档对话|后台群聊记忆整理任务", re.M)
 _GROUP_REQUEST_RE = re.compile(
     r"(?:【当前 @ 你的消息】|【群内新问题】)[ \t]*\n?|^(?:用户发来消息|群内提出的问题 / 议题|原始问题 / 议题)：[ \t]*\n?",
     re.M)

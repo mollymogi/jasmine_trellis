@@ -145,6 +145,11 @@ class GroupChatWrapper(unittest.TestCase):
             if other >= 0:
                 self.assertFalse(span_is_user_text(text, other, other + 7), text)
 
+    def test_room_minutes_job_has_no_user_text(self):
+        text = ("这是一次后台群聊记忆整理任务：请把早期对话压缩成一份结构化《群聊共识纪要》。\n"
+                "【已有群聊共识纪要】\n无\n\n【新增待归档对话（共 3 条）】\n[用户]: 以后都用 G4")
+        self.assertEqual([], [r for r in user_regions(text) if r[0] < r[1]])
+
     def test_unwrapped_prompt_unchanged(self):
         self.assertEqual([(0, 6)], user_regions("用户发来消息"))
 

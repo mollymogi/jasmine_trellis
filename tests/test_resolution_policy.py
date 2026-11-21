@@ -60,6 +60,14 @@ class Durable(unittest.TestCase):
                             source_system='codex-hook')['items'][0]
         self.assertTrue(item['pending'])
 
+    def test_native_capture_never_creates_a_task(self):
+        text = '用约200字解释TCP三次握手'
+        plan = compile_plan(_source(text), [_candidate(text, 'TASK_CREATE_OR_ATTACH')],
+                            source_system='antigravity-native-conversation-v1')
+        self.assertEqual((plan['items'][0]['action'], plan['disposition']), ('NO_ACTION', 'NO_ACTION'))
+        self.assertEqual(compile_plan(_source(text), [_candidate(text, 'TASK_CREATE_OR_ATTACH')],
+                                      source_system='codex-hook')['items'][0]['action'], 'CREATE_TASK')
+
 
 class Promotion(unittest.TestCase):
     """Tier 4: the same correction in a second session is proposed once."""

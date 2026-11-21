@@ -122,7 +122,9 @@ class ConversationProcessing:
  def _rate_limited(self,event_id,owner,code):
   """Start the queue-wide cooldown even when this message exhausts its budget."""
   with db.transaction(self.conn):
-   exhausted=self._rate_limits(event_id)>=RATE_LIMIT_ATTEMPTS-1
+   # An unreachable provider (Magpie down) is an outage of the whole queue, not
+   # this message's fault: it waits however long the outage lasts.
+   exhausted=not code.startswith('provider_unreachable') and self._rate_limits(event_id)>=RATE_LIMIT_ATTEMPTS-1
    status='FAILED' if exhausted else 'PENDING'
    seconds=min(max(int(db.get_meta(self.conn,COOLDOWN_SECONDS,0) or 0)*2,COOLDOWN_MIN),COOLDOWN_MAX);until=_future(seconds)
    changed=self.conn.execute("UPDATE conversation_processing SET status=?,error_code=?,lease_owner=NULL,lease_until=NULL,updated_at=? WHERE event_id=? AND status='PROCESSING' AND lease_owner=?",(status,code,clock.now_rfc3339(),event_id,owner)).rowcount
@@ -188,7 +190,7 @@ class ConversationProcessing:
    return {'event_id':event_id,'status':status}
   except Exception as exc:
    code=getattr(exc,'details',{}).get('provider_code') or getattr(exc,'code',type(exc).__name__)
-   if str(code).startswith('provider_rate_limited'):
+   if str(code).startswith(('provider_rate_limited','provider_unreachable')):
     return self._rate_limited(event_id,owner,str(code)[:160])
    self._save(event_id,owner,status='FAILED',error_code=str(code)[:160],lease_owner=None,lease_until=None)
    with db.transaction(self.conn):self._change(event_id,'FAILED',self.actor,error_code=str(code)[:160])
