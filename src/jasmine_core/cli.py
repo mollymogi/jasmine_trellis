@@ -304,6 +304,23 @@ def _job_kinds() -> list[str]:
     return list(JOB_KINDS)
 
 
+def _superseder(conn, store, transport):
+    """Write-time supersession: opt-in (runtime.json memory_supersede) and needs the daily actor."""
+    actor = os.environ.get("JASMINE_CORE_RESOLVER_ACTOR_ID")
+    host = os.environ.get("JASMINE_CORE_RESOLVER_HOST_ID")
+    if not (actor and host and transport is not None) or os.environ.get("JASMINE_MEMORY_SUPERSEDE") != "1":
+        return None
+    from .memory.adapter import MemoryAdapter
+    from .memory.lifecycle import MemoryLifecycle
+    from .memory.store import MemoryStore
+    from .memory.supersede import Superseder
+    from . import SCHEMA_VERSION
+
+    return Superseder(conn, store, MemoryAdapter(conn, store, transport),
+                      MemoryLifecycle(conn, MemoryStore(conn, schema_version=SCHEMA_VERSION)),
+                      actor_id=actor, host_id=host, log=_log)
+
+
 def cmd_memory_worker(args: argparse.Namespace) -> int:
     """Run the Memory worker: the only process that writes to the engine."""
     from .memory.store import MemoryStore
@@ -312,9 +329,12 @@ def cmd_memory_worker(args: argparse.Namespace) -> int:
     _install_stop_handler()
     conn = _memory_conn(args)
     try:
-        worker = MemoryWorker(conn, MemoryStore(conn, schema_version=0), _memory_transport(),
+        store = MemoryStore(conn, schema_version=0)
+        transport = _memory_transport()
+        worker = MemoryWorker(conn, store, transport,
                               lease_seconds=args.lease_seconds,
-                              max_attempts=args.max_attempts)
+                              max_attempts=args.max_attempts,
+                              log=_log, superseder=_superseder(conn, store, transport))
         if args.max_ticks is not None:
             for report in worker.run(max_ticks=args.max_ticks, log=_log):
                 print(json.dumps(report.as_dict(), ensure_ascii=False))

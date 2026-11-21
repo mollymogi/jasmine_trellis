@@ -113,8 +113,10 @@ class MemoryWorker:
                  lease_seconds: int = jobs_module.DEFAULT_LEASE_SECONDS,
                  max_attempts: int = jobs_module.DEFAULT_MAX_ATTEMPTS,
                  scan_limit: int = 200,
-                 log: Callable[[str], None] | None = None) -> None:
+                 log: Callable[[str], None] | None = None,
+                 superseder: Any = None) -> None:
         self._conn = conn
+        self._superseder = superseder
         self._log = log
         self._store = store
         self._transport = transport
@@ -173,6 +175,16 @@ class MemoryWorker:
             return report
         if claimed is None:
             report.outcome = "idle"
+            if self._superseder is not None:
+                # Idle time only: engine writes always come first.
+                try:
+                    result = self._superseder.tick()
+                except Exception as exc:  # never let it stop the worker
+                    if self._log:
+                        self._log(f"supersede: {type(exc).__name__}: {exc}")
+                else:
+                    if result.get("status") == "done":
+                        report.outcome = "superseded" if result.get("retired") else "supersede_checked"
             return report
         report.claimed = claimed.job["job_id"]
         kind = claimed.job["kind"]
