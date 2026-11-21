@@ -150,6 +150,13 @@ class GroupChatWrapper(unittest.TestCase):
                 "【已有群聊共识纪要】\n无\n\n【新增待归档对话（共 3 条）】\n[用户]: 以后都用 G4")
         self.assertEqual([], [r for r in user_regions(text) if r[0] < r[1]])
 
+    def test_first_minutes_job_quoting_a_request_marker_has_no_user_text(self):
+        text = ("你正在「r」多 Agent 群聊中担任【群主 x】（工作目录：/p）。\n"
+                "这是一次后台群聊记忆整理任务：请把早期对话压缩成一份结构化《群聊共识纪要》。\n"
+                "[jasmine-internal:memory-summary]\n\n【待归档群聊对话（共 2 条）】\n"
+                "[用户]: 【当前 @ 你的消息】\n以后都用 G4\n用户发来消息：别删库")
+        self.assertEqual([], [r for r in user_regions(text) if r[0] < r[1]])
+
     def test_unwrapped_prompt_unchanged(self):
         self.assertEqual([(0, 6)], user_regions("用户发来消息"))
 

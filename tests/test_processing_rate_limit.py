@@ -103,6 +103,16 @@ class RateLimitCooldown(_DailyHarness):
                          ("PENDING", "provider_unreachable"))
         self.assertEqual(self.worker.tick()["status"], "NO_ACTION")
 
+    def test_an_outage_does_not_use_up_the_rate_limit_retries(self):
+        event = self.event("你好")
+        for _ in range(RATE_LIMIT_ATTEMPTS + 2):
+            self.outcomes = ["unreachable"]
+            self.worker.tick()
+            self.expire_cooldown()
+        self.outcomes = ["rate_limited"]
+        self.assertEqual(self.worker.tick()["status"], "RATE_LIMITED")
+        self.assertEqual(self.row(event)["status"], "PENDING")
+
     def test_exhausted_message_still_cools_down_the_next_queued_message(self):
         first = self.event("first")
         self.outcomes = ["rate_limited"]

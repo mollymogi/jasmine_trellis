@@ -113,6 +113,25 @@ class SupersedeTest(unittest.TestCase):
         self.answer = [{"id": "mem_old", "relation": "REPLACES", "fully_covered": True}]
         self.assertEqual(self.sup.tick()["retired"], ["mem_old"])
 
+    def test_any_http_refusal_backs_off(self):
+        import io, urllib.error
+        from unittest.mock import patch
+        error = urllib.error.HTTPError("u", 401, "no", {}, io.BytesIO(b""))
+        with patch("urllib.request.OpenerDirector.open", side_effect=error):
+            with self.assertRaises(JudgeUnavailable):
+                supersede.magpie_judge({"sanitized_text": "a", "memory_type": "t", "created_at": "x"}, [])
+
+    def test_gateway_follows_magpie_gateway_file(self):
+        import json, tempfile, pathlib
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as home:
+            cfg = pathlib.Path(home, ".config/magpie"); cfg.mkdir(parents=True)
+            cfg.joinpath("gateway.json").write_text(json.dumps({"addr": "127.0.0.1:4000"}))
+            with patch("pathlib.Path.home", return_value=pathlib.Path(home)):
+                self.assertEqual(supersede.gateway_endpoint(), "http://127.0.0.1:4000/v1/chat/completions")
+                cfg.joinpath("gateway.json").write_text(json.dumps({"addr": "10.0.0.1:4000"}))
+                self.assertIn("127.0.0.1:3425", supersede.gateway_endpoint())
+
     def test_memories_before_the_cursor_are_never_reconsidered(self):
         self.add("mem_old", "2026-11-19T00:00:00Z")
         self.add("mem_older", "2026-11-18T00:00:00Z")

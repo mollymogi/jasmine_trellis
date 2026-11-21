@@ -30,8 +30,8 @@ COOLDOWN_MIN, COOLDOWN_MAX = 300, 3600
 MIN_RELEVANCE = 0.5
 MAX_CANDIDATES = 5
 MAX_RETIRE = 2
-RECALL_TOKENS = 1200
-ENDPOINT = "http://127.0.0.1:3425/v1/chat/completions"
+RECALL_TOKENS = 2400
+DEFAULT_GATEWAY = "127.0.0.1:3425"
 MODEL = "opencode-go/deepseek-v4.1-flash"
 TIMEOUT_SECONDS = 30
 RELATIONS = ("REPLACES", "ENRICHES", "CONFIRMS", "CONFLICTS", "UNRELATED")
@@ -54,6 +54,20 @@ class JudgeUnavailable(Exception):
     """The model could not be reached or did not answer in time."""
 
 
+def gateway_endpoint() -> str:
+    """Magpie's gateway from ~/.config/magpie/gateway.json (loopback only), else 3425."""
+    addr = DEFAULT_GATEWAY
+    try:
+        from pathlib import Path
+        data = json.loads((Path.home() / ".config/magpie/gateway.json").read_text(encoding="utf-8"))
+        host, _, port = str(data.get("addr") or "").rpartition(":")
+        if host in ("127.0.0.1", "localhost", "[::1]") and port.isdigit() and 0 < int(port) < 65536:
+            addr = f"{host}:{port}"
+    except (OSError, ValueError, AttributeError):
+        pass
+    return f"http://{addr}/v1/chat/completions"
+
+
 def magpie_judge(new: dict[str, Any], old: list[dict[str, Any]]) -> list[dict[str, Any]]:
     payload = {
         "new": {"text": new["sanitized_text"], "type": new["memory_type"], "at": new["created_at"]},
@@ -65,17 +79,16 @@ def magpie_judge(new: dict[str, Any], old: list[dict[str, Any]]) -> list[dict[st
         "messages": [{"role": "system", "content": PROMPT},
                      {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
     }
-    request = urllib.request.Request(ENDPOINT, data=json.dumps(body).encode("utf-8"),
+    request = urllib.request.Request(gateway_endpoint(), data=json.dumps(body).encode("utf-8"),
                                      headers={"Content-Type": "application/json"}, method="POST")
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
         with opener.open(request, timeout=TIMEOUT_SECONDS) as response:
             answer = json.loads(response.read().decode("utf-8", errors="replace"))
     except urllib.error.HTTPError as exc:
-        if exc.code in (429, 500, 502, 503, 504):
-            raise JudgeUnavailable(f"http_{exc.code}") from exc
-        raise
-    except (urllib.error.URLError, TimeoutError, socket.timeout, ConnectionError) as exc:
+        # Any refusal (rate limit, auth, model gone) backs off; none may spin the idle loop.
+        raise JudgeUnavailable(f"http_{exc.code}") from exc
+    except (urllib.error.URLError, TimeoutError, socket.timeout, ConnectionError, OSError) as exc:
         raise JudgeUnavailable(type(exc).__name__) from exc
     content = answer["choices"][0]["message"]["content"]
     start, end = content.find("{"), content.rfind("}")

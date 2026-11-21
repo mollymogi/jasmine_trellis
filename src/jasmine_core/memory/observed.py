@@ -96,7 +96,10 @@ _GROUP_WRAPPER_RE = re.compile(
     r"^你正在「[^」\n]{0,200}」多 Agent 群聊中|^你正在与用户进行 1 对 1 专属对话|"
     r"^(?:群内提出的|原始)问题 / 议题：|"
     # The room's own background minutes job: a transcript, never the user typing.
-    r"【已有群聊共识纪要】|【新增待归档对话|后台群聊记忆整理任务", re.M)
+    r"【已有群聊共识纪要】|【(?:新增)?待归档(?:群聊)?对话|后台群聊记忆整理任务|\[jasmine-internal:memory-summary\]", re.M)
+# The room's background minutes job is a transcript end to end; a request marker
+# quoted inside it is history, never the user's current message.
+_MINUTES_JOB_RE = re.compile(r"\[jasmine-internal:memory-summary\]|这是一次后台群聊记忆整理任务")
 _GROUP_REQUEST_RE = re.compile(
     r"(?:【当前 @ 你的消息】|【群内新问题】)[ \t]*\n?|^(?:用户发来消息|群内提出的问题 / 议题|原始问题 / 议题)：[ \t]*\n?",
     re.M)
@@ -116,6 +119,8 @@ def group_chat_request(text: str) -> tuple[int, int] | None:
     """
     if not _GROUP_WRAPPER_RE.search(text):
         return None
+    if _MINUTES_JOB_RE.search(text):
+        return (len(text), len(text))
     start = None
     for match in _GROUP_REQUEST_RE.finditer(text):
         start = match.end()

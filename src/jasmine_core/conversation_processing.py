@@ -118,7 +118,7 @@ class ConversationProcessing:
   until=db.get_meta(self.conn,COOLDOWN_UNTIL,None)
   return until if until and until>clock.now_rfc3339() else None
  def _rate_limits(self,event_id):
-  return self.conn.execute("SELECT COUNT(*) FROM conversation_processing_changes WHERE event_id=? AND action='RATE_LIMITED' AND seq>COALESCE((SELECT MAX(seq) FROM conversation_processing_changes WHERE event_id=? AND action IN ('ENQUEUED','RETRY_REQUESTED')),0)",(event_id,event_id)).fetchone()[0]
+  return self.conn.execute("SELECT COUNT(*) FROM conversation_processing_changes WHERE event_id=? AND action='RATE_LIMITED' AND COALESCE(json_extract(detail_json,'$.error_code'),'') NOT LIKE 'provider_unreachable%' AND seq>COALESCE((SELECT MAX(seq) FROM conversation_processing_changes WHERE event_id=? AND action IN ('ENQUEUED','RETRY_REQUESTED')),0)",(event_id,event_id)).fetchone()[0]
  def _rate_limited(self,event_id,owner,code):
   """Start the queue-wide cooldown even when this message exhausts its budget."""
   with db.transaction(self.conn):
