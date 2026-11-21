@@ -33,6 +33,7 @@ Complexity of phrasing is not a trigger.
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Iterable
 
 from .. import clock, db, errors
@@ -41,6 +42,7 @@ from .store import MemoryStore
 from .transport import MemoryTransport, TransportError
 from .types import (
     BankOutcome,
+    BankRef,
     EngineResult,
     FilteredItem,
     RecallItem,
@@ -181,16 +183,35 @@ class MemoryAdapter:
         collected: list[tuple[EngineResult, str, int]] = []
         outcomes: list[BankOutcome] = []
         failed_banks: list[str] = []
+        engine_types = _engine_fact_types(types)
+
+        def ask(bank: BankRef, allocation: int) -> list[EngineResult]:
+            return self._transport.recall(
+                bank=bank, query=request.query, max_tokens=allocation,
+                fact_types=engine_types, tags=requested_tags,
+            )
+
+        # The banks are independent HTTP calls; asked one after another, a merged
+        # workspace (three or four banks) waited for the sum of their reranks and
+        # the prompt hook's budget ran out. Asked together, it waits for the
+        # slowest. Results are still read back in bank order.
+        live = [(bank, allocation) for bank, allocation in zip(banks, allocations) if allocation > 0]
+        answers: dict[str, Any] = {}
+        if live:
+            with ThreadPoolExecutor(max_workers=len(live)) as pool:
+                futures = {bank.bank_id: pool.submit(ask, bank, allocation) for bank, allocation in live}
+                for bank_id, future in futures.items():
+                    try:
+                        answers[bank_id] = future.result()
+                    except TransportError as exc:
+                        answers[bank_id] = exc
         for bank, allocation in zip(banks, allocations):
             if allocation <= 0:
                 outcomes.append(BankOutcome(bank.bank_id, bank.scope_kind, "skipped"))
                 continue
-            try:
-                results = self._transport.recall(
-                    bank=bank, query=request.query, max_tokens=allocation,
-                    fact_types=_engine_fact_types(types), tags=requested_tags,
-                )
-            except TransportError as exc:
+            results = answers[bank.bank_id]
+            if isinstance(results, TransportError):
+                exc = results
                 failed_banks.append(bank.bank_id)
                 outcomes.append(BankOutcome(bank.bank_id, bank.scope_kind, "failed",
                                             error_code=exc.code,

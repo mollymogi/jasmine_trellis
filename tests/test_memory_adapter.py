@@ -445,6 +445,23 @@ class RecallJudgement(MemoryTestCase):
         self.assertEqual(outcome.error_code, "engine_unreachable")
         self.assertEqual([b.status for b in outcome.banks], ["ok", "failed"])
 
+    def test_banks_are_asked_together_not_one_after_another(self) -> None:
+        # Two banks that each wait for the other to arrive only finish when the
+        # adapter asks them at the same time; asked in turn, the barrier times out.
+        import threading
+        barrier = threading.Barrier(2, timeout=5)
+        original = self.transport.recall
+
+        def meet(**kwargs):
+            barrier.wait()
+            return original(**kwargs)
+
+        self.transport.recall = meet
+        self.engine_row("a lesson asked of both banks at once")
+        outcome = self.recall()
+        self.assertEqual(outcome.status, "ok")
+        self.assertEqual([b.bank_id for b in outcome.banks], [self.bank, self.global_bank])
+
     def test_a_bank_with_nothing_to_say_is_empty_not_degraded(self) -> None:
         outcome = self.recall()
         self.assertEqual(outcome.status, "empty")

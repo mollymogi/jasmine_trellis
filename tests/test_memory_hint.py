@@ -37,6 +37,16 @@ class UserQuery(unittest.TestCase):
         query, _ = hint.user_query("字" * 5000)
         self.assertEqual(len(query), hint.MAX_QUERY_CHARS)
 
+    def test_a_long_prompt_keeps_its_opening_and_its_ask(self):
+        prompt = "关于记忆召回的背景说明" + "，补充细节" * 100 + "。最后请修掉超时问题"
+        query, _ = hint.user_query(prompt)
+        self.assertLessEqual(len(query), hint.MAX_QUERY_CHARS)
+        self.assertTrue(query.startswith("关于记忆召回的背景说明"))
+        self.assertTrue(query.endswith("最后请修掉超时问题"))
+
+    def test_a_short_prompt_is_unchanged(self):
+        self.assertEqual(hint.user_query("修一下  召回超时")[0], "修一下  召回超时")
+
 
 class Ledger(unittest.TestCase):
     def test_recent_items_expire_after_the_turn_window(self):

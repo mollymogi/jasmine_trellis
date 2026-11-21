@@ -67,7 +67,12 @@ ENGINE_SECONDS = 2.5
 #: Context Pack and Dashboard recalls keep the default level.
 ENGINE_RECALL_BUDGET = "low"
 MIN_PROMPT_CHARS = 6
-MAX_QUERY_CHARS = 500
+#: The cross-encoder scores query+memory pairs, so its time grows with the query.
+#: Measured on local-item6 (bge-reranker-base, 37-item bank, 2026-11-21): 60 chars
+#: 0.79 s, 160 chars 1.57 s, 300 chars 2.80 s, 500 chars 2.97 s -- every 500-char
+#: prompt timed out. A long prompt keeps its opening (the topic) and its end (the ask).
+MAX_QUERY_CHARS = 160
+QUERY_HEAD_CHARS = 60
 MAX_PROMPT_CHARS = 65536
 SESSION_TURNS = 20
 SESSION_ENTRIES = 200
@@ -116,7 +121,18 @@ def user_query(prompt: str) -> tuple[str | None, str | None]:
         return None, "slash_command"
     if len(text) < MIN_PROMPT_CHARS:
         return None, "prompt_too_short"
-    return text[:MAX_QUERY_CHARS], None
+    return clip_query(text), None
+
+
+def clip_query(text: str) -> str:
+    """At most MAX_QUERY_CHARS: the opening and the end of a long prompt."""
+    if len(text) <= MAX_QUERY_CHARS:
+        return text
+    text = _SPACE.sub(" ", text).strip()
+    if len(text) <= MAX_QUERY_CHARS:
+        return text
+    tail = MAX_QUERY_CHARS - QUERY_HEAD_CHARS - 1
+    return f"{text[:QUERY_HEAD_CHARS]}…{text[-tail:]}"
 
 
 @dataclass
