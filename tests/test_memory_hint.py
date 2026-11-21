@@ -220,13 +220,13 @@ class Build(_Harness):
         result = self.build()
         self.assertEqual(result["status"], "empty")
 
-    def test_pinned_items_are_not_gated_by_relevance(self):
+    def test_pinned_items_are_gated_by_relevance_too(self):
         texts = [f"第 {n} 个决定：采用版本 {n}。" for n in range(2)]
         items = self.seed(*texts, relevance={t: 0.01 for t in texts})
         with db.transaction(self.conn):
             self.conn.execute("UPDATE memory_items SET pinned=1 WHERE memory_id=?", (items[0]["memory_id"],))
         result = self.build()
-        self.assertEqual([i["memory_id"] for i in result["items"]], [items[0]["memory_id"]])
+        self.assertEqual(result["status"], "empty")
 
     def test_authority_items_do_not_take_the_relevant_slots(self):
         items = self.seed(*[f"第 {n} 个决定：采用版本 {n}。" for n in range(8)])
