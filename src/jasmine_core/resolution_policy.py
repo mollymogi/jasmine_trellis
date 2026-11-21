@@ -15,6 +15,13 @@ Three tiers decide what an interpreted user message may do to Authority:
    correction to a Task that already exists (it may supersede that Task's
    Rules, which only a reviewer can choose).
 
+4. A plain project correction or decision the user already made in another
+   session of the same workspace is proposed once for approval
+   ("repeated_across_sessions"): saying the same thing twice is the signal that
+   it is a standing preference, not a one-off. At most PROMOTION_WEEKLY_CAP such
+   proposals a week, and never one already covered by an active Rule or a
+   proposal from the last PROMOTION_DEDUP_DAYS days.
+
 Task binding (TASK_CREATE_OR_ATTACH, REQUIRED_CAPABILITY) keeps the original
 review policy, because the p2/p3 hooks wait on those reviews.
 """
@@ -33,6 +40,11 @@ _QUESTION_RE = re.compile(
     r'^\s*(?:why|how|what|when|where|which|who|do|does|did|is|are|can|could|should|would|will)\b', re.I)
 #: Daily capture of native CLI sessions: no host hook waits on its reviews.
 NATIVE_CAPTURE_SUFFIX = '-native-conversation-v1'
+PROMOTION_SIMILARITY = 0.6
+PROMOTION_WEEKLY_CAP = 3
+PROMOTION_DEDUP_DAYS = 30
+PROMOTION_REASON = 'repeated_across_sessions'
+_PRIOR_TYPES = ('OBSERVED_CORRECTION', 'OBSERVED_DECISION', 'OBSERVED_CONVENTION')
 
 
 def _user_span(source, candidate):
@@ -77,8 +89,8 @@ def _task_binding(source, candidate):
     return 'CREATE_RULE', False, 'task_additive_normal_context'
 
 
-def _durable(source, candidate):
-    """Tiers 1-3; anything that is not a durable kind (e.g. ACCEPTANCE) stays observed."""
+def _durable(source, candidate, repeated=False):
+    """Tiers 1-4; anything that is not a durable kind (e.g. ACCEPTANCE) stays observed."""
     scope = candidate['scope']['kind']
     if durable_instruction(source, candidate):
         project = candidate['scope'].get('project_id') or source['project_id']
@@ -91,6 +103,8 @@ def _durable(source, candidate):
             return candidate, 'NO_ACTION', True, 'global_scope_requires_review'
         if scope == 'TASK' and source['task_id']:
             return candidate, 'NO_ACTION', True, 'task_correction_requires_review'
+        if repeated:
+            return candidate, 'NO_ACTION', True, PROMOTION_REASON
     return candidate, 'NO_ACTION', False, 'observed_memory_only'
 
 
@@ -99,7 +113,61 @@ def source_system(conn, source):
     return row[0] if row else None
 
 
-def compile_plan(source, candidates, *, source_system=None):
+def _ago(days):
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) - timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%S')
+
+
+def repeated_candidates(conn, source, candidates):
+    """Indexes of candidates the user already said in another session of this workspace (tier 4)."""
+    if source['source_type'] != 'USER_EXPLICIT' or not source['project_id'] or source['task_id']:
+        return frozenset()
+    from .memory.hint import similarity
+    from .memory.scope import workspace_group
+    wanted = {}
+    for index, candidate in enumerate(candidates):
+        if (candidate['kind'] in ('DECISION', 'CORRECTION') and candidate['scope']['kind'] == 'PROJECT'
+                and _user_statement(source, candidate) and not durable_instruction(source, candidate)
+                and not _QUESTION_RE.search(candidate.get('content') or '')):
+            wanted[index] = candidate['content']
+    if not wanted:
+        return frozenset()
+    proposed = []
+    for (plan_json,) in conn.execute('SELECT plan_json FROM resolutions WHERE created_at>=?', (_ago(PROMOTION_DEDUP_DAYS),)):
+        if PROMOTION_REASON not in plan_json:
+            continue
+        import json
+        for item in json.loads(plan_json).get('items', []):
+            if item.get('reason') == PROMOTION_REASON:
+                proposed.append(item['candidate'].get('content') or '')
+    # One plan per source; counting recent proposals, not reviews, keeps replays idempotent.
+    recent = sum(1 for (plan_json,) in conn.execute(
+        'SELECT plan_json FROM resolutions WHERE created_at>=? AND source_event_id!=?',
+        (_ago(7), source['event_id'])) if PROMOTION_REASON in plan_json)
+    if recent >= PROMOTION_WEEKLY_CAP:
+        return frozenset()
+    projects = (source['project_id'], *workspace_group(conn, source['project_id']))
+    marks = ','.join('?' * len(projects))
+    rows = conn.execute(
+        f"SELECT m.sanitized_text, m.admission, e.session_id FROM memory_items m"
+        f" LEFT JOIN events e ON e.event_id = m.source_event_id"
+        f" WHERE m.status='ACTIVE' AND m.source_event_id IS NOT ? AND"
+        f" (m.scope_kind='global' OR m.project_id IN ({marks}))"
+        f" AND (m.admission='AUTHORITY' OR m.memory_type IN ({','.join('?' * len(_PRIOR_TYPES))}))",
+        (source['event_id'], *projects, *_PRIOR_TYPES)).fetchall()
+    found = []
+    for index, text in wanted.items():
+        if any(similarity(text, p) >= PROMOTION_SIMILARITY for p in proposed):
+            continue
+        if any(r[1] == 'AUTHORITY' and similarity(text, r[0] or '') >= PROMOTION_SIMILARITY for r in rows):
+            continue
+        if any(r[1] != 'AUTHORITY' and r[2] and r[2] != source['session_id']
+               and similarity(text, r[0] or '') >= PROMOTION_SIMILARITY for r in rows):
+            found.append(index)
+    return frozenset(found[:PROMOTION_WEEKLY_CAP - recent])
+
+
+def compile_plan(source, candidates, *, source_system=None, repeated=frozenset()):
     result = []
     for index, candidate in enumerate(candidates):
         kind = candidate['kind']
@@ -111,7 +179,7 @@ def compile_plan(source, candidates, *, source_system=None):
                 # Nobody waits on these; queuing them only grew an unread backlog.
                 action, pending, reason = 'NO_ACTION', False, 'observed_memory_only'
         else:
-            candidate, action, pending, reason = _durable(source, candidate)
+            candidate, action, pending, reason = _durable(source, candidate, index in repeated)
         result.append({'candidate_index': index, 'candidate': candidate, 'action': action,
                        'pending': pending, 'reason': reason})
     # A task-null capability alone cannot select or invent a Task.
