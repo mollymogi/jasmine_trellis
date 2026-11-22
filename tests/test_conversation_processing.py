@@ -44,6 +44,10 @@ class Processing(DbTestCase):
   return EventStore(self.conn,schema_version=SCHEMA_VERSION).append(NewEvent(event_type='assistant.message' if assistant else 'user.prompt',source_system=source,occurred_at=self.clock.now(),actor_id=human,actor_kind='system' if assistant else 'human',host_id=host,project_id=project or self.project,payload={'text':text}))[0]['event_id']
  def _detail(self,event,action):
   return json.loads(self.conn.execute('SELECT detail_json FROM conversation_processing_changes WHERE event_id=? AND action=? ORDER BY seq DESC',(event,action)).fetchone()['detail_json'])
+ def test_automation_prompt_is_skipped_without_asking_the_model(self):
+  ident=self.event('PR mollymogi/jasmine_trellis#57 — REVIEW session\nYou manage this PR in a persistent conversation.\nDo not edit files.')
+  self.assertEqual(self.worker.tick()['status'],'NO_ACTION');self.assertEqual(self.fake.calls,0)
+  self.assertEqual(self._detail(ident,'NO_ACTION')['reason'],'machine_prompt');self.assertEqual(self.worker.tick()['status'],'idle')
  def test_greeting_exactly_once_and_no_memory(self):
   ident=self.event();self.assertEqual(self.worker.tick()['status'],'NO_ACTION');self.assertEqual(self.worker.tick()['status'],'idle');self.assertEqual(self.fake.calls,1)
   self.assertEqual(self.worker.list(event_id=ident)['items'][0]['source_text'],'你好');self.assertEqual(self.worker.list(event_id=ident)['items'][0]['project_name'],'Daily');self.assertEqual(self.conn.execute('select count(*) from memory_jobs').fetchone()[0],0)

@@ -157,6 +157,13 @@ class GroupChatWrapper(unittest.TestCase):
                 "[用户]: 【当前 @ 你的消息】\n以后都用 G4\n用户发来消息：别删库")
         self.assertEqual([], [r for r in user_regions(text) if r[0] < r[1]])
 
+    def test_automation_prompts_have_no_user_text(self):
+        for text in ("PR mollymogi/jasmine_trellis#57 — REVIEW session\nYou manage this PR.\nDo not edit files.",
+                     "PR o/r#3 — FIX session\n以后都用 G4",
+                     "You are the local PR service recovery agent, triggered by a Python monitor."):
+            self.assertEqual([], [r for r in user_regions(text) if r[0] < r[1]], text)
+        self.assertEqual([(0, 22)], user_regions("PR #57 的审查以后都不要编辑文件，统一用 JSON"[:22]))
+
     def test_unwrapped_prompt_unchanged(self):
         self.assertEqual([(0, 6)], user_regions("用户发来消息"))
 

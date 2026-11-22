@@ -14,6 +14,7 @@ from .events import EventStore
 from .interpretations import InterpretationStore
 from .resolver import ResolverStore
 from .interpretation_maintenance import MaintenanceStore
+from .memory.observed import machine_prompt
 
 SOURCES=('codex-native-conversation-v1','claude-native-conversation-v1','grok-native-conversation-v1',
          'opencode-native-conversation-v1','antigravity-native-conversation-v1',
@@ -162,6 +163,12 @@ class ConversationProcessing:
     if item['status'] in ('FAILED','INTERRUPTED'):
      out=maintenance.change(ident,'rerun',{'idempotency_key':'daily-rerun:'+event_id+':'+str(row['attempt']),'host_id':self.host,'reason':'Retry daily conversation processing','expected_revision':head['revision']},actor_id=self.actor)
      item=out.get('interpretation') or self.interpretations.get(out['result']['child_interpretation_id']);ident=item['interpretation_id']
+   elif machine_prompt(((self.events.get(event_id) or {}).get('payload') or {}).get('text') or ''):
+    # An automation's instructions to the agent it drives: nothing the user
+    # said, and long enough to time the interpreter out. Skip the model call.
+    self._save(event_id,owner,status='NO_ACTION',lease_owner=None,lease_until=None)
+    with db.transaction(self.conn):self._change(event_id,'NO_ACTION',self.actor,reason='machine_prompt')
+    return {'event_id':event_id,'status':'NO_ACTION'}
    else:
     out=self.interpretations.process({'event_id':event_id,'idempotency_key':'daily:'+event_id},actor_id=self.actor,on_reserved=lambda ident:self.conn.execute('UPDATE conversation_processing SET interpretation_id=? WHERE event_id=? AND lease_owner=?',(ident,event_id,owner)))
     item=out['interpretation'];ident=item['interpretation_id']

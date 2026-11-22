@@ -111,6 +111,18 @@ _GROUP_AFTER_RE = re.compile(
 _GROUP_SUFFIX_RE = re.compile(r"\s*请直接用中文给出清晰、简洁的回复。\s*\Z")
 
 
+# Prompts an automation writes to an agent it drives: the PR pilot's per-role
+# sessions and its service-recovery agent. Their standing instructions ("do not
+# edit files", "return only JSON") once became 18 project conventions.
+_MACHINE_PROMPT_RE = re.compile(
+    r"\A\s*(?:PR \S+#\d+ — [A-Z][A-Z -]* session\s*\n|You are the local PR service recovery agent\b)")
+
+
+def machine_prompt(text: str) -> bool:
+    """Whether `text` was written by an automation, not typed by the user."""
+    return bool(_MACHINE_PROMPT_RE.search(text or ""))
+
+
 def group_chat_request(text: str) -> tuple[int, int] | None:
     """The user's own message inside a group-chat wrapper, or None if unwrapped.
 
@@ -183,6 +195,8 @@ def user_regions(text: str) -> list[tuple[int, int]]:
                for lo, hi in all_blocks):
             continue
         regions.extend(m.span(1) for m in _ANSWER_RE.finditer(text, *block.span()))
+    if machine_prompt(text):
+        return []
     group = group_chat_request(text)
     if group is not None:
         lo, hi = group
