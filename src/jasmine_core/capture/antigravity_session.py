@@ -60,7 +60,18 @@ def _uuid(value: Any) -> bool:
         return False
 
 
-def normalize(event: str, native: Any) -> dict[str, Any] | None:
+def _default_workspace(gemini_home: Path | None) -> Path:
+    """Stable fallback workspace for workspace-less Antigravity App chats."""
+    if gemini_home is not None:
+        scratch = gemini_home / "antigravity" / "scratch"
+        if scratch.is_dir():
+            return scratch
+        if gemini_home.is_dir():
+            return gemini_home
+    return Path.home()
+
+
+def normalize(event: str, native: Any, gemini_home: Path | None = None) -> dict[str, Any] | None:
     """The hook payload, checked. None for something capture ignores."""
     if event not in EVENTS:
         raise ValueError("unsupported hook event")
@@ -68,8 +79,13 @@ def normalize(event: str, native: Any) -> dict[str, Any] | None:
         raise ValueError("native event must be an object")
     sid = native.get("conversationId")
     paths = native.get("workspacePaths")
-    if not _uuid(sid) or not isinstance(paths, list) or not paths or not isinstance(paths[0], str) \
-            or not Path(paths[0]).is_absolute():
+    if not _uuid(sid):
+        raise ValueError("invalid native identity")
+    if paths is None or paths == []:
+        raw_cwd = str(_default_workspace(gemini_home))
+    elif isinstance(paths, list) and isinstance(paths[0], str) and Path(paths[0]).is_absolute():
+        raw_cwd = paths[0]
+    else:
         raise ValueError("invalid native identity")
     if event == "PreInvocation" and native.get("invocationNum") != 0:
         return None  # later model calls of the same turn
@@ -84,7 +100,7 @@ def normalize(event: str, native: Any) -> dict[str, Any] | None:
     if event == "PreInvocation" and (type(first_step) is not int or first_step < 1):
         raise ValueError("initialNumSteps required")
     return {"hook": event, "event": PUBLISHED[event], "sid": sid, "text": text, "turn": None,
-            "native_cwd": paths[0], "cwd": str(Path(paths[0]).resolve(strict=True)),
+            "native_cwd": raw_cwd, "cwd": str(Path(raw_cwd).resolve(strict=True)),
             "transcript": native.get("transcriptPath"), "first_step": first_step}
 
 
@@ -136,6 +152,26 @@ def _steps(path: Path) -> list[dict[str, Any]] | None:
     return steps
 
 
+def _find_user_step(steps: list[dict[str, Any]], first_step: int, text: str) -> dict[str, Any] | None:
+    """Find the turn's explicit USER_INPUT at or just before `first_step - 1`,
+    tolerating intervening SYSTEM_MESSAGE steps without crossing a prior reply."""
+    want = text.strip()
+    for step in sorted((s for s in steps if s["step_index"] < first_step),
+                       key=lambda s: s["step_index"], reverse=True):
+        stype = step.get("type")
+        if stype == "PLANNER_RESPONSE":
+            return None
+        if stype != "USER_INPUT":
+            continue
+        if step.get("source") != "USER_EXPLICIT":
+            return None
+        words = _REQUEST.search(step.get("content") or "")
+        if words is not None and words.group(1).strip() == want:
+            return step
+        return None
+    return None
+
+
 def session_origin(n: dict[str, Any], gemini_home: Path) -> dict[str, Any] | None:
     """Antigravity's own record of this turn. Fills `turn`, `timestamp` and, for a
     reply, `text` from the transcript."""
@@ -158,12 +194,8 @@ def session_origin(n: dict[str, Any], gemini_home: Path) -> dict[str, Any] | Non
         if not steps:
             return None
         if n["hook"] == "PreInvocation":
-            index = n["first_step"] - 1
-            step = next((s for s in steps if s["step_index"] == index), None)
-            if step is None or step.get("type") != "USER_INPUT" or step.get("source") != "USER_EXPLICIT":
-                return None
-            words = _REQUEST.search(step.get("content") or "")
-            if words is None or words.group(1).strip() != n["text"].strip():
+            step = _find_user_step(steps, n["first_step"], n["text"])
+            if step is None:
                 return None
         else:
             users = [s["step_index"] for s in steps if s.get("type") == "USER_INPUT"]
@@ -196,7 +228,7 @@ def capture_device(event: str, native: Any, device, gemini_home: Path) -> dict[s
 
 
 def _capture_device(event: str, native: Any, device, gemini_home: Path) -> dict[str, Any]:
-    n = normalize(event, native)
+    n = normalize(event, native, gemini_home)
     if n is None:
         return {"status": "ignored", "reason": "not_a_turn_boundary"}
     origin = session_origin(n, gemini_home)
