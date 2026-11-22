@@ -4,6 +4,7 @@ import unittest
 from types import SimpleNamespace
 
 from jasmine_core.memory import supersede
+from jasmine_core.memory import brain
 from jasmine_core.memory.supersede import JudgeUnavailable, Superseder
 
 ACTOR, HOST, PROJECT = "act_x", "hst_x", "prj_x"
@@ -117,6 +118,7 @@ class SupersedeTest(unittest.TestCase):
         import io, urllib.error
         from unittest.mock import patch
         error = urllib.error.HTTPError("u", 401, "no", {}, io.BytesIO(b""))
+        brain._bench.clear()
         with patch("urllib.request.OpenerDirector.open", side_effect=error):
             with self.assertRaises(JudgeUnavailable):
                 supersede.magpie_judge({"sanitized_text": "a", "memory_type": "t", "created_at": "x"}, [])

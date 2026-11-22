@@ -15,13 +15,11 @@ holds the cursor and backs off; it never skips a memory.
 from __future__ import annotations
 
 import json
-import socket
 import time
-import urllib.error
-import urllib.request
 from typing import Any, Callable
 
 from .. import clock, db
+from . import brain
 from .types import OBSERVED_MEMORY_TYPES, RecallRequest
 
 CURSOR_KEY = "memory_supersede_cursor"
@@ -31,9 +29,7 @@ MIN_RELEVANCE = 0.5
 MAX_CANDIDATES = 5
 MAX_RETIRE = 2
 RECALL_TOKENS = 2400
-DEFAULT_GATEWAY = "127.0.0.1:3425"
-MODEL = "opencode-go/deepseek-v4.1-flash"
-TIMEOUT_SECONDS = 30
+TIMEOUT_SECONDS = 45
 RELATIONS = ("REPLACES", "ENRICHES", "CONFIRMS", "CONFLICTS", "UNRELATED")
 
 PROMPT = """你在维护一个用户的长期记忆库。下面是一条【新记忆】和若干条同项目的【旧记忆】。
@@ -55,53 +51,38 @@ class JudgeUnavailable(Exception):
 
 
 def gateway_endpoint() -> str:
-    """Magpie's gateway from ~/.config/magpie/gateway.json (loopback only), else 3425."""
-    addr = DEFAULT_GATEWAY
-    try:
-        from pathlib import Path
-        data = json.loads((Path.home() / ".config/magpie/gateway.json").read_text(encoding="utf-8"))
-        host, _, port = str(data.get("addr") or "").rpartition(":")
-        if host in ("127.0.0.1", "localhost", "[::1]") and port.isdigit() and 0 < int(port) < 65536:
-            addr = f"{host}:{port}"
-    except (OSError, ValueError, AttributeError):
-        pass
-    return f"http://{addr}/v1/chat/completions"
+    return brain.gateway_base() + "/v1/chat/completions"
 
 
-def magpie_judge(new: dict[str, Any], old: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def magpie_judge(new: dict[str, Any], old: list[dict[str, Any]],
+                 log: Callable[[str], None] | None = None) -> list[dict[str, Any]]:
+    """Ask the brain chain (GPT first, next model on refusal or spent quota)."""
     payload = {
         "new": {"text": new["sanitized_text"], "type": new["memory_type"], "at": new["created_at"]},
         "old": [{"id": o["memory_id"], "text": o["sanitized_text"], "type": o["memory_type"],
                  "at": o["created_at"]} for o in old],
     }
-    body = {
-        "model": MODEL, "temperature": 0, "response_format": {"type": "json_object"},
-        "messages": [{"role": "system", "content": PROMPT},
-                     {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
-    }
-    request = urllib.request.Request(gateway_endpoint(), data=json.dumps(body).encode("utf-8"),
-                                     headers={"Content-Type": "application/json"}, method="POST")
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    def valid(data: dict[str, Any]) -> None:
+        if not isinstance(data.get("judgements"), list):
+            raise ValueError("no judgements list")
+
     try:
-        with opener.open(request, timeout=TIMEOUT_SECONDS) as response:
-            answer = json.loads(response.read().decode("utf-8", errors="replace"))
-    except urllib.error.HTTPError as exc:
-        # Any refusal (rate limit, auth, model gone) backs off; none may spin the idle loop.
-        raise JudgeUnavailable(f"http_{exc.code}") from exc
-    except (urllib.error.URLError, TimeoutError, socket.timeout, ConnectionError, OSError) as exc:
-        raise JudgeUnavailable(type(exc).__name__) from exc
-    content = answer["choices"][0]["message"]["content"]
-    start, end = content.find("{"), content.rfind("}")
-    return list(json.loads(content[start:end + 1]).get("judgements") or [])
+        answer = brain.ask_json(PROMPT, json.dumps(payload, ensure_ascii=False),
+                                timeout=TIMEOUT_SECONDS, validate=valid, log=log)
+    except brain.BrainUnavailable as exc:
+        raise JudgeUnavailable(str(exc)) from exc
+    return [dict(j, model=answer.model) for j in answer.data["judgements"] if isinstance(j, dict)]
 
 
 class Superseder:
     def __init__(self, conn, store, adapter, lifecycle, *, actor_id: str, host_id: str,
-                 judge: Callable[[dict, list], list] = magpie_judge,
+                 judge: Callable[[dict, list], list] | None = None,
                  log: Callable[[str], None] | None = None,
                  now: Callable[[], float] = time.time) -> None:
         self._conn, self._store, self._adapter, self._lifecycle = conn, store, adapter, lifecycle
-        self._actor, self._host, self._judge, self._log, self._now = actor_id, host_id, judge, log, now
+        self._actor, self._host, self._log, self._now = actor_id, host_id, log, now
+        self._judge = judge or (lambda new, old: magpie_judge(new, old, log=log))
 
     # -- cursor ------------------------------------------------------------
 
@@ -193,7 +174,8 @@ class Superseder:
                         or judgement.get("relation") != "REPLACES"
                         or judgement.get("fully_covered") is not True):
                     continue
-                reason = f"superseded_by:{item['memory_id']}: {str(judgement.get('reason') or '')[:200]}"
+                reason = (f"superseded_by:{item['memory_id']} [{judgement.get('model') or '?'}]: "
+                          f"{str(judgement.get('reason') or '')[:200]}")
                 try:
                     self._lifecycle.obsolete(target["memory_id"], {
                         "expected_revision": target["revision"], "reason": reason},
