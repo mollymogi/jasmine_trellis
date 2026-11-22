@@ -251,16 +251,22 @@ class ObservedAdmission(_DailyHarness):
                            "detail": "TASK_CREATE_OR_ATTACH"}])
 
     def test_a_lasting_statement_filed_under_task_scope_is_kept(self):
-        text = "后续流程改为：助手提供提示词，用户自己生成图片。镜头C 改用 test02 的参考。以后还要改吗？"
+        text = ("后续流程改为：助手提供提示词，用户自己生成图片。镜头C 改用 test02 的参考。以后还要改吗？"
+                "人物替换不要再用关键帧，直接用参考图。对于该工作流测试任务，不要向用户提问，而是主动去调查。"
+                "不要改这一行。按刚才的流程再跑一遍。")
         self.plan = lambda s: [
             _candidate(s, "DECISION", "后续流程改为：助手提供提示词，用户自己生成图片。", scope="TASK"),
             _candidate(s, "CORRECTION", "镜头C 改用 test02 的参考。", scope="TASK"),
             _candidate(s, "DECISION", "以后还要改吗？", scope="TASK"),
+            _candidate(s, "CORRECTION", "人物替换不要再用关键帧，直接用参考图。", scope="TASK"),
+            _candidate(s, "CORRECTION", "对于该工作流测试任务，不要向用户提问，而是主动去调查。", scope="TASK"),
+            _candidate(s, "CORRECTION", "不要改这一行。", scope="TASK"),
+            _candidate(s, "DECISION", "按刚才的流程再跑一遍。", scope="TASK"),
         ]
         self.process(text)
         report = self.backfill()
-        self.assertEqual(report["admitted_by_type"], {"OBSERVED_DECISION": 1})
-        self.assertEqual(report["refused_by_reason"], {"ephemeral_task_statement": 2})
+        self.assertEqual(report["admitted_by_type"], {"OBSERVED_DECISION": 1, "OBSERVED_CORRECTION": 1})
+        self.assertEqual(report["refused_by_reason"], {"ephemeral_task_statement": 5})
 
     def test_admission_is_idempotent_per_interpretation(self):
         self.plan = lambda s: [_candidate(s, "RULE", s["text"])]

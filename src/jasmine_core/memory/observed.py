@@ -203,12 +203,14 @@ FRAGMENT_MAX_CHARS = 14
 #: about later work, outlives the task it was said in.
 _LASTING = re.compile(
     r"后续|以后|今后|往后|之后都|从现在起|一律|始终|默认|统一|每次|凡是|总是|永远|记住|"
-    r"流程|不要|别再|禁止|严禁|\balways\b|\bnever\b|from now on|going forward", re.I)
+    r"流程(?:改为|统一|一律)|不要再|别再|禁止|严禁|\balways\b|\bnever\b|from now on|going forward", re.I)
 _ASKING = re.compile(r"[？?]|吗|是不是|为什么|怎么")
+# A statement pinned to the job at hand ("对于该工作流测试任务，不要…") ends with it.
+_THIS_JOB = re.compile(r"对于该|针对该|该任务|该工作流|本次|这次|当前任务|这个任务|这一轮|本轮")
 
 
 def outlives_task(kind: str, body: str) -> bool:
-    if _ASKING.search(body):
+    if _ASKING.search(body) or _THIS_JOB.search(body):
         return False
     return kind == "RULE" or bool(_LASTING.search(body))
 
