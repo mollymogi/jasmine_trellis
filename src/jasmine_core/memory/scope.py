@@ -41,6 +41,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from typing import Any
+from urllib.parse import unquote
 
 from .. import errors, ids
 from .types import GLOBAL_BANK_ID, GLOBAL_BANK_RE, PROJECT_BANK_PREFIX, PROJECT_BANK_RE, BankRef
@@ -304,6 +305,95 @@ def workspace_group(conn: sqlite3.Connection, project_id: str) -> tuple[str, ...
         canonical = row[0]
     members = [canonical, *merged_project_ids(conn, canonical)]
     return tuple(other for other in dict.fromkeys(members) if other != project_id)
+
+
+def workspace_roots(conn: sqlite3.Connection) -> dict[str, str]:
+    """Every known workspace root -> the project that holds it.
+
+    Read from confirmed aliases and from the root a capture source recorded as a
+    project's description. A confirmed alias wins over a capture project for the
+    same root, so split capture projects all resolve to the canonical one.
+    """
+    roots: dict[str, str] = {}
+    for row in conn.execute(
+        "SELECT project_id, description FROM projects"
+        " WHERE status = 'active' AND description LIKE '/%' ORDER BY created_at"
+    ):
+        roots.setdefault(row[1].rstrip("/") or "/", row[0])
+    for row in conn.execute(
+        "SELECT root, project_id FROM workspace_aliases WHERE confirmed = 1 ORDER BY created_at"
+    ):
+        roots[row[0].rstrip("/") or "/"] = row[1]
+    return roots
+
+
+def _inside(root: str, path: str) -> bool:
+    """`path` is strictly below `root`, not under a hidden working folder."""
+    prefix = root.rstrip("/") + "/"
+    if path == root or not path.startswith(prefix):
+        return False
+    return not any(part.startswith(".") for part in path[len(prefix):].split("/"))
+
+
+#: Roots a statement is never routed to: scratch and cache folders a tool ran in.
+_SCRATCH_ROOT_RE = re.compile(r"(?:^|/)\.|^/(?:private/)?tmp(?:/|$)|^/var/folders/")
+
+
+def established_projects(conn: sqlite3.Connection) -> frozenset[str]:
+    """Projects that hold memory or that an operator confirmed as a workspace."""
+    return frozenset(row[0] for row in conn.execute(
+        "SELECT project_id FROM memory_items WHERE status = 'ACTIVE' AND project_id IS NOT NULL"
+        " UNION SELECT project_id FROM workspace_aliases WHERE confirmed = 1"
+    ))
+
+
+def container_projects(roots: dict[str, str],
+                       established: frozenset[str] | None = None) -> frozenset[str]:
+    """Projects whose root holds an established project's root (the home folder, AgentApp).
+
+    A session opened there is not about that folder; it is about whichever
+    project it works on, so its statements must not settle in the folder's bank.
+    A stray session once opened in a subfolder (a shot's image folder inside
+    videoMake) does not make its parent a container; only a project that holds
+    memory or a confirmed alias does.
+    """
+    return frozenset(
+        project for root, project in roots.items()
+        if any(_inside(root, other) and roots[other] != project
+               and (established is None or roots[other] in established) for other in roots)
+    )
+
+
+def route_container_text(conn: sqlite3.Connection, project_id: str,
+                         text: str) -> tuple[bool, str | None]:
+    """(is_container, project the text is about) for a statement made in `project_id`.
+
+    Not a container -> (False, None): keep the session's own project. A container
+    -> the leaf project whose root the text names most often (longest root on a
+    tie), or None when it names none.
+    """
+    roots = workspace_roots(conn)
+    established = established_projects(conn)
+    containers = container_projects(roots, established)
+    own = {root for root, project in roots.items() if project == project_id}
+    own |= {row[0].rstrip("/") for row in conn.execute(
+        "SELECT description FROM projects WHERE project_id = ? AND description LIKE '/%'",
+        (project_id,))}
+    if project_id not in containers and not any(
+        _inside(root, other) and roots[other] != project_id and roots[other] in established
+        for root in own for other in roots
+    ):
+        return False, None
+    plain = unquote(text.replace("file://", ""))
+    best: tuple[int, int, str] | None = None
+    for root, project in roots.items():
+        if (project in containers or project == project_id or root in own
+                or root == "/" or _SCRATCH_ROOT_RE.search(root)):
+            continue
+        hits = len(re.findall(re.escape(root) + r"(?![\w.-])", plain))
+        if hits and (best is None or (hits, len(root)) > best[:2]):
+            best = (hits, len(root), project)
+    return True, (best[2] if best else None)
 
 
 def merged_project_ids(conn: sqlite3.Connection, project_id: str) -> tuple[str, ...]:

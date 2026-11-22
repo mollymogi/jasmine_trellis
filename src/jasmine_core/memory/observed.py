@@ -43,6 +43,7 @@ from .. import clock, db
 from ..canonical import canonical_json, sha256_hex
 from . import filtering
 from .eligibility import Candidate, document_id_for
+from .scope import route_container_text
 from .types import OBSERVED_TYPE_FOR_KIND, Provenance
 
 #: Processing outcomes whose Interpretation is final. `REJECTED` is excluded on
@@ -59,6 +60,7 @@ REFUSAL_REASONS: tuple[str, ...] = (
     "source_missing",
     "source_not_native_user",
     "no_project",
+    "container_workspace",
     "kind_not_admitted",
     "not_explicit",
     "embedded_source",
@@ -315,6 +317,15 @@ class ObservedCandidateSource:
             exam.refuse("no_project")
             return exam
         text = json.loads(event["payload_json"]).get("text") or ""
+        # A session opened in a folder that holds other projects (the home
+        # folder, AgentApp) belongs to whichever project it names; naming none,
+        # it is not kept at all rather than mixed into the folder's bank.
+        container, routed = route_container_text(conn, event["project_id"], text)
+        if container:
+            if routed is None:
+                exam.refuse("container_workspace")
+                return exam
+            event = {**dict(event), "project_id": routed, "task_id": None}
         seen: set[str] = set()
         batch = set() if batch is None else batch
         for index, candidate in enumerate(json.loads(result["candidates_json"])):

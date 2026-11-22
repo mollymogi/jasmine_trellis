@@ -221,6 +221,56 @@ class ObservedAdmission(_DailyHarness):
         self.assertEqual(report["refused_by_reason"], {"fragment": 1})
         self.assertEqual(self.observed_items(), [])
 
+    def _workspace(self, name, root, alias=False):
+        project = daily.ObjectStore(self.conn, schema_version=SCHEMA_VERSION).create(
+            daily.NewObject.project({"name": name, "host_id": self.host, "description": root}),
+            actor_id=self.human)["object"]["project_id"]
+        if alias:
+            self.conn.execute(
+                "INSERT INTO workspace_aliases(host_id,root,project_id,remote_key,confirmed,created_at)"
+                " VALUES(?,?,?,?,1,?)", (self.host, root, project, None, "2026-11-01T00:00:00.000000Z"))
+        return project
+
+    def _process_in(self, project, text):
+        self.event(text, project=project)
+        self.worker.tick()
+
+    def test_a_container_folder_routes_statements_to_the_project_they_name(self):
+        home = self._workspace("home", "/home/me")
+        app = self._workspace("app", "/home/me/Code/app", alias=True)
+        self._workspace("shot", "/home/me/Code/app/.cap-work")
+        quote = "以后部署前先跑全量测试"
+        self.plan = lambda s: [_candidate(s, "DECISION", quote)]
+        self._process_in(home, f"看一下 file:///home/me/Code/app/src/main.py ，{quote}")
+        self._process_in(home, f"另一个会话：{quote}，没有提到任何项目路径")
+        report = self.backfill()
+        self.assertEqual(report["admitted_by_type"], {"OBSERVED_DECISION": 1})
+        self.assertEqual(report["refused_by_reason"], {"container_workspace": 1})
+        self.assertEqual([item["project_id"] for item in self.observed_items()], [app])
+        self.assertIsNone(self.observed_items()[0]["task_id"])
+
+    def test_a_leaf_project_keeps_its_own_statements(self):
+        self._workspace("home", "/home/me")
+        app = self._workspace("app", "/home/me/Code/app", alias=True)
+        other = self._workspace("other", "/home/me/Code/other", alias=True)
+        quote = "以后部署前先跑全量测试"
+        self.plan = lambda s: [_candidate(s, "DECISION", quote)]
+        self._process_in(app, f"参考 /home/me/Code/other 的做法，{quote}")
+        report = self.backfill()
+        self.assertEqual(report["admitted_by_type"], {"OBSERVED_DECISION": 1})
+        self.assertEqual([item["project_id"] for item in self.observed_items()], [app])
+        self.assertNotEqual(app, other)
+
+    def test_a_stray_subfolder_session_does_not_make_its_parent_a_container(self):
+        video = self._workspace("video", "/home/me/video", alias=True)
+        self._workspace("stray", "/home/me/video/shot01/images")
+        quote = "以后镜头统一用 24 帧"
+        self.plan = lambda s: [_candidate(s, "DECISION", quote)]
+        self._process_in(video, quote)
+        report = self.backfill()
+        self.assertEqual(report["admitted_by_type"], {"OBSERVED_DECISION": 1})
+        self.assertEqual([item["project_id"] for item in self.observed_items()], [video])
+
     def test_a_self_contained_decision_is_kept(self):
         self.plan = lambda s: [_candidate(s, "DECISION", "默认生图模型使用 gpt image2")]
         self.process("以后默认生图模型使用 gpt image2")
