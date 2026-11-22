@@ -210,6 +210,16 @@ class MemoryWorker:
             if self._log is not None:
                 self._log(f"memory-worker {self.lease_owner}: job {report.claimed} raised "
                           f"{type(exc).__name__}: {filtering.safe_summary(str(exc))}")
+            # Leaving the job RUNNING meant its lease expired and the same job was
+            # claimed again, past `max_attempts`, without end: one live job was
+            # re-sent to the engine 3,500 times. The failure is recorded so the
+            # attempt budget applies; an unhandled defect is not retryable.
+            try:
+                self._jobs.fail(claimed, error_code=report.error_code,
+                                safe_error_summary=filtering.safe_summary(str(exc)),
+                                keep_engine_state=True)
+            except Exception:  # noqa: BLE001 - the lease expiry is the fallback
+                pass
         return report
 
     def _process_retain(self, claimed: jobs_module.ClaimedJob, report: WorkerReport) -> None:

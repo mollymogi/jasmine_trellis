@@ -536,7 +536,8 @@ class JobStore:
                           owner=job.job["lease_owner"] or "", at=stamp, receipt=receipt)
 
     def fail(self, job: ClaimedJob, *, error_code: str, safe_error_summary: str,
-             at: str | None = None, rng: random.Random | None = None) -> str:
+             at: str | None = None, rng: random.Random | None = None,
+             keep_engine_state: bool = False) -> str:
         """Record a failure and decide PENDING-with-backoff or FAILED.
 
         Returns the resulting status so the caller can log one line without a
@@ -580,6 +581,10 @@ class JobStore:
             # a retain failure over `DELETE_PENDING` would be a regression, and
             # refusing the write would surface as an unhandled error on every
             # tick. The job is simply permanently FAILED.
+            target_state = None
+        if keep_engine_state:
+            # The job failed for a reason that says nothing about what the engine
+            # holds (an unhandled defect in the worker), so only the job row moves.
             target_state = None
         with db.translate_lock_errors(), db.transaction(self._conn):
             # Checked before `set_engine_state`, not after: a stale worker whose

@@ -448,6 +448,36 @@ class WorkerLoop(MemoryTestCase):
         self.assertEqual(self.transport.retain_calls[0]["document_id"],
                          self.transport.retain_calls[1]["document_id"])
 
+    def test_a_resent_retain_for_an_already_retained_item_completes(self) -> None:
+        # Live: the item was already RETAINED while its job was still RUNNING;
+        # every re-lease re-sent it and then refused the RETAINED -> RETAINED
+        # write, so the job was re-claimed 3,500 times.
+        self.scan()
+        claimed = self.job_store().claim_due(owner="worker-a")
+        with db.transaction(self.conn):
+            self.conn.execute("UPDATE memory_items SET engine_state='RETAINED' WHERE memory_id=?",
+                              (claimed.job["memory_id"],))
+            self.conn.execute(
+                "UPDATE memory_jobs SET lease_expires_at='1970-01-01T00:00:00.000000Z'")
+        report = self.worker(lease_owner="worker-b").tick(scan=False)
+        self.assertEqual(report.outcome, "retained")
+        self.assertEqual(self.job_store().jobs()[0]["status"], "DONE")
+
+    def test_an_unhandled_defect_ends_the_job_instead_of_re_leasing_it(self) -> None:
+        self.scan()
+        worker = self.worker(lease_owner="worker-a")
+
+        def broken(*_args, **_kwargs):
+            raise RuntimeError("defect")
+
+        worker._process_retain = broken
+        report = worker.tick(scan=False)
+        self.assertEqual(report.error_code, "unhandled_RuntimeError")
+        self.assertEqual(report.outcome, "error")
+        job = self.job_store().jobs()[0]
+        self.assertEqual(job["status"], "FAILED")
+        self.assertIsNone(self.job_store().claim_due(owner="worker-b"))
+
     def test_truth_keeps_working_while_the_engine_is_down(self) -> None:
         # design §14 / VC-22: Memory pauses; Rules, State and Evidence do not.
         from jasmine_core.authority import AuthorityStore

@@ -268,7 +268,12 @@ class MemoryStore:
 
     def note_retained(self, memory_id: str, receipt: dict[str, Any]) -> None:
         self.set_engine_state(memory_id, engine_state="RETAINED",
-                              expected=("PENDING_RETAIN", "RETAIN_FAILED", "DELETE_PENDING"),
+                              # `RETAINED` too: a retain re-sent for an item that is
+                              # already retained (a reclaimed lease, a requeue) is the
+                              # idempotent path, and refusing it left the job RUNNING
+                              # to be re-leased and re-sent every two minutes forever.
+                              expected=("PENDING_RETAIN", "RETAIN_FAILED", "DELETE_PENDING",
+                                        "RETAINED"),
                               receipt=receipt, at=clock.now_rfc3339())
 
     def mark_recalled(self, memory_ids: Iterable[str], at: str) -> None:
