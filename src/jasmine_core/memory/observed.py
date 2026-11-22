@@ -196,6 +196,23 @@ _REFERENT = re.compile(r"这个|这版|这样|这种|这套|这一|那个|那样
 FRAGMENT_MAX_CHARS = 14
 
 
+#: The interpreter files nearly every statement made during work under TASK
+#: scope, lasting ones included ("后续流程改为：助手给提示词，用户自己生图",
+#: "不要自行添加提示词"): from 11-20 to 11-22 that refused every candidate and
+#: nothing new reached the long-term bank. A RULE, or a statement that speaks
+#: about later work, outlives the task it was said in.
+_LASTING = re.compile(
+    r"后续|以后|今后|往后|之后都|从现在起|一律|始终|默认|统一|每次|凡是|总是|永远|记住|"
+    r"流程|不要|别再|禁止|严禁|\balways\b|\bnever\b|from now on|going forward", re.I)
+_ASKING = re.compile(r"[？?]|吗|是不是|为什么|怎么")
+
+
+def outlives_task(kind: str, body: str) -> bool:
+    if _ASKING.search(body):
+        return False
+    return kind == "RULE" or bool(_LASTING.search(body))
+
+
 def is_fragment(body: str) -> bool:
     core = re.sub(r"[\s。，、！？!?,.；;：:\"'“”‘’（）()]", "", body)
     core = re.sub(r"^(?:用户|我)(?:认可|同意|确认|决定|选择)?", "", core)
@@ -326,7 +343,8 @@ class ObservedCandidateSource:
         # hook already carries the last few days of conversation, so admitting it
         # would only park a stale instruction in the long-term bank.
         scope = candidate.get("scope") or {}
-        if scope.get("kind") == "TASK" and not (scope.get("task_id") or event["task_id"]):
+        if (scope.get("kind") == "TASK" and not (scope.get("task_id") or event["task_id"])
+                and not outlives_task(str(candidate.get("kind")), body)):
             exam.refuse("ephemeral_task_statement", index)
             return None
         if is_fragment(body):

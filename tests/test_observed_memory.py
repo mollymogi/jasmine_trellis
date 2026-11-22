@@ -250,6 +250,18 @@ class ObservedAdmission(_DailyHarness):
                           {"reason": "kind_not_admitted", "candidate_index": 2,
                            "detail": "TASK_CREATE_OR_ATTACH"}])
 
+    def test_a_lasting_statement_filed_under_task_scope_is_kept(self):
+        text = "后续流程改为：助手提供提示词，用户自己生成图片。镜头C 改用 test02 的参考。以后还要改吗？"
+        self.plan = lambda s: [
+            _candidate(s, "DECISION", "后续流程改为：助手提供提示词，用户自己生成图片。", scope="TASK"),
+            _candidate(s, "CORRECTION", "镜头C 改用 test02 的参考。", scope="TASK"),
+            _candidate(s, "DECISION", "以后还要改吗？", scope="TASK"),
+        ]
+        self.process(text)
+        report = self.backfill()
+        self.assertEqual(report["admitted_by_type"], {"OBSERVED_DECISION": 1})
+        self.assertEqual(report["refused_by_reason"], {"ephemeral_task_statement": 2})
+
     def test_admission_is_idempotent_per_interpretation(self):
         self.plan = lambda s: [_candidate(s, "RULE", s["text"])]
         self.process("项目文档今后统一使用中文。")
