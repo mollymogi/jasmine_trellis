@@ -585,6 +585,7 @@ class HindsightTransport:
             row_tags = row.get("tags")
             scores = row.get("scores")
             final = scores.get("final") if isinstance(scores, dict) else None
+            reranker = scores.get("reranker") if isinstance(scores, dict) else None
             results.append(EngineResult(
                 engine_result_id=engine_id,
                 text=text,
@@ -595,6 +596,8 @@ class HindsightTransport:
                 if isinstance(metadata, dict) else {},
                 tags=tuple(t for t in row_tags if isinstance(t, str)) if isinstance(row_tags, list) else (),
                 score=final if isinstance(final, (int, float)) else None,
+                relevance=float(reranker) if isinstance(reranker, (int, float))
+                and not isinstance(reranker, bool) else None,
             ))
         return results
 

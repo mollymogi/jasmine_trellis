@@ -17,7 +17,8 @@ from ..hosthook.binding import TAILNET_CORE_ORIGIN, Binding, _read_json, load_de
 from ..hosthook.dialects._common import additional_context
 from ..hosthook.install import InstallError, _write
 
-BUDGET_SECONDS = 1.5
+#: Client side of `memory.hint.ENGINE_SECONDS` (2.5 s) plus the Core round trip.
+BUDGET_SECONDS = 3.0
 
 
 def request(binding: Binding, *, project_id: str, native_session_id: str, prompt: str,

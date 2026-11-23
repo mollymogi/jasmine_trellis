@@ -255,6 +255,20 @@ def cmd_memory(args: argparse.Namespace) -> int:
             )
             print(json.dumps(report, ensure_ascii=False, indent=2))
             return 0
+        if command == "project-cards":
+            from .memory.project_card import cards_dir_for, refresh_all
+
+            folder = cards_dir_for(conn)
+            if folder is None:
+                raise SystemExit("project cards need a database file")
+            print(json.dumps(refresh_all(conn, folder, project=args.project, force=args.force, log=_log),
+                             ensure_ascii=False, indent=2))
+            return 0
+        if command == "export-fs":
+            from .memory.fs_view import export
+
+            print(json.dumps(export(conn, args.out), ensure_ascii=False, indent=2))
+            return 0
         if command == "reset-cursor":
             # Replay the whole Event stream. Safe by construction: the unique
             # index makes every already-known source a no-op.
@@ -299,6 +313,33 @@ def _job_kinds() -> list[str]:
     return list(JOB_KINDS)
 
 
+def _superseder(conn, store, transport):
+    """Write-time supersession: opt-in (runtime.json memory_supersede) and needs the daily actor."""
+    actor = os.environ.get("JASMINE_CORE_RESOLVER_ACTOR_ID")
+    host = os.environ.get("JASMINE_CORE_RESOLVER_HOST_ID")
+    if not (actor and host and transport is not None) or os.environ.get("JASMINE_MEMORY_SUPERSEDE") != "1":
+        return None
+    from .memory.adapter import MemoryAdapter
+    from .memory.lifecycle import MemoryLifecycle
+    from .memory.store import MemoryStore
+    from .memory.supersede import Superseder
+    from . import SCHEMA_VERSION
+
+    return Superseder(conn, store, MemoryAdapter(conn, store, transport),
+                      MemoryLifecycle(conn, MemoryStore(conn, schema_version=SCHEMA_VERSION)),
+                      actor_id=actor, host_id=host, log=_log)
+
+
+def _card_refresher(conn):
+    """Nightly project cards: opt-in (runtime.json memory_project_cards)."""
+    if os.environ.get("JASMINE_MEMORY_PROJECT_CARDS") != "1":
+        return None
+    from .memory.project_card import CardRefresher, cards_dir_for
+
+    folder = cards_dir_for(conn)
+    return None if folder is None else CardRefresher(conn, folder, log=_log)
+
+
 def cmd_memory_worker(args: argparse.Namespace) -> int:
     """Run the Memory worker: the only process that writes to the engine."""
     from .memory.store import MemoryStore
@@ -307,9 +348,13 @@ def cmd_memory_worker(args: argparse.Namespace) -> int:
     _install_stop_handler()
     conn = _memory_conn(args)
     try:
-        worker = MemoryWorker(conn, MemoryStore(conn, schema_version=0), _memory_transport(),
+        store = MemoryStore(conn, schema_version=0)
+        transport = _memory_transport()
+        worker = MemoryWorker(conn, store, transport,
                               lease_seconds=args.lease_seconds,
-                              max_attempts=args.max_attempts)
+                              max_attempts=args.max_attempts,
+                              log=_log, superseder=_superseder(conn, store, transport),
+                              card_refresher=_card_refresher(conn))
         if args.max_ticks is not None:
             for report in worker.run(max_ticks=args.max_ticks, log=_log):
                 print(json.dumps(report.as_dict(), ensure_ascii=False))
@@ -545,6 +590,15 @@ def build_parser() -> argparse.ArgumentParser:
     backfill_parser.add_argument("--apply", action="store_true",
                                  help="write the items; without it nothing is changed")
     backfill_parser.add_argument("--max-attempts", type=int, default=5)
+
+    fs_parser = memory_sub.add_parser(
+        "export-fs", help="write the read-only L0/L1/L2 Markdown view of Memory")
+    fs_parser.add_argument("--out", required=True, help="output directory")
+
+    card_parser = memory_sub.add_parser(
+        "project-cards", help="rebuild the model-written project cards whose sources changed")
+    card_parser.add_argument("--project", help="only the workspace group holding this project")
+    card_parser.add_argument("--force", action="store_true", help="rebuild even when unchanged")
 
     cursor_parser = memory_sub.add_parser(
         "reset-cursor", help="move the recovery scan cursor (a full replay is safe)"

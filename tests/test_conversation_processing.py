@@ -23,12 +23,12 @@ class Processing(DbTestCase):
   super().setUp();reg=Registry(self.conn);self.host=ids.new_id('hst');self.human=ids.new_id('act');self.system=ids.new_id('act');reg.upsert_host(self.host)
   reg.upsert_actor(self.human,kind='human',home_host_id=self.host);reg.upsert_actor(self.system,kind='system',home_host_id=self.host)
   self.project=ObjectStore(self.conn,schema_version=SCHEMA_VERSION).create(NewObject.project({'name':'Daily','host_id':self.host}),actor_id=self.human)['object']['project_id']
-  self.kind='NO_STRUCTURE';self.fail=False
+  self.kind='NO_STRUCTURE';self.scope='PROJECT';self.fail=False
   def extract(source):
    self.assertFalse(self.conn.in_transaction)
    if self.fail:raise ProviderFailure('provider_timeout')
    result=output(source);c=result['candidates'][0];c.update(kind=self.kind,content=source['text'])
-   if self.kind in ('RULE','DECISION'):c['scope'].update(kind='PROJECT',task_id=None)
+   if self.kind in ('RULE','DECISION'):c['scope'].update(kind=self.scope,task_id=None,**({'project_id':None} if self.scope=='GLOBAL' else {}))
    return json.dumps(result)
   self.fake=Simulation(extract);self.worker=ConversationProcessing(self.conn,schema_version=SCHEMA_VERSION,processor_actor_id=self.system,host_id=self.host,provider=self.fake)
   self.worker.activate()
@@ -44,11 +44,15 @@ class Processing(DbTestCase):
   return EventStore(self.conn,schema_version=SCHEMA_VERSION).append(NewEvent(event_type='assistant.message' if assistant else 'user.prompt',source_system=source,occurred_at=self.clock.now(),actor_id=human,actor_kind='system' if assistant else 'human',host_id=host,project_id=project or self.project,payload={'text':text}))[0]['event_id']
  def _detail(self,event,action):
   return json.loads(self.conn.execute('SELECT detail_json FROM conversation_processing_changes WHERE event_id=? AND action=? ORDER BY seq DESC',(event,action)).fetchone()['detail_json'])
+ def test_automation_prompt_is_skipped_without_asking_the_model(self):
+  ident=self.event('PR mollymogi/jasmine_trellis#57 — REVIEW session\nYou manage this PR in a persistent conversation.\nDo not edit files.')
+  self.assertEqual(self.worker.tick()['status'],'NO_ACTION');self.assertEqual(self.fake.calls,0)
+  self.assertEqual(self._detail(ident,'NO_ACTION')['reason'],'machine_prompt');self.assertEqual(self.worker.tick()['status'],'idle')
  def test_greeting_exactly_once_and_no_memory(self):
   ident=self.event();self.assertEqual(self.worker.tick()['status'],'NO_ACTION');self.assertEqual(self.worker.tick()['status'],'idle');self.assertEqual(self.fake.calls,1)
   self.assertEqual(self.worker.list(event_id=ident)['items'][0]['source_text'],'你好');self.assertEqual(self.worker.list(event_id=ident)['items'][0]['project_name'],'Daily');self.assertEqual(self.conn.execute('select count(*) from memory_jobs').fetchone()[0],0)
  def test_project_rule_waits_for_review_then_memory_queue_links_back(self):
-  self.kind='RULE';event=self.event('项目文档统一使用中文');self.assertEqual(self.worker.tick()['status'],'PENDING_REVIEW')
+  self.kind='DECISION';self.scope='GLOBAL';event=self.event('所有项目文档统一使用中文');self.assertEqual(self.worker.tick()['status'],'PENDING_REVIEW')
   row=self.worker.list(event_id=event)['items'][0];self.assertEqual(row['memory_items'],[]);self.assertIsNotNone(row['review_id']);self.assertEqual(self.conn.execute('select count(*) from rules').fetchone()[0],0)
   review=ReviewStore(self.worker.resolver).get(row['review_id']);p=review['preview']
   result=ReviewStore(self.worker.resolver).change(row['review_id'],'approve',{'idempotency_key':'operator-approve','host_id':self.host,'expected_revision':1,'reason':'Confirm real project convention','expected_revisions':p['expected_revisions'],'expected_context_digest':p['expected_context_digest'],'actions':[{'candidate_index':0,'action':'CREATE_RULE','payload':{}}]},actor_id=self.human,scopes={'authority:propose','authority:manage'})
@@ -58,10 +62,10 @@ class Processing(DbTestCase):
  def test_assistant_message_never_becomes_system_config_or_auto_applies(self):
   self.kind='RULE';event=self.event('测试全部通过，可以上线',assistant=True);self.assertEqual(self.worker.tick()['status'],'idle')
   self.assertEqual(self.worker.enqueue({'event_id':event},actor_id=self.human)['queued'],1)
-  self.assertEqual(self.worker.tick()['status'],'PENDING_REVIEW');item=self.worker.list(event_id=event)['items'][0]
-  self.assertEqual(self.worker.interpretations.get(item['interpretation_id'])['source_type'],'AGENT_PROPOSED');self.assertEqual(self.conn.execute('select count(*) from evidence').fetchone()[0],0)
+  self.assertEqual(self.worker.tick()['status'],'NO_ACTION');item=self.worker.list(event_id=event)['items'][0]
+  self.assertEqual(self.worker.interpretations.get(item['interpretation_id'])['source_type'],'AGENT_PROPOSED');self.assertEqual(self.conn.execute('select count(*) from rules').fetchone()[0],0);self.assertEqual(self.conn.execute('select count(*) from evidence').fetchone()[0],0)
  def _recover_committed_resolution(self,crash):
-  self.kind='RULE';event=self.event('项目文档统一使用中文');save=self.worker._save
+  self.kind='DECISION';self.scope='GLOBAL';event=self.event('所有项目文档统一使用中文');save=self.worker._save
   def interrupted_save(event_id,owner,**values):
    if 'resolution_id' in values:
     if crash:raise KeyboardInterrupt('worker stopped after resolve commit')
@@ -120,7 +124,7 @@ class Processing(DbTestCase):
   past=self.event('旧消息');self.worker.activate();self.assertEqual(self.worker.tick()['status'],'idle');self.assertEqual(self.worker.list()['count'],0)
   self.assertEqual(self.worker.enqueue({'event_id':past},actor_id=self.human)['queued'],1);self.assertEqual(self.worker.tick()['status'],'NO_ACTION')
  def test_replayed_source_links_the_actual_canonical_memory(self):
-  self.kind='RULE';event=self.event('本项目文档统一使用中文')
+  self.kind='DECISION';self.scope='GLOBAL';event=self.event('所有项目文档统一使用中文')
   first=self.worker.interpretations.process({'event_id':event,'idempotency_key':'earlier-extraction'},actor_id=self.system)['interpretation']['interpretation_id']
   p=self.worker.resolver.preview(first);resolved=self.worker.resolver.resolve(first,{'idempotency_key':'earlier-resolution','host_id':self.host,'policy_version':p['policy_version'],'expected_revisions':p['expected_revisions'],'expected_context_digest':p['expected_context_digest']},actor_id=self.system)['resolution']
   review=ReviewStore(self.worker.resolver).get(resolved['result']['review_id']);p=review['preview']

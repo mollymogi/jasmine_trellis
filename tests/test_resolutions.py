@@ -65,7 +65,7 @@ class Resolutions(DbTestCase):
         rule=self.resolver.authority.get(applied['result']['actions'][0]['target_id']);self.assertEqual(rule['scope']['kind'],'global');self.assertEqual(rule['severity'],'HARD')
         canonical=self.resolver.applied_result(pending['resolution_id']);self.assertEqual(len(canonical['actions']),1)
     def test_reject_old_pending_not_approvable(self):
-        source=self.interpretations._source(self.event);result=output(source);result['candidates'][0]['certainty']='TENTATIVE'
+        source=self.interpretations._source(self.event);result=output(source);result['candidates'][0].update(kind='RULE',scope={'kind':'GLOBAL','project_id':None,'task_id':None,'path':None,'tool':None})
         child=self.resolver.maintenance.change(self.ident,'correct',{'idempotency_key':'correct','host_id':self.host,'reason':'tentative','expected_revision':1,'result':result},actor_id=self.human)['result']['child_interpretation_id']
         pending=self.resolver.resolve(child,self.request('pending',child),actor_id=self.human)['resolution']['result'];preview=self.resolver.preview(child)
         self.resolver.maintenance.change(child,'reject',{'idempotency_key':'reject','host_id':self.host,'reason':'not valid','expected_revision':2},actor_id=self.human)
@@ -135,7 +135,7 @@ class Resolutions(DbTestCase):
         self.assertEqual(self.conn.execute('SELECT count(*) FROM rules').fetchone()[0],1)
         self.assertEqual(self.resolver.get(pending[0]['resolution_id'])['result']['disposition'],'PENDING_REVIEW')
     def test_mixed_pending_no_partial_truth_and_correction_pending(self):
-        source=self.interpretations._source(self.event);result=output(source);task=copy.deepcopy(result['candidates'][0]);task.update(kind='TASK_CREATE_OR_ATTACH',content='new task');result['candidates'].append(task);result['candidates'][0]['kind']='CORRECTION'
+        source=self.interpretations._source(self.event);result=output(source);task=copy.deepcopy(result['candidates'][0]);task.update(kind='TASK_CREATE_OR_ATTACH',content='new task');result['candidates'].append(task);result['candidates'][0].update(kind='RULE',scope={'kind':'GLOBAL','project_id':None,'task_id':None,'path':None,'tool':None})
         child=self.resolver.maintenance.change(self.ident,'correct',{'idempotency_key':'mix','host_id':self.host,'reason':'mix','expected_revision':1,'result':result},actor_id=self.human)['result']['child_interpretation_id']
         pending=self.resolver.resolve(child,self.request('mix',child),actor_id=self.human)['resolution']['result']
         self.assertEqual(pending['disposition'],'PENDING_REVIEW');self.assertEqual(self.conn.execute('SELECT count(*) FROM tasks').fetchone()[0],0)

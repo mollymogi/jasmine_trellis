@@ -236,6 +236,9 @@ class EngineResult:
     metadata: dict[str, str] = field(default_factory=dict)
     tags: tuple[str, ...] = field(default_factory=tuple)
     score: float | None = None
+    #: The engine's cross-encoder relevance for this row, in [0, 1] and free of
+    #: recency boosts; None when the engine reranker is a passthrough.
+    relevance: float | None = None
 
 
 @dataclass(frozen=True)
@@ -282,6 +285,7 @@ class RecallItem:
     admission: str = "AUTHORITY"
     trust: str = "VERIFIED"
     task_id: str | None = None
+    relevance: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {

@@ -25,8 +25,9 @@ class _DailyHarness(daily.Processing):
         self.outcomes = []
 
         def extract(source):
-            if self.outcomes and self.outcomes.pop(0) == "rate_limited":
-                raise ProviderFailure("provider_rate_limited")
+            outcome = self.outcomes.pop(0) if self.outcomes else None
+            if outcome in ("rate_limited", "unreachable"):
+                raise ProviderFailure("provider_" + outcome)
             result = output(source)
             result["candidates"][0].update(kind="NO_STRUCTURE", content=source["text"])
             return json.dumps(result)
@@ -90,6 +91,27 @@ class RateLimitCooldown(_DailyHarness):
         self.assertEqual(seen,
                          [min(COOLDOWN_MIN * 2 ** i, COOLDOWN_MAX)
                           for i in range(RATE_LIMIT_ATTEMPTS)])
+
+    def test_an_unreachable_provider_waits_out_the_outage_without_failing(self):
+        event = self.event("你好")
+        for _ in range(RATE_LIMIT_ATTEMPTS + 2):
+            self.outcomes = ["unreachable"]
+            result = self.worker.tick()
+            self.assertEqual(result["status"], "RATE_LIMITED")
+            self.expire_cooldown()
+        self.assertEqual((self.row(event)["status"], self.row(event)["error_code"]),
+                         ("PENDING", "provider_unreachable"))
+        self.assertEqual(self.worker.tick()["status"], "NO_ACTION")
+
+    def test_an_outage_does_not_use_up_the_rate_limit_retries(self):
+        event = self.event("你好")
+        for _ in range(RATE_LIMIT_ATTEMPTS + 2):
+            self.outcomes = ["unreachable"]
+            self.worker.tick()
+            self.expire_cooldown()
+        self.outcomes = ["rate_limited"]
+        self.assertEqual(self.worker.tick()["status"], "RATE_LIMITED")
+        self.assertEqual(self.row(event)["status"], "PENDING")
 
     def test_exhausted_message_still_cools_down_the_next_queued_message(self):
         first = self.event("first")

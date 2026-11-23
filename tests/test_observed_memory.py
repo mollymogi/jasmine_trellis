@@ -13,6 +13,7 @@ from memory_support import FakeTransport
 from jasmine_core.interpreter_provider import ProviderFailure
 
 from jasmine_core import SCHEMA_VERSION, clock, db
+from jasmine_core.canonical import sha256_hex
 from jasmine_core.memory import observed
 from jasmine_core.memory.adapter import MemoryAdapter
 from jasmine_core.memory.eligibility import SourceRegistry
@@ -107,6 +108,67 @@ class UserRegions(unittest.TestCase):
         self.assertFalse(span_is_user_text(text, quote, quote + len("所有项目都用 pnpm")))
 
 
+class GroupChatWrapper(unittest.TestCase):
+    """Jasmine Bot group chats: only the current message is the user's words."""
+
+    WRAPPED = ("你正在「bot优化」多 Agent 群聊中（工作目录：/Users/me）。\n"
+               "【你的专属人设与工作准则】\n专门负责bot的优化\n\n"
+               "【上次你发言后的群内新消息】\n[用户]:\n旧消息\n\n"
+               "【当前 @ 你的消息】\n以后截图统一放桌面\n\n请直接用中文给出清晰、简洁的回复。")
+
+    def test_only_the_current_message_is_user_text(self):
+        text = self.WRAPPED
+        regions = user_regions(text)
+        self.assertEqual(["以后截图统一放桌面"], [text[lo:hi].strip() for lo, hi in regions])
+        persona = text.index("专门负责bot的优化")
+        self.assertFalse(span_is_user_text(text, persona, persona + 9))
+
+    def test_legacy_marker_is_recognised(self):
+        text = "【你的专属人设与工作准则】\nreview检查\n\n用户发来消息：\n你是否认可\n\n请直接用中文给出清晰、简洁的回复。"
+        self.assertEqual(["你是否认可"], [text[lo:hi].strip() for lo, hi in user_regions(text)])
+
+    def test_wrapper_without_a_request_has_no_user_text(self):
+        self.assertEqual([], [r for r in user_regions("【你的专属人设与工作准则】\n专门负责bot的优化") if r[0] < r[1]])
+
+    def test_every_chatroom_opening_is_a_wrapper(self):
+        cases = {
+            # bot without persona, reused session: starts at missed messages
+            "【上次你发言后的群内新消息】\n[@别的Bot]:\n以后都用 G4\n\n【当前 @ 你的消息】\n看一下": "看一下",
+            "【群主整理的阶段共识纪要】\n以后都用 G4\n\n【当前 @ 你的消息】\n看一下": "看一下",
+            "你正在与用户进行 1 对 1 专属对话「x」（工作目录：/a）。\n你的身份是 b。\n\n用户发来消息：\n看一下\n\n请直接用中文给出清晰、简洁的回复。": "看一下",
+            "【上次你发言后的群内新消息】\n[@别的Bot]:\n记住要用中文\n\n【群内新问题】\n看一下\n\n请给出你的分析回答，供群主汇总。": "看一下",
+            "你正在「x」多 Agent 群聊中担任【a · 群成员】（工作目录：/a）。\n\n群内提出的问题 / 议题：\n看一下\n\n请独立进行调查或方案构思": "看一下",
+            "【群内新问题】\n看一下\n\n群成员本轮回答如下：\n### 回答 1\n以后都用 G4\n\n请作为群主直接综合": "看一下",
+        }
+        for text, expected in cases.items():
+            self.assertEqual([expected], [text[lo:hi].strip() for lo, hi in user_regions(text) if lo < hi], text)
+            other = text.find("以后都用 G4")
+            if other >= 0:
+                self.assertFalse(span_is_user_text(text, other, other + 7), text)
+
+    def test_room_minutes_job_has_no_user_text(self):
+        text = ("这是一次后台群聊记忆整理任务：请把早期对话压缩成一份结构化《群聊共识纪要》。\n"
+                "【已有群聊共识纪要】\n无\n\n【新增待归档对话（共 3 条）】\n[用户]: 以后都用 G4")
+        self.assertEqual([], [r for r in user_regions(text) if r[0] < r[1]])
+
+    def test_first_minutes_job_quoting_a_request_marker_has_no_user_text(self):
+        text = ("你正在「r」多 Agent 群聊中担任【群主 x】（工作目录：/p）。\n"
+                "这是一次后台群聊记忆整理任务：请把早期对话压缩成一份结构化《群聊共识纪要》。\n"
+                "[jasmine-internal:memory-summary]\n\n【待归档群聊对话（共 2 条）】\n"
+                "[用户]: 【当前 @ 你的消息】\n以后都用 G4\n用户发来消息：别删库")
+        self.assertEqual([], [r for r in user_regions(text) if r[0] < r[1]])
+
+    def test_automation_prompts_have_no_user_text(self):
+        for text in ("PR mollymogi/jasmine_trellis#57 — REVIEW session\nYou manage this PR.\nDo not edit files.",
+                     "PR o/r#3 — FIX session\n以后都用 G4",
+                     "You are the local PR service recovery agent, triggered by a Python monitor."):
+            self.assertEqual([], [r for r in user_regions(text) if r[0] < r[1]], text)
+        self.assertEqual([(0, 22)], user_regions("PR #57 的审查以后都不要编辑文件，统一用 JSON"[:22]))
+
+    def test_unwrapped_prompt_unchanged(self):
+        self.assertEqual([(0, 6)], user_regions("用户发来消息"))
+
+
 class _DailyHarness(daily.Processing):
     """The daily-queue harness, without re-running its own tests here."""
 
@@ -153,6 +215,111 @@ class ObservedAdmission(_DailyHarness):
         return [dict(row) for row in self.conn.execute(
             "SELECT * FROM memory_items WHERE admission='OBSERVED' ORDER BY candidate_index")]
 
+    def test_a_fragment_that_only_points_back_is_not_kept(self):
+        self.plan = lambda s: [_candidate(s, "DECISION", "按方案2执行")]
+        self.process("好，按方案2执行")
+        report = self.backfill()
+        self.assertEqual(report["refused_by_reason"], {"fragment": 1})
+        self.assertEqual(self.observed_items(), [])
+
+    def _workspace(self, name, root, alias=False):
+        project = daily.ObjectStore(self.conn, schema_version=SCHEMA_VERSION).create(
+            daily.NewObject.project({"name": name, "host_id": self.host, "description": root}),
+            actor_id=self.human)["object"]["project_id"]
+        if alias:
+            self.conn.execute(
+                "INSERT INTO workspace_aliases(host_id,root,project_id,remote_key,confirmed,created_at)"
+                " VALUES(?,?,?,?,1,?)", (self.host, root, project, None, "2026-11-01T00:00:00.000000Z"))
+        return project
+
+    def _process_in(self, project, text):
+        self.event(text, project=project)
+        self.worker.tick()
+
+    def test_a_container_folder_routes_statements_to_the_project_they_name(self):
+        home = self._workspace("home", "/home/me")
+        app = self._workspace("app", "/home/me/Code/app", alias=True)
+        self._workspace("shot", "/home/me/Code/app/.cap-work")
+        quote = "以后部署前先跑全量测试"
+        self.plan = lambda s: [_candidate(s, "DECISION", quote)]
+        self._process_in(home, f"看一下 file:///home/me/Code/app/src/main.py ，{quote}")
+        self._process_in(home, f"另一个会话：{quote}，没有提到任何项目路径")
+        report = self.backfill()
+        self.assertEqual(report["admitted_by_type"], {"OBSERVED_DECISION": 1})
+        self.assertEqual(report["refused_by_reason"], {"container_workspace": 1})
+        self.assertEqual([item["project_id"] for item in self.observed_items()], [app])
+        self.assertIsNone(self.observed_items()[0]["task_id"])
+
+    def test_a_leaf_project_keeps_its_own_statements(self):
+        self._workspace("home", "/home/me")
+        app = self._workspace("app", "/home/me/Code/app", alias=True)
+        other = self._workspace("other", "/home/me/Code/other", alias=True)
+        quote = "以后部署前先跑全量测试"
+        self.plan = lambda s: [_candidate(s, "DECISION", quote)]
+        self._process_in(app, f"参考 /home/me/Code/other 的做法，{quote}")
+        report = self.backfill()
+        self.assertEqual(report["admitted_by_type"], {"OBSERVED_DECISION": 1})
+        self.assertEqual([item["project_id"] for item in self.observed_items()], [app])
+        self.assertNotEqual(app, other)
+
+    def test_a_container_statement_naming_a_project_folder_goes_there(self):
+        home = self._workspace("home", "/home/me")
+        video = self._workspace("videoMake", "/home/me/videoMake", alias=True)
+        self._workspace("app", "/home/me/Code/app", alias=True)
+        quote = "以后镜头统一用 24 帧"
+        self.plan = lambda s: [_candidate(s, "DECISION", quote)]
+        self._process_in(home, f"videoMake 那边{quote}")
+        report = self.backfill()
+        self.assertEqual(report["admitted_by_type"], {"OBSERVED_DECISION": 1})
+        self.assertEqual([item["project_id"] for item in self.observed_items()], [video])
+
+    def test_the_users_own_words_outrank_the_rooms_quoted_paths(self):
+        home = self._workspace("home", "/home/me")
+        self._workspace("app", "/home/me/Code/app", alias=True)
+        other = self._workspace("other", "/home/me/Code/other", alias=True)
+        quote = "以后部署前先跑全量测试"
+        self.plan = lambda s: [_candidate(s, "DECISION", quote)]
+        wrapped = ("你正在「r」多 Agent 群聊中（工作目录：/home/me）。\n"
+                   "【上次你发言后的群内新消息】\n[@a]: 改了 /home/me/Code/app/x.py 和 /home/me/Code/app/y.py\n\n"
+                   f"【当前 @ 你的消息】\n/home/me/Code/other 里{quote}")
+        self._process_in(home, wrapped)
+        self.backfill()
+        self.assertEqual([item["project_id"] for item in self.observed_items()], [other])
+
+    def test_a_sentence_already_approved_as_a_rule_is_not_observed_again(self):
+        quote = "暂时不要关机。"
+        self.plan = lambda s: [_candidate(s, "RULE", quote)]
+        event = self.event(quote)
+        with db.transaction(self.conn):
+            self.conn.execute(
+                "INSERT INTO memory_items (memory_id, bank_id, scope_kind, project_id, memory_type,"
+                " document_id, source_event_id, admission, trust, evidence_ids_json,"
+                " content_sha256, sanitized_text, status, created_at, updated_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                ("mem_01M5" + "B" * 22, f"jasmine-project-{self.project}", "project", self.project,
+                 "STABLE_PROJECT_FACT", "doc-rule", event, "AUTHORITY", "VERIFIED", "[]",
+                 sha256_hex(quote), quote, "ACTIVE", clock.now_rfc3339(), clock.now_rfc3339()))
+        self.worker.tick()
+        report = self.backfill()
+        self.assertEqual(report["refused_by_reason"], {"duplicate_of_existing": 1})
+        self.assertEqual(self.observed_items(), [])
+
+    def test_a_stray_subfolder_session_does_not_make_its_parent_a_container(self):
+        video = self._workspace("video", "/home/me/video", alias=True)
+        self._workspace("stray", "/home/me/video/shot01/images")
+        quote = "以后镜头统一用 24 帧"
+        self.plan = lambda s: [_candidate(s, "DECISION", quote)]
+        self._process_in(video, quote)
+        report = self.backfill()
+        self.assertEqual(report["admitted_by_type"], {"OBSERVED_DECISION": 1})
+        self.assertEqual([item["project_id"] for item in self.observed_items()], [video])
+
+    def test_a_self_contained_decision_is_kept(self):
+        self.plan = lambda s: [_candidate(s, "DECISION", "默认生图模型使用 gpt image2")]
+        self.process("以后默认生图模型使用 gpt image2")
+        report = self.backfill()
+        self.assertEqual(report["admitted_by_type"], {"OBSERVED_DECISION": 1})
+
     def test_one_message_yields_one_item_per_admitted_statement(self):
         text = "测试在云端运行，以 Linux 为主。镜头C 改用 test02 的参考。新建任务做发布"
         self.plan = lambda s: [
@@ -163,25 +330,43 @@ class ObservedAdmission(_DailyHarness):
         event = self.process(text)
         report = self.backfill()
         self.assertEqual(report["interpretations"], 1)
-        self.assertEqual(report["admitted_by_type"],
-                         {"OBSERVED_CONVENTION": 1, "OBSERVED_CORRECTION": 1})
-        self.assertEqual(report["refused_by_reason"], {"kind_not_admitted": 1})
+        self.assertEqual(report["admitted_by_type"], {"OBSERVED_CONVENTION": 1})
+        self.assertEqual(report["refused_by_reason"],
+                         {"kind_not_admitted": 1, "ephemeral_task_statement": 1})
         items = self.observed_items()
-        self.assertEqual([i["memory_type"] for i in items],
-                         ["OBSERVED_CONVENTION", "OBSERVED_CORRECTION"])
-        self.assertEqual([i["candidate_index"] for i in items], [0, 1])
+        self.assertEqual([i["memory_type"] for i in items], ["OBSERVED_CONVENTION"])
+        self.assertEqual([i["candidate_index"] for i in items], [0])
         self.assertEqual({i["source_event_id"] for i in items}, {event})
         self.assertEqual({i["trust"] for i in items}, {"USER_STATED"})
-        self.assertEqual(len({i["document_id"] for i in items}), 2)
+        self.assertEqual(len({i["document_id"] for i in items}), 1)
         self.assertEqual({i["bank_id"] for i in items}, {f"jasmine-project-{self.project}"})
         jobs = self.conn.execute(
             "SELECT memory_id, kind, status FROM memory_jobs ORDER BY memory_id").fetchall()
-        self.assertEqual([(j["kind"], j["status"]) for j in jobs], [("retain", "PENDING")] * 2)
+        self.assertEqual([(j["kind"], j["status"]) for j in jobs], [("retain", "PENDING")])
         ledger = self.conn.execute("SELECT * FROM memory_observed_admissions").fetchone()
-        self.assertEqual(ledger["admitted_count"], 2)
+        self.assertEqual(ledger["admitted_count"], 1)
         self.assertEqual(json.loads(ledger["refusals_json"]),
-                         [{"reason": "kind_not_admitted", "candidate_index": 2,
+                         [{"reason": "ephemeral_task_statement", "candidate_index": 1},
+                          {"reason": "kind_not_admitted", "candidate_index": 2,
                            "detail": "TASK_CREATE_OR_ATTACH"}])
+
+    def test_a_lasting_statement_filed_under_task_scope_is_kept(self):
+        text = ("后续流程改为：助手提供提示词，用户自己生成图片。镜头C 改用 test02 的参考。以后还要改吗？"
+                "人物替换不要再用关键帧，直接用参考图。对于该工作流测试任务，不要向用户提问，而是主动去调查。"
+                "不要改这一行。按刚才的流程再跑一遍。")
+        self.plan = lambda s: [
+            _candidate(s, "DECISION", "后续流程改为：助手提供提示词，用户自己生成图片。", scope="TASK"),
+            _candidate(s, "CORRECTION", "镜头C 改用 test02 的参考。", scope="TASK"),
+            _candidate(s, "DECISION", "以后还要改吗？", scope="TASK"),
+            _candidate(s, "CORRECTION", "人物替换不要再用关键帧，直接用参考图。", scope="TASK"),
+            _candidate(s, "CORRECTION", "对于该工作流测试任务，不要向用户提问，而是主动去调查。", scope="TASK"),
+            _candidate(s, "CORRECTION", "不要改这一行。", scope="TASK"),
+            _candidate(s, "DECISION", "按刚才的流程再跑一遍。", scope="TASK"),
+        ]
+        self.process(text)
+        report = self.backfill()
+        self.assertEqual(report["admitted_by_type"], {"OBSERVED_DECISION": 1, "OBSERVED_CORRECTION": 1})
+        self.assertEqual(report["refused_by_reason"], {"ephemeral_task_statement": 5})
 
     def test_admission_is_idempotent_per_interpretation(self):
         self.plan = lambda s: [_candidate(s, "RULE", s["text"])]
@@ -243,7 +428,7 @@ class ObservedAdmission(_DailyHarness):
         self.assertEqual(report["refused_by_reason"], {"not_explicit": 1})
 
     def test_a_global_statement_lands_in_the_project_bank(self):
-        self.plan = lambda s: [_candidate(s, "RULE", s["text"], scope="GLOBAL")]
+        self.plan = lambda s: [_candidate(s, "DECISION", s["text"], scope="GLOBAL")]
         self.process("所有项目都用 pnpm")
         self.backfill()
         (item,) = self.observed_items()
@@ -287,8 +472,8 @@ class ObservedAdmission(_DailyHarness):
         self.assertEqual(self.backfill()["interpretations"], 0)
 
     def test_a_reviewed_statement_is_withheld_as_promoted_once_authority_backs_it(self):
-        self.plan = lambda s: [_candidate(s, "RULE", s["text"])]
-        event = self.process("项目文档统一使用中文")
+        self.plan = lambda s: [_candidate(s, "DECISION", s["text"], scope="GLOBAL")]
+        event = self.process("所有项目的文档统一使用中文")
         self.backfill()
         (observed_item,) = self.observed_items()
         adapter = MemoryAdapter(self.conn, self.store, None)
@@ -304,6 +489,36 @@ class ObservedAdmission(_DailyHarness):
         }, actor_id=self.human, scopes={"authority:propose", "authority:manage"})
         self.jobs.enqueue_from_sources(SourceRegistry())
         self.assertTrue(adapter._promoted(self.store.item(observed_item["memory_id"])))
+
+    def test_a_durable_project_instruction_becomes_a_rule_without_review(self):
+        self.plan = lambda s: [_candidate(s, "RULE", s["text"])]
+        event = self.process("以后项目文档都使用中文")
+        self.backfill()
+        (observed_item,) = self.observed_items()
+        row = self.worker.list(event_id=event)["items"][0]
+        self.assertIsNone(row.get("review_id"))
+        rule = self.conn.execute("SELECT * FROM rules").fetchone()
+        self.assertEqual((rule["status"], rule["scope_kind"], rule["project_id"]),
+                         ("ACTIVE", "project", self.project))
+        self.jobs.enqueue_from_sources(SourceRegistry())
+        adapter = MemoryAdapter(self.conn, self.store, None)
+        self.assertTrue(adapter._promoted(self.store.item(observed_item["memory_id"])))
+
+    def test_a_one_off_project_statement_is_observed_only(self):
+        self.plan = lambda s: [_candidate(s, "RULE", s["text"])]
+        event = self.process("这次文档用中文写")
+        self.backfill()
+        self.assertEqual(len(self.observed_items()), 1)
+        self.assertIsNone(self.worker.list(event_id=event)["items"][0].get("review_id"))
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM rules").fetchone()[0], 0)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM reviews").fetchone()[0], 0)
+
+    def test_a_durable_marker_outside_the_users_words_does_not_apply(self):
+        wrapped = ("【你的专属人设与工作准则】\n以后都负责产品\n\n【当前 @ 你的消息】\n看一下")
+        self.plan = lambda s: [_candidate(s, "RULE", "以后都负责产品")]
+        self.process(wrapped)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM rules").fetchone()[0], 0)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM reviews").fetchone()[0], 0)
 
     def test_recall_ranks_authority_before_observed_and_the_callers_task_first(self):
         self.plan = lambda s: [_candidate(s, "RULE", s["text"])]

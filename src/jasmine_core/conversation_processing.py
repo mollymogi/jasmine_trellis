@@ -14,6 +14,7 @@ from .events import EventStore
 from .interpretations import InterpretationStore
 from .resolver import ResolverStore
 from .interpretation_maintenance import MaintenanceStore
+from .memory.observed import machine_prompt
 
 SOURCES=('codex-native-conversation-v1','claude-native-conversation-v1','grok-native-conversation-v1',
          'opencode-native-conversation-v1','antigravity-native-conversation-v1',
@@ -118,11 +119,13 @@ class ConversationProcessing:
   until=db.get_meta(self.conn,COOLDOWN_UNTIL,None)
   return until if until and until>clock.now_rfc3339() else None
  def _rate_limits(self,event_id):
-  return self.conn.execute("SELECT COUNT(*) FROM conversation_processing_changes WHERE event_id=? AND action='RATE_LIMITED' AND seq>COALESCE((SELECT MAX(seq) FROM conversation_processing_changes WHERE event_id=? AND action IN ('ENQUEUED','RETRY_REQUESTED')),0)",(event_id,event_id)).fetchone()[0]
+  return self.conn.execute("SELECT COUNT(*) FROM conversation_processing_changes WHERE event_id=? AND action='RATE_LIMITED' AND COALESCE(json_extract(detail_json,'$.error_code'),'') NOT LIKE 'provider_unreachable%' AND seq>COALESCE((SELECT MAX(seq) FROM conversation_processing_changes WHERE event_id=? AND action IN ('ENQUEUED','RETRY_REQUESTED')),0)",(event_id,event_id)).fetchone()[0]
  def _rate_limited(self,event_id,owner,code):
   """Start the queue-wide cooldown even when this message exhausts its budget."""
   with db.transaction(self.conn):
-   exhausted=self._rate_limits(event_id)>=RATE_LIMIT_ATTEMPTS-1
+   # An unreachable provider (Magpie down) is an outage of the whole queue, not
+   # this message's fault: it waits however long the outage lasts.
+   exhausted=not code.startswith('provider_unreachable') and self._rate_limits(event_id)>=RATE_LIMIT_ATTEMPTS-1
    status='FAILED' if exhausted else 'PENDING'
    seconds=min(max(int(db.get_meta(self.conn,COOLDOWN_SECONDS,0) or 0)*2,COOLDOWN_MIN),COOLDOWN_MAX);until=_future(seconds)
    changed=self.conn.execute("UPDATE conversation_processing SET status=?,error_code=?,lease_owner=NULL,lease_until=NULL,updated_at=? WHERE event_id=? AND status='PROCESSING' AND lease_owner=?",(status,code,clock.now_rfc3339(),event_id,owner)).rowcount
@@ -160,6 +163,12 @@ class ConversationProcessing:
     if item['status'] in ('FAILED','INTERRUPTED'):
      out=maintenance.change(ident,'rerun',{'idempotency_key':'daily-rerun:'+event_id+':'+str(row['attempt']),'host_id':self.host,'reason':'Retry daily conversation processing','expected_revision':head['revision']},actor_id=self.actor)
      item=out.get('interpretation') or self.interpretations.get(out['result']['child_interpretation_id']);ident=item['interpretation_id']
+   elif machine_prompt(((self.events.get(event_id) or {}).get('payload') or {}).get('text') or ''):
+    # An automation's instructions to the agent it drives: nothing the user
+    # said, and long enough to time the interpreter out. Skip the model call.
+    self._save(event_id,owner,status='NO_ACTION',lease_owner=None,lease_until=None)
+    with db.transaction(self.conn):self._change(event_id,'NO_ACTION',self.actor,reason='machine_prompt')
+    return {'event_id':event_id,'status':'NO_ACTION'}
    else:
     out=self.interpretations.process({'event_id':event_id,'idempotency_key':'daily:'+event_id},actor_id=self.actor,on_reserved=lambda ident:self.conn.execute('UPDATE conversation_processing SET interpretation_id=? WHERE event_id=? AND lease_owner=?',(ident,event_id,owner)))
     item=out['interpretation'];ident=item['interpretation_id']
@@ -188,7 +197,7 @@ class ConversationProcessing:
    return {'event_id':event_id,'status':status}
   except Exception as exc:
    code=getattr(exc,'details',{}).get('provider_code') or getattr(exc,'code',type(exc).__name__)
-   if str(code).startswith('provider_rate_limited'):
+   if str(code).startswith(('provider_rate_limited','provider_unreachable')):
     return self._rate_limited(event_id,owner,str(code)[:160])
    self._save(event_id,owner,status='FAILED',error_code=str(code)[:160],lease_owner=None,lease_until=None)
    with db.transaction(self.conn):self._change(event_id,'FAILED',self.actor,error_code=str(code)[:160])

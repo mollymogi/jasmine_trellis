@@ -11,8 +11,25 @@ def prepare(base,confirmed=False):
  if not confirmed:raise ValueError('explicit local CLI opt-in required')
  os.umask(0o077);base=base.resolve(strict=True);runtime=json.loads(_private_bytes(base/'config/runtime.json','runtime'))
  profile_path=Path(runtime['interpreter_control_config']);registry=json.loads(_private_bytes(profile_path,'model control'))
- codex_catalog=json.loads(Path(registry['catalog']).read_text());exe=Path(runtime['conversation_processing']['executable']).resolve()
- providers=[{'id':'codex','label':'Codex','detected':True,'enabled':True,'executable':str(exe),'executable_sha256':hashlib.sha256(exe.read_bytes()).hexdigest(),
+ codex_catalog=json.loads(Path(registry['catalog']).read_text())
+ raw_exe=Path(runtime['conversation_processing']['executable'])
+ if not raw_exe.exists() and Path('/opt/homebrew/bin/codex').exists():
+  raw_exe=Path('/opt/homebrew/bin/codex').resolve()
+  runtime['conversation_processing']['executable']=str(raw_exe)
+  _write(base/'config/runtime.json',runtime);(base/'config/runtime.json').chmod(0o600)
+ exe=raw_exe.resolve()
+ magpie_models=[
+  {'id':'antigravity/gemini-4-argon','label':'Gemini 4 Argon (主力推荐 → 超时自动降级)'},
+  {'id':'antigravity/gemini-4-carbon','label':'Gemini 4 Carbon (深度理解 → 超时自动降级)'},
+  {'id':'codex/gpt-6.1-sol','label':'GPT-6.1-Sol · Codex (超时自动降级)'},
+  {'id':'antigravity/gemini-3.8-flash','label':'Gemini 3.8 Flash (高速备选)'},
+  {'id':'opencode-go/deepseek-v4.1-flash','label':'DeepSeek V4.1 Flash (极速兜底)'},
+  {'id':'antigravity/claude-sonnet-5-5','label':'Claude Sonnet 5.5 · Antigravity'},
+  {'id':'grok/grok-4.7-build-fast','label':'Grok 4.7 Fast · Grok'},
+ ]
+ providers=[
+  {'id':'magpie','label':'Magpie Gateway (多级自动容灾)','detected':True,'enabled':True,'executable':'/usr/bin/true','executable_sha256':'magpie-http','version':'magpie-gateway 127.0.0.1:3425','models':magpie_models},
+  {'id':'codex','label':'Codex','detected':True,'enabled':True,'executable':str(exe),'executable_sha256':hashlib.sha256(exe.read_bytes()).hexdigest(),
              'version':subprocess.check_output([str(exe),'--version'],text=True).strip(),'models':[{'id':m['slug'],'label':m.get('display_name',m['slug'])} for m in codex_catalog['models']]}]
  for client,label,locations in [('claude','Claude',['/opt/homebrew/bin/claude',str(Path.home()/'.local/bin/claude')]),('grok','Grok',[str(Path.home()/'.grok/bin/grok')]),('opencode','OpenCode',[str(Path.home()/'.opencode/bin/opencode')])]:
   candidate=next((Path(p).resolve() for p in locations if Path(p).is_file()),None)

@@ -33,6 +33,7 @@ Complexity of phrasing is not a trigger.
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Iterable
 
 from .. import clock, db, errors
@@ -41,6 +42,7 @@ from .store import MemoryStore
 from .transport import MemoryTransport, TransportError
 from .types import (
     BankOutcome,
+    BankRef,
     EngineResult,
     FilteredItem,
     RecallItem,
@@ -172,21 +174,44 @@ class MemoryAdapter:
         requested_tags = provenance.type_tags(types)
         # Project bank first: when both banks return the same statement, the
         # project-specific provenance is the one that survives de-duplication.
-        allocations = tokens.split_budget(budget, [2, 1])
+        # Every project bank gets an equal part of two thirds and global keeps one
+        # third, however many split capture projects were folded in.
+        project_banks = sum(1 for bank in banks if bank.scope_kind == "project")
+        allocations = tokens.split_budget(
+            budget, [2 if bank.scope_kind == "project" else project_banks for bank in banks])
 
         collected: list[tuple[EngineResult, str, int]] = []
         outcomes: list[BankOutcome] = []
         failed_banks: list[str] = []
+        engine_types = _engine_fact_types(types)
+
+        def ask(bank: BankRef, allocation: int) -> list[EngineResult]:
+            return self._transport.recall(
+                bank=bank, query=request.query, max_tokens=allocation,
+                fact_types=engine_types, tags=requested_tags,
+            )
+
+        # The banks are independent HTTP calls; asked one after another, a merged
+        # workspace (three or four banks) waited for the sum of their reranks and
+        # the prompt hook's budget ran out. Asked together, it waits for the
+        # slowest. Results are still read back in bank order.
+        live = [(bank, allocation) for bank, allocation in zip(banks, allocations) if allocation > 0]
+        answers: dict[str, Any] = {}
+        if live:
+            with ThreadPoolExecutor(max_workers=len(live)) as pool:
+                futures = {bank.bank_id: pool.submit(ask, bank, allocation) for bank, allocation in live}
+                for bank_id, future in futures.items():
+                    try:
+                        answers[bank_id] = future.result()
+                    except TransportError as exc:
+                        answers[bank_id] = exc
         for bank, allocation in zip(banks, allocations):
             if allocation <= 0:
                 outcomes.append(BankOutcome(bank.bank_id, bank.scope_kind, "skipped"))
                 continue
-            try:
-                results = self._transport.recall(
-                    bank=bank, query=request.query, max_tokens=allocation,
-                    fact_types=_engine_fact_types(types), tags=requested_tags,
-                )
-            except TransportError as exc:
+            results = answers[bank.bank_id]
+            if isinstance(results, TransportError):
+                exc = results
                 failed_banks.append(bank.bank_id)
                 outcomes.append(BankOutcome(bank.bank_id, bank.scope_kind, "failed",
                                             error_code=exc.code,
@@ -244,7 +269,9 @@ class MemoryAdapter:
             verified.append((result, check))
 
         # ADR 0034 §5: pinned, then Authority before observed, then the caller's
-        # own task, then engine relevance (the stable sort keeps engine order).
+        # own task, then engine relevance. Banks are recalled one after another,
+        # so the cross-encoder score is what orders rows across banks; rows
+        # without one keep engine order (the sort is stable).
         # Ranked before de-duplication so a duplicate keeps the stronger copy,
         # and before the budget so an observed note cannot crowd out a verified
         # one.
@@ -252,6 +279,7 @@ class MemoryAdapter:
             not pair[1].item["pinned"],
             pair[1].item["admission"] != "AUTHORITY",
             task_id is not None and pair[1].item["task_id"] != task_id,
+            -pair[0].relevance if pair[0].relevance is not None else 0.0,
         ))
 
         merged: list[tuple[EngineResult, provenance.Verification]] = []
@@ -290,7 +318,7 @@ class MemoryAdapter:
                                         bank_id=result.bank_id, document_id=result.document_id,
                                         engine_fact_type=result.engine_fact_type,
                                         metadata=result.metadata, tags=result.tags,
-                                        score=result.score), check))
+                                        score=result.score, relevance=result.relevance), check))
 
         items: list[RecallItem] = []
         remaining = budget
@@ -324,6 +352,7 @@ class MemoryAdapter:
                 admission=check.item["admission"],
                 trust=check.item["trust"],
                 task_id=check.item["task_id"],
+                relevance=result.relevance,
             ))
             remaining -= cost
         return items, filtered
@@ -341,7 +370,7 @@ class MemoryAdapter:
             return False
         # A reviewed Rule's origin Event is the `review.approved` command, whose
         # payload names the exact source message, Interpretation and candidate.
-        return self._conn.execute(
+        if self._conn.execute(
             "SELECT 1 FROM memory_items AS m JOIN events AS e ON e.event_id = m.origin_event_id"
             " WHERE m.admission='AUTHORITY' AND m.status='ACTIVE'"
             " AND e.event_type='review.approved'"
@@ -349,6 +378,18 @@ class MemoryAdapter:
             " AND json_extract(e.payload_json, '$.interpretation_id') = ?"
             " AND json_extract(e.payload_json, '$.candidate_index') = ? LIMIT 1",
             (item["source_event_id"], item["interpretation_id"], item["candidate_index"]),
+        ).fetchone() is not None:
+            return True
+        # A durable instruction the user typed is applied without review; its
+        # Rule's origin is the message itself and its key names the resolution
+        # and candidate (resolver: 'p2-<resolution>-<candidate>').
+        return self._conn.execute(
+            "SELECT 1 FROM memory_items AS m JOIN rules AS r ON r.rule_id = m.origin_rule_id"
+            " JOIN resolutions AS s ON r.rule_key = 'p2-' || lower(substr(s.resolution_id, 5)) || '-' || ?"
+            " WHERE m.admission='AUTHORITY' AND m.status='ACTIVE'"
+            " AND m.origin_event_id = ? AND s.source_event_id = ? AND s.interpretation_id = ? LIMIT 1",
+            (item["candidate_index"], item["source_event_id"], item["source_event_id"],
+             item["interpretation_id"]),
         ).fetchone() is not None
 
     def _status(self, outcomes: Iterable[BankOutcome], failed: list[str],
