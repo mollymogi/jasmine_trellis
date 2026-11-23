@@ -449,6 +449,37 @@ class WorklogStore:
 
     # reading
 
+    def _card_text(self, scope: str, root: str, alias: str | None, projects: dict[str, str] | None,
+                   may_read: Callable[[str], bool], now: datetime) -> str | None:
+        """This workspace's project card block, if one was written. Never raises."""
+        if scope != "workspace":
+            return None
+        try:
+            from .memory import project_card
+
+            folder = project_card.cards_dir_for(self.conn)
+            if folder is None or not folder.is_dir():
+                return None
+            if alias is not None:
+                wanted = [alias]
+            elif projects:
+                wanted = list(projects)
+            else:
+                wanted = list(self._projects_by_root(root, may_read))
+                family = family_root(root)
+                if not wanted and family != root:
+                    wanted = list(self._projects_by_root(family, may_read))
+            for project_id in wanted:
+                if not may_read(project_id):
+                    continue
+                card = project_card.card_for_project(folder, project_id)
+                text = project_card.render(card, now=now.timestamp())
+                if text:
+                    return text
+        except Exception:  # a derived view must never break session start
+            return None
+        return None
+
     def _confirmed_project(self, host_id: str, root: str) -> str | None:
         row = self.conn.execute(
             "SELECT project_id FROM workspace_aliases WHERE host_id=? AND root=? AND confirmed=1",
@@ -631,13 +662,18 @@ class WorklogStore:
             shown.append(record)
             if len(shown) == 3:
                 break
+        card = self._card_text(scope, root, alias, projects, may_read, now)
         if not shown:
+            if card:
+                return {"status": "ok", "text": card, "non_authoritative": True, "sessions": []}
             return {"status": "empty", "text": None, "sessions": []}
         # This request's git state is not a diff against another machine.
         if shown[0].get("host_id") != host_id:
             current = None
         text = render(shown, family=None if scope == "global" else family, now=now, current_state=current,
                       agent=agent, fold_family=alias is None)
+        if card:
+            text = f"{text}\n\n{card}" if text else card
         return {"status": "ok", "text": text, "non_authoritative": True,
                 "sessions": [{"session_id": r["session_id"], "agent": r["agent"],
                               "checkpoint_id": (r.get("checkpoint") or {}).get("id")} for r in shown]}

@@ -16,6 +16,7 @@ if args.component in ('core','memory','processing'):
  # Hub only: accept enrolled tailnet clients that arrive through the loopback gateway.
  if c.get('tailnet_clients') is True:env['JASMINE_TAILNET_CLIENTS']='1'
  if c.get('memory_supersede') is True:env['JASMINE_MEMORY_SUPERSEDE']='1'
+ if c.get('memory_project_cards') is True:env['JASMINE_MEMORY_PROJECT_CARDS']='1'
  if isinstance(c.get('memory_brain_chain'),list):env['JASMINE_MEMORY_BRAIN_CHAIN']=','.join(str(m) for m in c['memory_brain_chain'])
  flow=c.get('conversation_processing',{})
  if flow.get('enabled') is True:

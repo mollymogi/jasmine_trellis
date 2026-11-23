@@ -255,6 +255,15 @@ def cmd_memory(args: argparse.Namespace) -> int:
             )
             print(json.dumps(report, ensure_ascii=False, indent=2))
             return 0
+        if command == "project-cards":
+            from .memory.project_card import cards_dir_for, refresh_all
+
+            folder = cards_dir_for(conn)
+            if folder is None:
+                raise SystemExit("project cards need a database file")
+            print(json.dumps(refresh_all(conn, folder, project=args.project, force=args.force, log=_log),
+                             ensure_ascii=False, indent=2))
+            return 0
         if command == "export-fs":
             from .memory.fs_view import export
 
@@ -321,6 +330,16 @@ def _superseder(conn, store, transport):
                       actor_id=actor, host_id=host, log=_log)
 
 
+def _card_refresher(conn):
+    """Nightly project cards: opt-in (runtime.json memory_project_cards)."""
+    if os.environ.get("JASMINE_MEMORY_PROJECT_CARDS") != "1":
+        return None
+    from .memory.project_card import CardRefresher, cards_dir_for
+
+    folder = cards_dir_for(conn)
+    return None if folder is None else CardRefresher(conn, folder, log=_log)
+
+
 def cmd_memory_worker(args: argparse.Namespace) -> int:
     """Run the Memory worker: the only process that writes to the engine."""
     from .memory.store import MemoryStore
@@ -334,7 +353,8 @@ def cmd_memory_worker(args: argparse.Namespace) -> int:
         worker = MemoryWorker(conn, store, transport,
                               lease_seconds=args.lease_seconds,
                               max_attempts=args.max_attempts,
-                              log=_log, superseder=_superseder(conn, store, transport))
+                              log=_log, superseder=_superseder(conn, store, transport),
+                              card_refresher=_card_refresher(conn))
         if args.max_ticks is not None:
             for report in worker.run(max_ticks=args.max_ticks, log=_log):
                 print(json.dumps(report.as_dict(), ensure_ascii=False))
@@ -574,6 +594,11 @@ def build_parser() -> argparse.ArgumentParser:
     fs_parser = memory_sub.add_parser(
         "export-fs", help="write the read-only L0/L1/L2 Markdown view of Memory")
     fs_parser.add_argument("--out", required=True, help="output directory")
+
+    card_parser = memory_sub.add_parser(
+        "project-cards", help="rebuild the model-written project cards whose sources changed")
+    card_parser.add_argument("--project", help="only the workspace group holding this project")
+    card_parser.add_argument("--force", action="store_true", help="rebuild even when unchanged")
 
     cursor_parser = memory_sub.add_parser(
         "reset-cursor", help="move the recovery scan cursor (a full replay is safe)"

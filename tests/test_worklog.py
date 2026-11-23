@@ -649,6 +649,26 @@ class CrossHostResume(unittest.TestCase):
     def recent(self, host, root, **extra):
         return self.store.recent({"host_id": host, "workspace_root": root, **extra}, may_read=lambda _p: True)
 
+    def test_project_card_joins_the_block_and_stands_alone_without_sessions(self):
+        import time as _time
+        from jasmine_core.memory import project_card
+
+        bank = self.project(self.hub, self.base, "bank")
+
+        folder = Path(self.tmp.name) / "project_cards"
+        project_card._write_card(folder, {
+            "project_id": bank, "name": "bank", "members": [bank], "generated_ts": _time.time(),
+            "source_count": 6, "summary": "card-summary", "lines": [{"text": "card-line", "sources": ["m"]}]})
+        alone = self.recent(self.hub, self.base)
+        self.assertEqual(alone["status"], "ok", alone)
+        self.assertTrue(alone["text"].startswith("[JASMINE PROJECT CARD"))
+        self.assertEqual(alone["sessions"], [])
+        self.prompt(self.hub, bank, "hub-bank-prompt", minutes_ago=30, native="hub-bank")
+        both = self.recent(self.hub, self.base)
+        self.assertIn("hub-bank-prompt", both["text"])
+        self.assertIn("card-line", both["text"])
+        self.assertNotIn("card-line", self.recent(self.hub, self.base, scope="global")["text"] or "")
+
     def test_flag_off_keeps_nearby_directories_on_this_host(self):
         bank = self.project(self.hub, self.base, "bank")
         near = self.project(self.hub, self.child, "near")

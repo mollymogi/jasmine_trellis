@@ -114,9 +114,10 @@ class MemoryWorker:
                  max_attempts: int = jobs_module.DEFAULT_MAX_ATTEMPTS,
                  scan_limit: int = 200,
                  log: Callable[[str], None] | None = None,
-                 superseder: Any = None) -> None:
+                 superseder: Any = None, card_refresher: Any = None) -> None:
         self._conn = conn
         self._superseder = superseder
+        self._card_refresher = card_refresher
         self._log = log
         self._store = store
         self._transport = transport
@@ -185,6 +186,15 @@ class MemoryWorker:
                 else:
                     if result.get("status") == "done":
                         report.outcome = "superseded" if result.get("retired") else "supersede_checked"
+            if report.outcome == "idle" and self._card_refresher is not None:
+                try:
+                    result = self._card_refresher.tick()
+                except Exception as exc:  # a derived view; never stop the worker for it
+                    if self._log:
+                        self._log(f"project card: {type(exc).__name__}: {exc}")
+                else:
+                    if result.get("status") == "done":
+                        report.outcome = "project_card"
             return report
         report.claimed = claimed.job["job_id"]
         kind = claimed.job["kind"]
