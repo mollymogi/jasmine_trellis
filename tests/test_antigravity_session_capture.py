@@ -144,6 +144,43 @@ class AntigravityCapture(ConversationCapture):
         _, events = self.call("GET", "/v1/events?limit=100", token=self.admin_token)
         self.assertFalse([e for e in events["events"] if e["source_system"] == antigravity_session.SOURCE])
 
+    def test_empty_workspace_paths_falls_back_for_app_conversations(self):
+        scratch = self.gemini / "antigravity" / "scratch"
+        scratch.mkdir(parents=True, mode=0o700)
+        start = self.capture("SessionStart", workspacePaths=[])
+        self.assertEqual(start["status"], "accepted")
+        self.assertEqual(start["workspace"], str(scratch.resolve()))
+        first = self.user("无工作区App对话测试") + 1
+        prompt = self.capture("PreInvocation", workspacePaths=[], invocationNum=0,
+                              initialNumSteps=first, lastUserInput="无工作区App对话测试")
+        self.assertEqual(prompt["status"], "accepted")
+        self.assertEqual(prompt["session_id"], start["session_id"])
+        self.answer("收到。")
+        reply = self.capture("Stop", workspacePaths=None, terminationReason="NO_TOOL_CALL")
+        self.assertEqual(reply["status"], "accepted")
+        self.assertEqual(reply["session_id"], start["session_id"])
+        with self.assertRaises(ValueError):
+            self.capture("SessionStart", workspacePaths=["relative/path"])
+        with self.assertRaises(ValueError):
+            self.capture("SessionStart", workspacePaths="not-a-list")
+
+    def test_pre_invocation_tolerates_intervening_system_message_without_crossing_turns(self):
+        self.assertEqual(self.capture("SessionStart")["status"], "accepted")
+        user_idx = self.user("插队系统消息前的用户输入")
+        sys_idx = self.step(type="SYSTEM_MESSAGE", source="SYSTEM", content="hook or reconnect notice")
+        prompt = self.capture("PreInvocation", invocationNum=0, initialNumSteps=sys_idx + 1,
+                              lastUserInput="插队系统消息前的用户输入")
+        self.assertEqual(prompt["status"], "accepted")
+        self.assertEqual(prompt["native_turn_id"], f"step-{user_idx}")
+        self.answer("已处理。")
+        self.assertEqual(self.capture("Stop", terminationReason="NO_TOOL_CALL")["status"], "accepted")
+        # A subsequent system-triggered wakeup (e.g. background task notice) after a reply
+        # must not match the previous turn's USER_INPUT even if lastUserInput is stale.
+        wakeup_idx = self.step(type="SYSTEM_MESSAGE", source="SYSTEM", content="background task finished")
+        ignored = self.capture("PreInvocation", invocationNum=0, initialNumSteps=wakeup_idx + 1,
+                               lastUserInput="插队系统消息前的用户输入")
+        self.assertEqual(ignored["status"], "ignored")
+
     # -- ADR 0039 --------------------------------------------------------------------
 
     def test_a_new_session_starts_with_the_resume_block(self):
