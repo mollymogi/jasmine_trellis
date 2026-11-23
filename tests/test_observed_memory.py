@@ -13,6 +13,7 @@ from memory_support import FakeTransport
 from jasmine_core.interpreter_provider import ProviderFailure
 
 from jasmine_core import SCHEMA_VERSION, clock, db
+from jasmine_core.canonical import sha256_hex
 from jasmine_core.memory import observed
 from jasmine_core.memory.adapter import MemoryAdapter
 from jasmine_core.memory.eligibility import SourceRegistry
@@ -260,6 +261,48 @@ class ObservedAdmission(_DailyHarness):
         self.assertEqual(report["admitted_by_type"], {"OBSERVED_DECISION": 1})
         self.assertEqual([item["project_id"] for item in self.observed_items()], [app])
         self.assertNotEqual(app, other)
+
+    def test_a_container_statement_naming_a_project_folder_goes_there(self):
+        home = self._workspace("home", "/home/me")
+        video = self._workspace("videoMake", "/home/me/videoMake", alias=True)
+        self._workspace("app", "/home/me/Code/app", alias=True)
+        quote = "以后镜头统一用 24 帧"
+        self.plan = lambda s: [_candidate(s, "DECISION", quote)]
+        self._process_in(home, f"videoMake 那边{quote}")
+        report = self.backfill()
+        self.assertEqual(report["admitted_by_type"], {"OBSERVED_DECISION": 1})
+        self.assertEqual([item["project_id"] for item in self.observed_items()], [video])
+
+    def test_the_users_own_words_outrank_the_rooms_quoted_paths(self):
+        home = self._workspace("home", "/home/me")
+        self._workspace("app", "/home/me/Code/app", alias=True)
+        other = self._workspace("other", "/home/me/Code/other", alias=True)
+        quote = "以后部署前先跑全量测试"
+        self.plan = lambda s: [_candidate(s, "DECISION", quote)]
+        wrapped = ("你正在「r」多 Agent 群聊中（工作目录：/home/me）。\n"
+                   "【上次你发言后的群内新消息】\n[@a]: 改了 /home/me/Code/app/x.py 和 /home/me/Code/app/y.py\n\n"
+                   f"【当前 @ 你的消息】\n/home/me/Code/other 里{quote}")
+        self._process_in(home, wrapped)
+        self.backfill()
+        self.assertEqual([item["project_id"] for item in self.observed_items()], [other])
+
+    def test_a_sentence_already_approved_as_a_rule_is_not_observed_again(self):
+        quote = "暂时不要关机。"
+        self.plan = lambda s: [_candidate(s, "RULE", quote)]
+        event = self.event(quote)
+        with db.transaction(self.conn):
+            self.conn.execute(
+                "INSERT INTO memory_items (memory_id, bank_id, scope_kind, project_id, memory_type,"
+                " document_id, source_event_id, admission, trust, evidence_ids_json,"
+                " content_sha256, sanitized_text, status, created_at, updated_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                ("mem_01M5" + "B" * 22, f"jasmine-project-{self.project}", "project", self.project,
+                 "STABLE_PROJECT_FACT", "doc-rule", event, "AUTHORITY", "VERIFIED", "[]",
+                 sha256_hex(quote), quote, "ACTIVE", clock.now_rfc3339(), clock.now_rfc3339()))
+        self.worker.tick()
+        report = self.backfill()
+        self.assertEqual(report["refused_by_reason"], {"duplicate_of_existing": 1})
+        self.assertEqual(self.observed_items(), [])
 
     def test_a_stray_subfolder_session_does_not_make_its_parent_a_container(self):
         video = self._workspace("video", "/home/me/video", alias=True)

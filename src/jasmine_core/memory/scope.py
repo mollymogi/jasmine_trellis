@@ -364,13 +364,47 @@ def container_projects(roots: dict[str, str],
     )
 
 
+#: Folder names too generic to stand for one project when said in passing.
+_GENERIC_FOLDER_NAMES = frozenset({
+    "app", "apps", "src", "code", "docs", "data", "test", "tests", "scripts", "images",
+    "assets", "output", "outputs", "artifacts", "build", "dist", "tmp", "temp", "cache",
+    "projects", "workspace", "native-workspace", "new-chat", "production", "renders",
+})
+
+
+def _named_project(roots: dict[str, str], candidates: dict[str, str],
+                   text: str) -> str | None:
+    """The one candidate project whose folder name `text` says, or None.
+
+    "videoMake 那边以后都用 24 帧" names a project without its path. A name only
+    counts as a whole word, at least four characters and not a generic folder
+    name; a name shared by different projects, or two projects named, is no
+    answer at all.
+    """
+    by_name: dict[str, set[str]] = {}
+    for root, project in candidates.items():
+        name = root.rsplit("/", 1)[-1]
+        if len(name) < 4 or name.casefold() in _GENERIC_FOLDER_NAMES:
+            continue
+        by_name.setdefault(name.casefold(), set()).add(project)
+    folded = text.casefold()
+    named: set[str] = set()
+    for name, projects in by_name.items():
+        if re.search(r"(?<![\w.-])" + re.escape(name) + r"(?![\w.-])", folded):
+            if len(projects) > 1:
+                return None
+            named |= projects
+    return next(iter(named)) if len(named) == 1 else None
+
+
 def route_container_text(conn: sqlite3.Connection, project_id: str,
-                         text: str) -> tuple[bool, str | None]:
+                         text: str, own_text: str | None = None) -> tuple[bool, str | None]:
     """(is_container, project the text is about) for a statement made in `project_id`.
 
     Not a container -> (False, None): keep the session's own project. A container
     -> the leaf project whose root the text names most often (longest root on a
-    tie), or None when it names none.
+    tie), else the one established project whose folder name it says, or None.
+    `own_text` is the user's own words inside a wrapper; they are read first.
     """
     roots = workspace_roots(conn)
     established = established_projects(conn)
@@ -384,16 +418,34 @@ def route_container_text(conn: sqlite3.Connection, project_id: str,
         for root in own for other in roots
     ):
         return False, None
-    plain = unquote(text.replace("file://", ""))
-    best: tuple[int, int, str] | None = None
-    for root, project in roots.items():
-        if (project in containers or project == project_id or root in own
-                or root == "/" or _SCRATCH_ROOT_RE.search(root)):
-            continue
-        hits = len(re.findall(re.escape(root) + r"(?![\w.-])", plain))
-        if hits and (best is None or (hits, len(root)) > best[:2]):
-            best = (hits, len(root), project)
-    return True, (best[2] if best else None)
+    candidates = {
+        root: project for root, project in roots.items()
+        if not (project in containers or project == project_id or root in own
+                or root == "/" or _SCRATCH_ROOT_RE.search(root))
+    }
+
+    def by_path(body: str) -> str | None:
+        plain = unquote(body.replace("file://", ""))
+        best: tuple[int, int, str] | None = None
+        for root, project in candidates.items():
+            hits = len(re.findall(re.escape(root) + r"(?![\w.-])", plain))
+            if hits and (best is None or (hits, len(root)) > best[:2]):
+                best = (hits, len(root), project)
+        return best[2] if best else None
+
+    # A path beats a bare folder name, and the user's own words beat the room's
+    # quoted history (a group room's persona and minutes name its project).
+    own_words = text if own_text is None else own_text
+    named = {r: p for r, p in candidates.items() if p in established}
+    for body in (own_words, text):
+        routed = by_path(body)
+        if routed is not None:
+            return True, routed
+    for body in (own_words, text):
+        routed = _named_project(roots, named, body)
+        if routed is not None:
+            return True, routed
+    return True, None
 
 
 def merged_project_ids(conn: sqlite3.Connection, project_id: str) -> tuple[str, ...]:

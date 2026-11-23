@@ -320,7 +320,9 @@ class ObservedCandidateSource:
         # A session opened in a folder that holds other projects (the home
         # folder, AgentApp) belongs to whichever project it names; naming none,
         # it is not kept at all rather than mixed into the folder's bank.
-        container, routed = route_container_text(conn, event["project_id"], text)
+        request = group_chat_request(text)
+        own_text = text[request[0]:request[1]] if request is not None else text
+        container, routed = route_container_text(conn, event["project_id"], text, own_text)
         if container:
             if routed is None:
                 exam.refuse("container_workspace")
@@ -386,10 +388,13 @@ class ObservedCandidateSource:
         # stored content hash within the project, against ACTIVE items and this
         # pass's earlier admissions; the refusal names the item it repeats.
         project_key = canonical_json((event["project_id"], memory_type, sha256_hex(body)))
+        # A rule approved from the same sentence already holds it as authority;
+        # an observed copy beside it would only be shown twice.
         existing = conn.execute(
-            "SELECT memory_id FROM memory_items WHERE admission='OBSERVED' AND status='ACTIVE'"
-            " AND project_id=? AND memory_type=? AND content_sha256=? LIMIT 1",
-            (event["project_id"], memory_type, sha256_hex(body)),
+            "SELECT memory_id FROM memory_items WHERE status='ACTIVE' AND project_id=?"
+            " AND content_sha256=? AND (admission!='OBSERVED' OR memory_type=?)"
+            " ORDER BY admission!='OBSERVED' DESC LIMIT 1",
+            (event["project_id"], sha256_hex(body), memory_type),
         ).fetchone()
         if existing is not None or project_key in batch:
             exam.refuse("duplicate_of_existing", index,
