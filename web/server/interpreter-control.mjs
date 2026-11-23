@@ -39,7 +39,7 @@ function providers(profile) {
  const codexModels=allowedModels(profile)
  if(profile.version===1)return [{id:'codex',label:'Codex',detected:true,enabled:true,models:codexModels}]
  const result=profile.providers.map(p=>{
-  if(!['codex','claude','grok','opencode'].includes(p.id)||!Array.isArray(p.models)||!p.models.every(m=>modelId(m.id)&&typeof m.label==='string'))throw Error('invalid_provider')
+  if(!['magpie','codex','claude','grok','opencode'].includes(p.id)||!Array.isArray(p.models)||!p.models.every(m=>modelId(m.id)&&typeof m.label==='string'))throw Error('invalid_provider')
   return {id:p.id,label:p.label,detected:p.detected===true,enabled:p.enabled===true,models:p.id==='codex'?codexModels:p.models,version:p.version}
  })
  if(new Set(result.map(p=>p.id)).size!==result.length)throw Error('duplicate_provider')

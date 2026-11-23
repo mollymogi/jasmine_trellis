@@ -41,6 +41,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from typing import Any
+from urllib.parse import unquote
 
 from .. import errors, ids
 from .types import GLOBAL_BANK_ID, GLOBAL_BANK_RE, PROJECT_BANK_PREFIX, PROJECT_BANK_RE, BankRef
@@ -275,7 +276,204 @@ def resolve_banks(conn: sqlite3.Connection, *, project_id: str, task_id: str | N
             # The caller is asking about a task in a different project. Answer
             # as if the task did not exist there rather than confirming it does.
             raise errors.NotFound("task", task_id)
-    return (project_bank(project_id), global_bank())
+    group = workspace_group(conn, project_id)
+    return (project_bank(project_id), *(project_bank(other) for other in group), global_bank())
+
+
+_CAPTURE_WORKSPACE_SUFFIX = "-workspace"
+
+
+def workspace_group(conn: sqlite3.Connection, project_id: str) -> tuple[str, ...]:
+    """The other projects that hold this workspace's memory, read from either side.
+
+    Capture hooks pinned to an older release never ask for the alias and keep
+    writing into their own split project, so the merge has to hold whichever
+    member a session is bound to: a split project reads its canonical project
+    and the other split projects, and the canonical project reads all of them.
+    `project_id` itself is never repeated.
+    """
+    canonical = project_id
+    row = conn.execute(
+        "SELECT a.project_id FROM workspace_aliases a"
+        " JOIN projects p ON p.description = a.root AND p.project_id != a.project_id"
+        " JOIN events e ON e.event_id = p.source_event_id AND e.host_id = a.host_id"
+        " WHERE p.project_id = ? AND a.confirmed = 1 AND e.source_system LIKE ?"
+        " ORDER BY a.project_id LIMIT 1",
+        (project_id, "%" + _CAPTURE_WORKSPACE_SUFFIX),
+    ).fetchone()
+    if row is not None:
+        canonical = row[0]
+    members = [canonical, *merged_project_ids(conn, canonical)]
+    return tuple(other for other in dict.fromkeys(members) if other != project_id)
+
+
+def workspace_roots(conn: sqlite3.Connection) -> dict[str, str]:
+    """Every known workspace root -> the project that holds it.
+
+    Read from confirmed aliases and from the root a capture source recorded as a
+    project's description. A confirmed alias wins over a capture project for the
+    same root, so split capture projects all resolve to the canonical one.
+    """
+    roots: dict[str, str] = {}
+    for row in conn.execute(
+        "SELECT project_id, description FROM projects"
+        " WHERE status = 'active' AND description LIKE '/%' ORDER BY created_at"
+    ):
+        roots.setdefault(row[1].rstrip("/") or "/", row[0])
+    for row in conn.execute(
+        "SELECT root, project_id FROM workspace_aliases WHERE confirmed = 1 ORDER BY created_at"
+    ):
+        roots[row[0].rstrip("/") or "/"] = row[1]
+    return roots
+
+
+def _inside(root: str, path: str) -> bool:
+    """`path` is strictly below `root`, not under a hidden working folder."""
+    prefix = root.rstrip("/") + "/"
+    if path == root or not path.startswith(prefix):
+        return False
+    return not any(part.startswith(".") for part in path[len(prefix):].split("/"))
+
+
+#: Roots a statement is never routed to: scratch and cache folders a tool ran in.
+_SCRATCH_ROOT_RE = re.compile(r"(?:^|/)\.|^/(?:private/)?tmp(?:/|$)|^/var/folders/")
+
+
+def established_projects(conn: sqlite3.Connection) -> frozenset[str]:
+    """Projects that hold memory or that an operator confirmed as a workspace."""
+    return frozenset(row[0] for row in conn.execute(
+        "SELECT project_id FROM memory_items WHERE status = 'ACTIVE' AND project_id IS NOT NULL"
+        " UNION SELECT project_id FROM workspace_aliases WHERE confirmed = 1"
+    ))
+
+
+def container_projects(roots: dict[str, str],
+                       established: frozenset[str] | None = None) -> frozenset[str]:
+    """Projects whose root holds an established project's root (the home folder, AgentApp).
+
+    A session opened there is not about that folder; it is about whichever
+    project it works on, so its statements must not settle in the folder's bank.
+    A stray session once opened in a subfolder (a shot's image folder inside
+    videoMake) does not make its parent a container; only a project that holds
+    memory or a confirmed alias does.
+    """
+    return frozenset(
+        project for root, project in roots.items()
+        if any(_inside(root, other) and roots[other] != project
+               and (established is None or roots[other] in established) for other in roots)
+    )
+
+
+#: Folder names too generic to stand for one project when said in passing.
+_GENERIC_FOLDER_NAMES = frozenset({
+    "app", "apps", "src", "code", "docs", "data", "test", "tests", "scripts", "images",
+    "assets", "output", "outputs", "artifacts", "build", "dist", "tmp", "temp", "cache",
+    "projects", "workspace", "native-workspace", "new-chat", "production", "renders",
+})
+
+
+def _named_project(roots: dict[str, str], candidates: dict[str, str],
+                   text: str) -> str | None:
+    """The one candidate project whose folder name `text` says, or None.
+
+    "videoMake 那边以后都用 24 帧" names a project without its path. A name only
+    counts as a whole word, at least four characters and not a generic folder
+    name; a name shared by different projects, or two projects named, is no
+    answer at all.
+    """
+    by_name: dict[str, set[str]] = {}
+    for root, project in candidates.items():
+        name = root.rsplit("/", 1)[-1]
+        if len(name) < 4 or name.casefold() in _GENERIC_FOLDER_NAMES:
+            continue
+        by_name.setdefault(name.casefold(), set()).add(project)
+    folded = text.casefold()
+    named: set[str] = set()
+    for name, projects in by_name.items():
+        if re.search(r"(?<![\w.-])" + re.escape(name) + r"(?![\w.-])", folded):
+            if len(projects) > 1:
+                return None
+            named |= projects
+    return next(iter(named)) if len(named) == 1 else None
+
+
+def route_container_text(conn: sqlite3.Connection, project_id: str,
+                         text: str, own_text: str | None = None) -> tuple[bool, str | None]:
+    """(is_container, project the text is about) for a statement made in `project_id`.
+
+    Not a container -> (False, None): keep the session's own project. A container
+    -> the leaf project whose root the text names most often (longest root on a
+    tie), else the one established project whose folder name it says, or None.
+    `own_text` is the user's own words inside a wrapper; they are read first.
+    """
+    roots = workspace_roots(conn)
+    established = established_projects(conn)
+    containers = container_projects(roots, established)
+    own = {root for root, project in roots.items() if project == project_id}
+    own |= {row[0].rstrip("/") for row in conn.execute(
+        "SELECT description FROM projects WHERE project_id = ? AND description LIKE '/%'",
+        (project_id,))}
+    if project_id not in containers and not any(
+        _inside(root, other) and roots[other] != project_id and roots[other] in established
+        for root in own for other in roots
+    ):
+        return False, None
+    candidates = {
+        root: project for root, project in roots.items()
+        if not (project in containers or project == project_id or root in own
+                or root == "/" or _SCRATCH_ROOT_RE.search(root))
+    }
+
+    def by_path(body: str) -> str | None:
+        plain = unquote(body.replace("file://", ""))
+        best: tuple[int, int, str] | None = None
+        for root, project in candidates.items():
+            hits = len(re.findall(re.escape(root) + r"(?![\w.-])", plain))
+            if hits and (best is None or (hits, len(root)) > best[:2]):
+                best = (hits, len(root), project)
+        return best[2] if best else None
+
+    # A path beats a bare folder name, and the user's own words beat the room's
+    # quoted history (a group room's persona and minutes name its project).
+    own_words = text if own_text is None else own_text
+    named = {r: p for r, p in candidates.items() if p in established}
+    for body in (own_words, text):
+        routed = by_path(body)
+        if routed is not None:
+            return True, routed
+    for body in (own_words, text):
+        routed = _named_project(roots, named, body)
+        if routed is not None:
+            return True, routed
+    return True, None
+
+
+def merged_project_ids(conn: sqlite3.Connection, project_id: str) -> tuple[str, ...]:
+    """Older capture projects that a confirmed workspace alias folds into `project_id`.
+
+    Before an alias existed, each capture source (Codex, Claude, Antigravity...)
+    minted its own project for the same directory, so one workspace's history is
+    split across several banks. Confirming an alias (host, root) -> project is the
+    operator saying "this directory is that project"; from then on every source
+    resolves to it. The earlier projects stay as they were and are read alongside:
+    a project is folded in only when the same host created it from a capture
+    source with exactly that root as its description. Nothing is moved or copied,
+    so removing the alias undoes the merge. A project with no active memory is
+    skipped so it does not take a share of the recall budget. Sorted, so bank
+    order is stable.
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT p.project_id FROM workspace_aliases a"
+        " JOIN projects p ON p.description = a.root AND p.project_id != a.project_id"
+        " JOIN events e ON e.event_id = p.source_event_id AND e.host_id = a.host_id"
+        " WHERE a.project_id = ? AND a.confirmed = 1 AND p.status = 'active'"
+        "   AND e.source_system LIKE ?"
+        "   AND EXISTS (SELECT 1 FROM memory_items m"
+        "               WHERE m.project_id = p.project_id AND m.status = 'ACTIVE')"
+        " ORDER BY p.project_id",
+        (project_id, "%" + _CAPTURE_WORKSPACE_SUFFIX),
+    ).fetchall()
+    return tuple(row[0] for row in rows)
 
 
 def resolve_scope_for_item(conn: sqlite3.Connection, *, project_id: str | None,

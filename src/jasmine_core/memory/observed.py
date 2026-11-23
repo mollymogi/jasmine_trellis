@@ -43,6 +43,7 @@ from .. import clock, db
 from ..canonical import canonical_json, sha256_hex
 from . import filtering
 from .eligibility import Candidate, document_id_for
+from .scope import route_container_text
 from .types import OBSERVED_TYPE_FOR_KIND, Provenance
 
 #: Processing outcomes whose Interpretation is final. `REJECTED` is excluded on
@@ -59,6 +60,7 @@ REFUSAL_REASONS: tuple[str, ...] = (
     "source_missing",
     "source_not_native_user",
     "no_project",
+    "container_workspace",
     "kind_not_admitted",
     "not_explicit",
     "embedded_source",
@@ -83,6 +85,66 @@ _COMMENT_HEADER_RE = re.compile(r"^## User Comment [0-9]+[ \t]*$", re.M)
 _HEADING_RE = re.compile(r"^#{1,2}[ \t]+", re.M)
 _REPLY_BLOCK_RE = re.compile(r"<([a-z][a-z0-9_-]*question_reply)>.*?</\1>", re.S)
 _ANSWER_RE = re.compile(r'"answer"\s*:\s*"((?:[^"\\]|\\.)*)"')
+# Jasmine Bot group chats wrap the user's message in a bot persona, the room
+# minutes and other members' replies. Only the text after the last "current
+# message" marker was typed by the user; the persona header once became a
+# verified project fact ("该成员专门负责bot的优化工作") when it was not cut out.
+# Every opening chatrooms.mjs can produce: a bot without a persona and a reused
+# session starts at the missed-messages or minutes block, 1:1 rooms and the
+# investigate/synthesis rounds use their own headers.
+_GROUP_WRAPPER_RE = re.compile(
+    r"【你的专属人设与工作准则】|【上次你发言后的群内新消息】|【群主整理的(?:群聊|阶段)共识纪要】|"
+    r"【当前 @ 你的消息】|【群内新问题】|"
+    r"^你正在「[^」\n]{0,200}」多 Agent 群聊中|^你正在与用户进行 1 对 1 专属对话|"
+    r"^(?:群内提出的|原始)问题 / 议题：|"
+    # The room's own background minutes job: a transcript, never the user typing.
+    r"【已有群聊共识纪要】|【(?:新增)?待归档(?:群聊)?对话|后台群聊记忆整理任务|\[jasmine-internal:memory-summary\]", re.M)
+# The room's background minutes job is a transcript end to end; a request marker
+# quoted inside it is history, never the user's current message.
+_MINUTES_JOB_RE = re.compile(r"\[jasmine-internal:memory-summary\]|这是一次后台群聊记忆整理任务")
+_GROUP_REQUEST_RE = re.compile(
+    r"(?:【当前 @ 你的消息】|【群内新问题】)[ \t]*\n?|^(?:用户发来消息|群内提出的问题 / 议题|原始问题 / 议题)：[ \t]*\n?",
+    re.M)
+# What follows the request in investigate/synthesis rounds: other members'
+# answers, attached files and the closing instruction are never the user's.
+_GROUP_AFTER_RE = re.compile(
+    r"\n\s*\n(?=群成员本轮回答如下：|群内各成员的回答如下：|【|请给出你的分析回答|请独立进行调查|"
+    r"请作为群主|请综合以上|请直接用中文给出清晰、简洁的回复。)")
+_GROUP_SUFFIX_RE = re.compile(r"\s*请直接用中文给出清晰、简洁的回复。\s*\Z")
+
+
+# Prompts an automation writes to an agent it drives: the PR pilot's per-role
+# sessions and its service-recovery agent. Their standing instructions ("do not
+# edit files", "return only JSON") once became 18 project conventions.
+_MACHINE_PROMPT_RE = re.compile(
+    r"\A\s*(?:PR \S+#\d+ — [A-Z][A-Z -]* session\s*\n|You are the local PR service recovery agent\b)")
+
+
+def machine_prompt(text: str) -> bool:
+    """Whether `text` was written by an automation, not typed by the user."""
+    return bool(_MACHINE_PROMPT_RE.search(text or ""))
+
+
+def group_chat_request(text: str) -> tuple[int, int] | None:
+    """The user's own message inside a group-chat wrapper, or None if unwrapped.
+
+    A wrapped prompt with no request marker yields an empty range: none of it
+    is the user's words.
+    """
+    if not _GROUP_WRAPPER_RE.search(text):
+        return None
+    if _MINUTES_JOB_RE.search(text):
+        return (len(text), len(text))
+    start = None
+    for match in _GROUP_REQUEST_RE.finditer(text):
+        start = match.end()
+    if start is None:
+        return (len(text), len(text))
+    after = _GROUP_AFTER_RE.search(text, start)
+    if after:
+        return (start, after.start())
+    suffix = _GROUP_SUFFIX_RE.search(text, start)
+    return (start, suffix.start() if suffix else len(text))
 
 
 def user_regions(text: str) -> list[tuple[int, int]]:
@@ -135,7 +197,44 @@ def user_regions(text: str) -> list[tuple[int, int]]:
                for lo, hi in all_blocks):
             continue
         regions.extend(m.span(1) for m in _ANSWER_RE.finditer(text, *block.span()))
+    if machine_prompt(text):
+        return []
+    group = group_chat_request(text)
+    if group is not None:
+        lo, hi = group
+        regions = [(max(a, lo), min(b, hi)) for a, b in regions if a < hi and lo < b]
     return sorted(regions)
+
+
+#: A statement that only points at something said before it ("按方案2执行",
+#: "就这个", "用户认可该方式") means nothing once recalled in another session.
+_REFERENT = re.compile(r"这个|这版|这样|这种|这套|这一|那个|那样|该方[式案法]|上面|上述|刚才|方案\s*[0-9一二三四五a-zA-Z]|选\s*[0-9a-zA-Z一二三]|^(?:好|可以|行|对|嗯|ok)(?:的|了|吧)?(?:[，,]|$)")
+FRAGMENT_MAX_CHARS = 14
+
+
+#: The interpreter files nearly every statement made during work under TASK
+#: scope, lasting ones included ("后续流程改为：助手给提示词，用户自己生图",
+#: "不要自行添加提示词"): from 11-20 to 11-22 that refused every candidate and
+#: nothing new reached the long-term bank. A RULE, or a statement that speaks
+#: about later work, outlives the task it was said in.
+_LASTING = re.compile(
+    r"后续|以后|今后|往后|之后都|从现在起|一律|始终|默认|统一|每次|凡是|总是|永远|记住|"
+    r"流程(?:改为|统一|一律)|不要再|别再|禁止|严禁|\balways\b|\bnever\b|from now on|going forward", re.I)
+_ASKING = re.compile(r"[？?]|吗|是不是|为什么|怎么")
+# A statement pinned to the job at hand ("对于该工作流测试任务，不要…") ends with it.
+_THIS_JOB = re.compile(r"对于该|针对该|该任务|该工作流|本次|这次|当前任务|这个任务|这一轮|本轮")
+
+
+def outlives_task(kind: str, body: str) -> bool:
+    if _ASKING.search(body) or _THIS_JOB.search(body):
+        return False
+    return kind == "RULE" or bool(_LASTING.search(body))
+
+
+def is_fragment(body: str) -> bool:
+    core = re.sub(r"[\s。，、！？!?,.；;：:\"'“”‘’（）()]", "", body)
+    core = re.sub(r"^(?:用户|我)(?:认可|同意|确认|决定|选择)?", "", core)
+    return len(core) <= FRAGMENT_MAX_CHARS and bool(_REFERENT.search(core)) or len(core) < 4
 
 
 def span_is_user_text(text: str, start: int, end: int) -> bool:
@@ -218,6 +317,17 @@ class ObservedCandidateSource:
             exam.refuse("no_project")
             return exam
         text = json.loads(event["payload_json"]).get("text") or ""
+        # A session opened in a folder that holds other projects (the home
+        # folder, AgentApp) belongs to whichever project it names; naming none,
+        # it is not kept at all rather than mixed into the folder's bank.
+        request = group_chat_request(text)
+        own_text = text[request[0]:request[1]] if request is not None else text
+        container, routed = route_container_text(conn, event["project_id"], text, own_text)
+        if container:
+            if routed is None:
+                exam.refuse("container_workspace")
+                return exam
+            event = {**dict(event), "project_id": routed, "task_id": None}
         seen: set[str] = set()
         batch = set() if batch is None else batch
         for index, candidate in enumerate(json.loads(result["candidates_json"])):
@@ -257,6 +367,18 @@ class ObservedCandidateSource:
         if directive:
             exam.refuse("directive_injection", index, directive)
             return None
+        # A task-scoped statement with no task to hold it ("镜头C 改用 test02",
+        # "侧边滚动条去掉") only matters to the work in flight. The continuity
+        # hook already carries the last few days of conversation, so admitting it
+        # would only park a stale instruction in the long-term bank.
+        scope = candidate.get("scope") or {}
+        if (scope.get("kind") == "TASK" and not (scope.get("task_id") or event["task_id"])
+                and not outlives_task(str(candidate.get("kind")), body)):
+            exam.refuse("ephemeral_task_statement", index)
+            return None
+        if is_fragment(body):
+            exam.refuse("fragment", index)
+            return None
         key = canonical_json((memory_type, body.casefold()))
         if key in seen:
             exam.refuse("duplicate_in_message", index)
@@ -266,17 +388,19 @@ class ObservedCandidateSource:
         # stored content hash within the project, against ACTIVE items and this
         # pass's earlier admissions; the refusal names the item it repeats.
         project_key = canonical_json((event["project_id"], memory_type, sha256_hex(body)))
+        # A rule approved from the same sentence already holds it as authority;
+        # an observed copy beside it would only be shown twice.
         existing = conn.execute(
-            "SELECT memory_id FROM memory_items WHERE admission='OBSERVED' AND status='ACTIVE'"
-            " AND project_id=? AND memory_type=? AND content_sha256=? LIMIT 1",
-            (event["project_id"], memory_type, sha256_hex(body)),
+            "SELECT memory_id FROM memory_items WHERE status='ACTIVE' AND project_id=?"
+            " AND content_sha256=? AND (admission!='OBSERVED' OR memory_type=?)"
+            " ORDER BY admission!='OBSERVED' DESC LIMIT 1",
+            (event["project_id"], sha256_hex(body), memory_type),
         ).fetchone()
         if existing is not None or project_key in batch:
             exam.refuse("duplicate_of_existing", index,
                         existing["memory_id"] if existing is not None else "")
             return None
         batch.add(project_key)
-        scope = candidate.get("scope") or {}
         task_id = None
         if scope.get("kind") == "TASK":
             task_id = scope.get("task_id") or event["task_id"]

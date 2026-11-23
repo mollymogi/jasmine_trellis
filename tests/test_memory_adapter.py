@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import unittest
 
-from memory_support import HUMAN, MemoryTestCase
+from memory_support import HOST, HUMAN, MemoryTestCase
 from jasmine_core import SCHEMA_VERSION
 from jasmine_core.memory import provenance, scope, tokens
 from jasmine_core.memory.transport import TransportError
@@ -28,6 +28,48 @@ class BankDerivation(MemoryTestCase):
         # project-specific provenance must be the survivor.
         self.assertEqual(banks[0].scope_kind, "project")
         self.assertEqual(banks[1].scope_kind, "global")
+
+    def _capture_project(self, root: str, source: str) -> str:
+        return self._object("project", name="ws", description=root,
+                            source_system=f"{source}-native-conversation-v1-workspace")
+
+    def test_a_confirmed_alias_folds_split_capture_projects_into_recall(self) -> None:
+        from jasmine_core import workspace_alias
+
+        root = "/Users/x/work/repo"
+        canonical = self._capture_project(root, "claude")
+        codex = self._capture_project(root, "codex")
+        agy = self._capture_project(root, "antigravity")
+        other_root = self._capture_project("/Users/x/elsewhere", "codex")
+        hand_made = self.project("manual")  # core-api, never folded in
+        empty = self._capture_project(root, "grok")  # no memory, takes no budget
+        for project in (codex, agy, other_root, hand_made):
+            self.active_decision(project_id=project)
+        self.scan()  # the worker turns each approval into an active memory item
+        self.assertEqual(scope.merged_project_ids(self.conn, canonical), ())
+        workspace_alias.confirm_workspace(
+            self.conn, host_id=HOST, root=root, remote_key=None, project_id=canonical,
+            create_project=False, actor_id=HUMAN)
+        banks = scope.resolve_banks(self.conn, project_id=canonical, task_id=None,
+                                    actor_id=HUMAN)
+        ids = [b.bank_id for b in banks]
+        self.assertEqual(ids[0], f"jasmine-project-{canonical}")
+        self.assertEqual(sorted(ids[1:-1]),
+                         sorted(f"jasmine-project-{p}" for p in (codex, agy)))
+        self.assertEqual(ids[-1], "jasmine-global")
+        self.assertNotIn(f"jasmine-project-{other_root}", ids)
+        self.assertNotIn(f"jasmine-project-{hand_made}", ids)
+        self.assertNotIn(f"jasmine-project-{empty}", ids)
+        # A split project still bound by an old capture hook reads the same group,
+        # itself first, without repeating itself.
+        from_codex = [b.bank_id for b in scope.resolve_banks(
+            self.conn, project_id=codex, task_id=None, actor_id=HUMAN)]
+        self.assertEqual(from_codex[0], f"jasmine-project-{codex}")
+        self.assertEqual(sorted(from_codex[1:-1]),
+                         sorted(f"jasmine-project-{p}" for p in (canonical, agy)))
+        # An unrelated project is untouched.
+        self.assertEqual(len(scope.resolve_banks(self.conn, project_id=other_root,
+                                                 task_id=None, actor_id=HUMAN)), 2)
 
     def test_a_task_in_another_project_is_not_resolvable(self) -> None:
         a, b = self.project("a"), self.project("b")
@@ -402,6 +444,23 @@ class RecallJudgement(MemoryTestCase):
         self.assertEqual(outcome.degraded_banks, (self.global_bank,))
         self.assertEqual(outcome.error_code, "engine_unreachable")
         self.assertEqual([b.status for b in outcome.banks], ["ok", "failed"])
+
+    def test_banks_are_asked_together_not_one_after_another(self) -> None:
+        # Two banks that each wait for the other to arrive only finish when the
+        # adapter asks them at the same time; asked in turn, the barrier times out.
+        import threading
+        barrier = threading.Barrier(2, timeout=5)
+        original = self.transport.recall
+
+        def meet(**kwargs):
+            barrier.wait()
+            return original(**kwargs)
+
+        self.transport.recall = meet
+        self.engine_row("a lesson asked of both banks at once")
+        outcome = self.recall()
+        self.assertEqual(outcome.status, "ok")
+        self.assertEqual([b.bank_id for b in outcome.banks], [self.bank, self.global_bank])
 
     def test_a_bank_with_nothing_to_say_is_empty_not_degraded(self) -> None:
         outcome = self.recall()

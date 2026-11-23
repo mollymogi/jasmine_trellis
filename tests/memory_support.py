@@ -196,7 +196,8 @@ class FakeTransport:
     def answer_for(self, bank_id: str, memory_id: str, text: str, *,
                    document_id: str | None = None, engine_id: str | None = None,
                    metadata: dict[str, str] | None = None,
-                   tags: tuple[str, ...] = ()) -> EngineResult:
+                   tags: tuple[str, ...] = (),
+                   relevance: float | None = None) -> EngineResult:
         from jasmine_core.memory import provenance
 
         item = self._items().get(memory_id)
@@ -224,7 +225,8 @@ class FakeTransport:
         result = EngineResult(engine_result_id=engine_id or f"er_{len(self.answer)}",
                               text=text, bank_id=bank_id,
                               document_id=document_id or (item["document_id"] if item else None),
-                              engine_fact_type="experience", metadata=base, tags=tags)
+                              engine_fact_type="experience", metadata=base, tags=tags,
+                              relevance=relevance)
         self.answer.setdefault(bank_id, []).append(result)
         return result
 
@@ -561,7 +563,7 @@ class _StubHandler(BaseHTTPRequestHandler):
                 if used + cost > budget:
                     continue
                 used += cost
-                results.append({**unit, "scores": {"final": 1.0}})
+                results.append({**unit, "scores": {"final": 1.0, "reranker": 0.8}})
         return self._send(200, {"results": results, "chunks": None, "source_facts": None})
 
 

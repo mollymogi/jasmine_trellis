@@ -193,3 +193,16 @@ print(json.dumps({'type':'error','message':'model refused the request'}))
         self.assertEqual(proc.wait.call_count,2)
         self.assertTrue(all(call.kwargs=={'timeout':1} for call in proc.wait.call_args_list))
         proc.terminate.assert_called_once();proc.kill.assert_called_once()
+
+
+class MagpieOutage(unittest.TestCase):
+    def test_refused_connection_is_unreachable_not_a_timeout(self):
+        import socket
+        from unittest import mock
+        from jasmine_core import interpreter_cli
+        probe = socket.socket(); probe.bind(('127.0.0.1', 0)); port = probe.getsockname()[1]; probe.close()
+        with mock.patch.object(interpreter_cli, 'MAGPIE_ENDPOINT', f'http://127.0.0.1:{port}/v1/chat/completions'), \
+             mock.patch.object(interpreter_cli, '_low_quota_providers', return_value=set()):
+            with self.assertRaises(interpreter_cli.ProviderFailure) as raised:
+                interpreter_cli._magpie_extract_cascade('p', 'opencode-go/deepseek-v4.1-flash', {'text': 'x'}, 10**6, 10**6)
+        self.assertEqual(raised.exception.code, 'provider_unreachable')

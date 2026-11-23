@@ -113,8 +113,11 @@ class MemoryWorker:
                  lease_seconds: int = jobs_module.DEFAULT_LEASE_SECONDS,
                  max_attempts: int = jobs_module.DEFAULT_MAX_ATTEMPTS,
                  scan_limit: int = 200,
-                 log: Callable[[str], None] | None = None) -> None:
+                 log: Callable[[str], None] | None = None,
+                 superseder: Any = None, card_refresher: Any = None) -> None:
         self._conn = conn
+        self._superseder = superseder
+        self._card_refresher = card_refresher
         self._log = log
         self._store = store
         self._transport = transport
@@ -173,6 +176,25 @@ class MemoryWorker:
             return report
         if claimed is None:
             report.outcome = "idle"
+            if self._superseder is not None:
+                # Idle time only: engine writes always come first.
+                try:
+                    result = self._superseder.tick()
+                except Exception as exc:  # never let it stop the worker
+                    if self._log:
+                        self._log(f"supersede: {type(exc).__name__}: {exc}")
+                else:
+                    if result.get("status") == "done":
+                        report.outcome = "superseded" if result.get("retired") else "supersede_checked"
+            if report.outcome == "idle" and self._card_refresher is not None:
+                try:
+                    result = self._card_refresher.tick()
+                except Exception as exc:  # a derived view; never stop the worker for it
+                    if self._log:
+                        self._log(f"project card: {type(exc).__name__}: {exc}")
+                else:
+                    if result.get("status") == "done":
+                        report.outcome = "project_card"
             return report
         report.claimed = claimed.job["job_id"]
         kind = claimed.job["kind"]
@@ -198,6 +220,16 @@ class MemoryWorker:
             if self._log is not None:
                 self._log(f"memory-worker {self.lease_owner}: job {report.claimed} raised "
                           f"{type(exc).__name__}: {filtering.safe_summary(str(exc))}")
+            # Leaving the job RUNNING meant its lease expired and the same job was
+            # claimed again, past `max_attempts`, without end: one live job was
+            # re-sent to the engine 3,500 times. The failure is recorded so the
+            # attempt budget applies; an unhandled defect is not retryable.
+            try:
+                self._jobs.fail(claimed, error_code=report.error_code,
+                                safe_error_summary=filtering.safe_summary(str(exc)),
+                                keep_engine_state=True)
+            except Exception:  # noqa: BLE001 - the lease expiry is the fallback
+                pass
         return report
 
     def _process_retain(self, claimed: jobs_module.ClaimedJob, report: WorkerReport) -> None:
